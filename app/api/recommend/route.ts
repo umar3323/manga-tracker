@@ -4,8 +4,10 @@ import { NextResponse } from 'next/server'
 const client = new Anthropic()
 
 export async function POST(req: Request) {
-  const { manga } = await req.json()
+  try {
+    const { manga } = await req.json()
 
+  // Project down — only send what the prompt needs
   const list = manga
     .map((m: { title: string; current_chapter: number; status: string }) =>
       `- ${m.title} (ch.${m.current_chapter}, ${m.status})`
@@ -29,4 +31,8 @@ export async function POST(req: Request) {
 
   const text = message.content[0].type === 'text' ? message.content[0].text : ''
   return NextResponse.json({ recommendations: text })
+  } catch (err) {
+    console.error('recommend error', err)
+    return NextResponse.json({ error: 'Failed to get recommendations' }, { status: 500 })
+  }
 }

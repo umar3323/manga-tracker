@@ -6,8 +6,7 @@ export interface JikanManga {
 export async function fetchMangaInfo(title: string): Promise<JikanManga> {
   try {
     const res = await fetch(
-      `https://api.jikan.moe/v4/manga?q=${encodeURIComponent(title)}&limit=1`,
-      { next: { revalidate: 86400 } }
+      `https://api.jikan.moe/v4/manga?q=${encodeURIComponent(title)}&limit=1`
     )
     if (!res.ok) return { coverUrl: null, totalChapters: null }
     const json = await res.json()

@@ -34,15 +34,28 @@ function timeAgo(dateStr: string | null): string {
   return `${Math.floor(days / 30)}mo ago`
 }
 
-function ProgressBar({ current, total }: { current: number; total: number | null }) {
-  if (!total) return null
-  const pct = Math.min(100, Math.round((current / total) * 100))
+/** Safe bold-markdown renderer — no dangerouslySetInnerHTML */
+function MarkdownBold({ text }: { text: string }) {
+  const parts = text.split(/\*\*(.+?)\*\*/g)
   return (
-    <div className="flex items-center gap-2 mt-1.5">
-      <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
-        <div className="h-full bg-violet-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-xs text-zinc-500 tabular-nums">{pct}%</span>
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1
+          ? <strong key={i} className="text-white">{part}</strong>
+          : <span key={i}>{part}</span>
+      )}
+    </>
+  )
+}
+
+function RecommendationText({ text }: { text: string }) {
+  return (
+    <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+      {text.split('\n').map((line, i) => (
+        <p key={i} className={line === '' ? 'mt-2' : ''}>
+          <MarkdownBold text={line} />
+        </p>
+      ))}
     </div>
   )
 }
@@ -57,104 +70,157 @@ export default function Home() {
   const [adding, setAdding] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   const [recommendations, setRecommendations] = useState('')
   const [loadingRec, setLoadingRec] = useState(false)
-  const fetchingCovers = useRef(false)
+  const [recError, setRecError] = useState('')
+  const [toast, setToast] = useState('')
+
+  // Cover fetch tracking — prevents re-fetching on every render
+  const fetchedIds = useRef<Set<string>>(new Set())
+  // Notes debounce timers
+  const notesTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(''), 3000)
+  }
 
   const fetchManga = useCallback(async () => {
-    const { data } = await supabase.from('manga_list').select('*')
+    const { data, error } = await supabase.from('manga_list').select('*')
+    if (error) { showToast('Failed to load manga list'); return }
     if (data) setManga(data as Manga[])
     setLoading(false)
   }, [])
 
   useEffect(() => { fetchManga() }, [fetchManga])
 
-  // Fetch missing covers from Jikan, staggered to respect rate limits
+  // Fetch missing covers — tracks fetched IDs in ref to avoid re-fetching
   useEffect(() => {
-    if (fetchingCovers.current || manga.length === 0) return
-    const missing = manga.filter(m => !m.cover_url)
+    const missing = manga.filter(m => !m.cover_url && !fetchedIds.current.has(m.id))
     if (missing.length === 0) return
-    fetchingCovers.current = true
 
     const run = async () => {
       for (const m of missing) {
+        fetchedIds.current.add(m.id)
         const info = await fetchMangaInfo(m.title)
         if (info.coverUrl || info.totalChapters) {
           const updates: Partial<Manga> = {}
           if (info.coverUrl) updates.cover_url = info.coverUrl
           if (info.totalChapters) updates.total_chapters = info.totalChapters
           await supabase.from('manga_list').update(updates).eq('id', m.id)
-          setManga(prev => prev.map(x =>
-            x.id === m.id ? { ...x, ...updates } : x
-          ))
+          setManga(prev => prev.map(x => x.id === m.id ? { ...x, ...updates } : x))
         }
         await new Promise(r => setTimeout(r, 400))
       }
-      fetchingCovers.current = false
     }
     run()
-  }, [manga.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [manga])
 
   const updateChapter = async (id: string, delta: number, current: number) => {
     const next = Math.max(0, current + delta)
     const now = new Date().toISOString()
     setManga(prev => prev.map(m => m.id === id ? { ...m, current_chapter: next, last_read_at: now } : m))
-    await supabase.from('manga_list').update({ current_chapter: next, last_read_at: now }).eq('id', id)
+    const { error } = await supabase
+      .from('manga_list')
+      .update({ current_chapter: next, last_read_at: now })
+      .eq('id', id)
+    if (error) {
+      showToast('Failed to update chapter')
+      setManga(prev => prev.map(m => m.id === id ? { ...m, current_chapter: current } : m))
+    }
   }
 
   const updateStatus = async (id: string, status: MangaStatus) => {
+    const prev_status = manga.find(m => m.id === id)?.status
     setManga(prev => prev.map(m => m.id === id ? { ...m, status } : m))
-    await supabase.from('manga_list').update({ status }).eq('id', id)
+    const { error } = await supabase.from('manga_list').update({ status }).eq('id', id)
+    if (error) {
+      showToast('Failed to update status')
+      if (prev_status) setManga(prev => prev.map(m => m.id === id ? { ...m, status: prev_status } : m))
+    }
   }
 
-  const updateNotes = async (id: string, notes: string) => {
+  // Debounced notes save — fires 500ms after last keystroke
+  const updateNotes = (id: string, notes: string) => {
     setManga(prev => prev.map(m => m.id === id ? { ...m, notes } : m))
-    await supabase.from('manga_list').update({ notes }).eq('id', id)
+    const existing = notesTimers.current.get(id)
+    if (existing) clearTimeout(existing)
+    const timer = setTimeout(async () => {
+      const { error } = await supabase.from('manga_list').update({ notes }).eq('id', id)
+      if (error) showToast('Failed to save note')
+      notesTimers.current.delete(id)
+    }, 500)
+    notesTimers.current.set(id, timer)
   }
+
+  const confirmDelete = (id: string) => setPendingDelete(id)
+  const cancelDelete = () => setPendingDelete(null)
 
   const deleteManga = async (id: string) => {
+    setPendingDelete(null)
+    const removed = manga.find(m => m.id === id)
     setManga(prev => prev.filter(m => m.id !== id))
-    await supabase.from('manga_list').delete().eq('id', id)
+    const { error } = await supabase.from('manga_list').delete().eq('id', id)
+    if (error) {
+      showToast('Failed to delete')
+      if (removed) setManga(prev => [...prev, removed].sort((a, b) => a.title.localeCompare(b.title)))
+    }
   }
 
   const addManga = async () => {
     if (!newTitle.trim()) return
     setAdding(true)
-    const { data } = await supabase
-      .from('manga_list')
-      .insert({ title: newTitle.trim(), current_chapter: 0, status: 'reading' })
-      .select()
-      .single()
-    if (data) {
-      const newEntry = data as Manga
-      setManga(prev => [...prev, newEntry])
-      // Fetch cover for new entry immediately
-      fetchMangaInfo(newEntry.title).then(async info => {
-        if (info.coverUrl || info.totalChapters) {
-          const updates: Partial<Manga> = {}
-          if (info.coverUrl) updates.cover_url = info.coverUrl
-          if (info.totalChapters) updates.total_chapters = info.totalChapters
-          await supabase.from('manga_list').update(updates).eq('id', newEntry.id)
-          setManga(prev => prev.map(x => x.id === newEntry.id ? { ...x, ...updates } : x))
-        }
-      })
+    try {
+      const { data, error } = await supabase
+        .from('manga_list')
+        .insert({ title: newTitle.trim(), current_chapter: 0, status: 'reading' })
+        .select()
+        .single()
+      if (error) { showToast('Failed to add manga'); return }
+      if (data) {
+        const newEntry = data as Manga
+        setManga(prev => [...prev, newEntry])
+        setNewTitle('')
+        setShowAdd(false)
+        fetchMangaInfo(newEntry.title).then(async info => {
+          if (info.coverUrl || info.totalChapters) {
+            const updates: Partial<Manga> = {}
+            if (info.coverUrl) updates.cover_url = info.coverUrl
+            if (info.totalChapters) updates.total_chapters = info.totalChapters
+            await supabase.from('manga_list').update(updates).eq('id', newEntry.id)
+            setManga(prev => prev.map(x => x.id === newEntry.id ? { ...x, ...updates } : x))
+          }
+        })
+      }
+    } finally {
+      setAdding(false)
     }
-    setNewTitle('')
-    setShowAdd(false)
-    setAdding(false)
   }
 
   const getRecommendations = async () => {
     setLoadingRec(true)
     setRecommendations('')
-    const res = await fetch('/api/recommend', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ manga }),
-    })
-    const data = await res.json()
-    setRecommendations(data.recommendations)
-    setLoadingRec(false)
+    setRecError('')
+    try {
+      const payload = manga.map(m => ({
+        title: m.title,
+        current_chapter: m.current_chapter,
+        status: m.status,
+      }))
+      const res = await fetch('/api/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manga: payload }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setRecError(data.error ?? 'Something went wrong'); return }
+      setRecommendations(data.recommendations)
+    } catch {
+      setRecError('Network error — check your connection')
+    } finally {
+      setLoadingRec(false)
+    }
   }
 
   const toggleNotes = (id: string) =>
@@ -172,7 +238,6 @@ export default function Home() {
   const sortFn = (a: Manga, b: Manga): number => {
     if (sort === 'title') return a.title.localeCompare(b.title)
     if (sort === 'chapter') return b.current_chapter - a.current_chapter
-    // last_read: nulls go to bottom
     if (!a.last_read_at && !b.last_read_at) return a.title.localeCompare(b.title)
     if (!a.last_read_at) return 1
     if (!b.last_read_at) return -1
@@ -197,13 +262,15 @@ export default function Home() {
           <div className="flex gap-2">
             <button
               onClick={getRecommendations}
-              disabled={loadingRec || manga.length === 0}
+              disabled={manga.length === 0}
+              aria-label="Get AI manga recommendations"
               className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 disabled:opacity-40 transition-colors"
             >
               {loadingRec ? 'Thinking…' : '✦ Recommend'}
             </button>
             <button
               onClick={() => setShowAdd(v => !v)}
+              aria-label="Add manga"
               className="px-4 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-zinc-200 transition-colors"
             >
               + Add
@@ -218,8 +285,12 @@ export default function Home() {
               autoFocus
               value={newTitle}
               onChange={e => setNewTitle(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addManga()}
+              onKeyDown={e => {
+                if (e.key === 'Enter') addManga()
+                if (e.key === 'Escape') { setShowAdd(false); setNewTitle('') }
+              }}
               placeholder="Manga title…"
+              aria-label="New manga title"
               className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
             />
             <button
@@ -242,13 +313,14 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Controls row: filter + search + sort */}
+        {/* Controls: filter + search + sort */}
         <div className="flex flex-wrap gap-3 mb-6 items-center">
-          <div className="flex gap-1 bg-zinc-900 p-1 rounded-lg">
+          <div className="flex gap-1 bg-zinc-900 p-1 rounded-lg" role="group" aria-label="Filter by status">
             {(['all', ...Object.keys(STATUS_LABELS)] as (MangaStatus | 'all')[]).map(s => (
               <button
                 key={s}
                 onClick={() => setFilter(s)}
+                aria-pressed={filter === s}
                 className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
                   filter === s ? 'bg-white text-black font-medium' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -261,13 +333,16 @@ export default function Home() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => e.key === 'Escape' && setSearch('')}
             placeholder="Search…"
+            aria-label="Search manga"
             className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-zinc-600 placeholder:text-zinc-600 w-36"
           />
 
           <select
             value={sort}
             onChange={e => setSort(e.target.value as SortKey)}
+            aria-label="Sort order"
             className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm text-zinc-300 outline-none cursor-pointer"
           >
             <option value="last_read">Recently read</option>
@@ -291,14 +366,14 @@ export default function Home() {
                     {m.cover_url ? (
                       <Image
                         src={m.cover_url}
-                        alt={m.title}
+                        alt={`Cover for ${m.title}`}
                         width={48}
                         height={64}
                         className="w-full h-full object-cover"
                         unoptimized
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">?</div>
+                      <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs" aria-hidden>?</div>
                     )}
                   </div>
 
@@ -310,17 +385,19 @@ export default function Home() {
                       <select
                         value={m.status}
                         onChange={e => updateStatus(m.id, e.target.value as MangaStatus)}
+                        aria-label={`Status for ${m.title}`}
                         className={`text-xs px-2 py-0.5 rounded-full border bg-transparent cursor-pointer outline-none ${STATUS_COLORS[m.status]}`}
                       >
                         {(Object.keys(STATUS_LABELS) as MangaStatus[]).map(s => (
                           <option key={s} value={s} className="bg-zinc-900 text-white">{STATUS_LABELS[s]}</option>
                         ))}
                       </select>
-                      <span className="text-xs text-zinc-600">{timeAgo(m.last_read_at)}</span>
+                      <span className="text-xs text-zinc-600" aria-label={`Last read ${timeAgo(m.last_read_at)}`}>{timeAgo(m.last_read_at)}</span>
                       <button
                         onClick={() => toggleNotes(m.id)}
+                        aria-label={expandedNotes.has(m.id) ? 'Hide notes' : 'Show notes'}
+                        aria-expanded={expandedNotes.has(m.id)}
                         className={`text-xs transition-colors ${expandedNotes.has(m.id) || m.notes ? 'text-violet-400' : 'text-zinc-700 hover:text-zinc-400'}`}
-                        title="Notes"
                       >
                         📝
                       </button>
@@ -328,7 +405,7 @@ export default function Home() {
 
                     {m.total_chapters && (
                       <div className="flex items-center gap-2 mt-1.5">
-                        <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden" role="progressbar" aria-valuenow={m.current_chapter} aria-valuemax={m.total_chapters}>
                           <div
                             className="h-full bg-violet-500 rounded-full transition-all"
                             style={{ width: `${Math.min(100, Math.round((m.current_chapter / m.total_chapters) * 100))}%` }}
@@ -343,27 +420,48 @@ export default function Home() {
 
                   {/* Chapter stepper + delete */}
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      onClick={() => updateChapter(m.id, -1, m.current_chapter)}
-                      className="w-7 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-sm transition-colors"
-                    >
-                      −
-                    </button>
-                    <span className="w-10 text-center text-xs font-mono tabular-nums text-zinc-300">
-                      {m.current_chapter}
-                    </span>
-                    <button
-                      onClick={() => updateChapter(m.id, 1, m.current_chapter)}
-                      className="w-7 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-sm transition-colors"
-                    >
-                      +
-                    </button>
-                    <button
-                      onClick={() => deleteManga(m.id)}
-                      className="ml-1 text-zinc-700 hover:text-red-400 transition-colors text-lg leading-none"
-                    >
-                      ×
-                    </button>
+                    {pendingDelete === m.id ? (
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <span className="text-zinc-400">Delete?</span>
+                        <button
+                          onClick={() => deleteManga(m.id)}
+                          aria-label="Confirm delete"
+                          className="px-2 py-1 rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
+                        >Yes</button>
+                        <button
+                          onClick={cancelDelete}
+                          aria-label="Cancel delete"
+                          className="px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
+                        >No</button>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => updateChapter(m.id, -1, m.current_chapter)}
+                          aria-label={`Decrease chapter for ${m.title}`}
+                          className="w-7 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-sm transition-colors"
+                        >
+                          −
+                        </button>
+                        <span className="w-10 text-center text-xs font-mono tabular-nums text-zinc-300" aria-label={`Chapter ${m.current_chapter}`}>
+                          {m.current_chapter}
+                        </span>
+                        <button
+                          onClick={() => updateChapter(m.id, 1, m.current_chapter)}
+                          aria-label={`Increase chapter for ${m.title}`}
+                          className="w-7 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-sm transition-colors"
+                        >
+                          +
+                        </button>
+                        <button
+                          onClick={() => confirmDelete(m.id)}
+                          aria-label={`Delete ${m.title}`}
+                          className="ml-1 text-zinc-700 hover:text-red-400 transition-colors text-lg leading-none"
+                        >
+                          ×
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -371,9 +469,10 @@ export default function Home() {
                 {(expandedNotes.has(m.id) || m.notes) && (
                   <div className="border-t border-zinc-800 px-3 pb-3 pt-2">
                     <textarea
-                      value={m.notes}
+                      value={m.notes ?? ''}
                       onChange={e => updateNotes(m.id, e.target.value)}
                       placeholder="Add a note…"
+                      aria-label={`Notes for ${m.title}`}
                       rows={2}
                       className="w-full bg-transparent text-xs text-zinc-400 placeholder:text-zinc-700 outline-none resize-none"
                     />
@@ -385,25 +484,29 @@ export default function Home() {
         )}
 
         {/* AI Recommendations */}
-        {(recommendations || loadingRec) && (
+        {(recommendations || loadingRec || recError) && (
           <div className="mt-6 bg-zinc-900 border border-violet-500/30 rounded-xl p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-violet-300">✦ AI Recommendations</h2>
-              {recommendations && (
-                <button onClick={() => setRecommendations('')} className="text-zinc-600 hover:text-zinc-400 text-lg leading-none">×</button>
-              )}
+              <button
+                onClick={() => { setRecommendations(''); setRecError(''); setLoadingRec(false) }}
+                aria-label="Dismiss recommendations"
+                className="text-zinc-600 hover:text-zinc-400 text-lg leading-none"
+              >×</button>
             </div>
-            {loadingRec ? (
-              <div className="text-zinc-500 text-sm">Asking Claude…</div>
-            ) : (
-              <div
-                className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap"
-                dangerouslySetInnerHTML={{ __html: recommendations.replace(/\*\*(.+?)\*\*/g, '<strong class="text-white">$1</strong>') }}
-              />
-            )}
+            {loadingRec && <div className="text-zinc-500 text-sm">Asking Claude…</div>}
+            {recError && <div className="text-red-400 text-sm">{recError}</div>}
+            {recommendations && <RecommendationText text={recommendations} />}
           </div>
         )}
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div role="alert" className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 text-sm text-white px-4 py-2 rounded-lg shadow-lg">
+          {toast}
+        </div>
+      )}
     </main>
   )
 }

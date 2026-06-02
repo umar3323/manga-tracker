@@ -9,7 +9,7 @@ export interface Manga {
   status: MangaStatus
   cover_url: string | null
   total_chapters: number | null
-  notes: string
+  notes: string | null
   last_read_at: string | null
   created_at: string
   updated_at: string
