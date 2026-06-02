@@ -24,6 +24,8 @@ export default function Home() {
   const [newTitle, setNewTitle] = useState('')
   const [adding, setAdding] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
+  const [recommendations, setRecommendations] = useState('')
+  const [loadingRec, setLoadingRec] = useState(false)
 
   const fetchManga = useCallback(async () => {
     const { data } = await supabase
@@ -68,6 +70,19 @@ export default function Home() {
 
   const filtered = filter === 'all' ? manga : manga.filter(m => m.status === filter)
 
+  const getRecommendations = async () => {
+    setLoadingRec(true)
+    setRecommendations('')
+    const res = await fetch('/api/recommend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manga }),
+    })
+    const data = await res.json()
+    setRecommendations(data.recommendations)
+    setLoadingRec(false)
+  }
+
   const counts = manga.reduce((acc, m) => {
     acc[m.status] = (acc[m.status] ?? 0) + 1
     return acc
@@ -82,12 +97,21 @@ export default function Home() {
             <h1 className="text-3xl font-bold tracking-tight">Manga Tracker</h1>
             <p className="text-zinc-500 text-sm mt-1">{manga.length} titles</p>
           </div>
-          <button
-            onClick={() => setShowAdd(v => !v)}
-            className="px-4 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-zinc-200 transition-colors"
-          >
-            + Add
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={getRecommendations}
+              disabled={loadingRec || manga.length === 0}
+              className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 disabled:opacity-40 transition-colors"
+            >
+              {loadingRec ? 'Thinking…' : '✦ Recommend'}
+            </button>
+            <button
+              onClick={() => setShowAdd(v => !v)}
+              className="px-4 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-zinc-200 transition-colors"
+            >
+              + Add
+            </button>
+          </div>
         </div>
 
         {/* Add form */}
@@ -189,6 +213,24 @@ export default function Home() {
                 </button>
               </div>
             ))}
+          </div>
+        )}
+        {/* AI Recommendations */}
+        {(recommendations || loadingRec) && (
+          <div className="mt-6 bg-zinc-900 border border-violet-500/30 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-violet-300">✦ AI Recommendations</h2>
+              {recommendations && (
+                <button onClick={() => setRecommendations('')} className="text-zinc-600 hover:text-zinc-400 text-lg leading-none">×</button>
+              )}
+            </div>
+            {loadingRec ? (
+              <div className="text-zinc-500 text-sm">Asking Claude…</div>
+            ) : (
+              <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap"
+                dangerouslySetInnerHTML={{ __html: recommendations.replace(/\*\*(.+?)\*\*/g, '<strong class="text-white">$1</strong>') }}
+              />
+            )}
           </div>
         )}
       </div>
