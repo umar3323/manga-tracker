@@ -1,65 +1,197 @@
-import Image from "next/image";
+'use client'
+
+import { useEffect, useState, useCallback } from 'react'
+import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
+
+const STATUS_LABELS: Record<MangaStatus, string> = {
+  reading: 'Reading',
+  completed: 'Completed',
+  on_hold: 'On Hold',
+  dropped: 'Dropped',
+}
+
+const STATUS_COLORS: Record<MangaStatus, string> = {
+  reading: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  completed: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  on_hold: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+  dropped: 'bg-red-500/20 text-red-300 border-red-500/30',
+}
 
 export default function Home() {
+  const [manga, setManga] = useState<Manga[]>([])
+  const [filter, setFilter] = useState<MangaStatus | 'all'>('all')
+  const [loading, setLoading] = useState(true)
+  const [newTitle, setNewTitle] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+
+  const fetchManga = useCallback(async () => {
+    const { data } = await supabase
+      .from('manga_list')
+      .select('*')
+      .order('title')
+    if (data) setManga(data as Manga[])
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { fetchManga() }, [fetchManga])
+
+  const updateChapter = async (id: string, delta: number, current: number) => {
+    const next = Math.max(0, current + delta)
+    setManga(prev => prev.map(m => m.id === id ? { ...m, current_chapter: next } : m))
+    await supabase.from('manga_list').update({ current_chapter: next }).eq('id', id)
+  }
+
+  const updateStatus = async (id: string, status: MangaStatus) => {
+    setManga(prev => prev.map(m => m.id === id ? { ...m, status } : m))
+    await supabase.from('manga_list').update({ status }).eq('id', id)
+  }
+
+  const deleteManga = async (id: string) => {
+    setManga(prev => prev.filter(m => m.id !== id))
+    await supabase.from('manga_list').delete().eq('id', id)
+  }
+
+  const addManga = async () => {
+    if (!newTitle.trim()) return
+    setAdding(true)
+    const { data } = await supabase
+      .from('manga_list')
+      .insert({ title: newTitle.trim(), current_chapter: 0, status: 'reading' })
+      .select()
+      .single()
+    if (data) setManga(prev => [...prev, data as Manga].sort((a, b) => a.title.localeCompare(b.title)))
+    setNewTitle('')
+    setShowAdd(false)
+    setAdding(false)
+  }
+
+  const filtered = filter === 'all' ? manga : manga.filter(m => m.status === filter)
+
+  const counts = manga.reduce((acc, m) => {
+    acc[m.status] = (acc[m.status] ?? 0) + 1
+    return acc
+  }, {} as Record<string, number>)
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className="min-h-screen bg-[#0d0d0d] text-white">
+      <div className="max-w-3xl mx-auto px-4 py-10">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Manga Tracker</h1>
+            <p className="text-zinc-500 text-sm mt-1">{manga.length} titles</p>
+          </div>
+          <button
+            onClick={() => setShowAdd(v => !v)}
+            className="px-4 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-zinc-200 transition-colors"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+            + Add
+          </button>
+        </div>
+
+        {/* Add form */}
+        {showAdd && (
+          <div className="mb-6 flex gap-2">
+            <input
+              autoFocus
+              value={newTitle}
+              onChange={e => setNewTitle(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addManga()}
+              placeholder="Manga title…"
+              className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <button
+              onClick={addManga}
+              disabled={adding || !newTitle.trim()}
+              className="px-4 py-2 rounded-lg bg-white text-black text-sm font-medium disabled:opacity-40"
+            >
+              {adding ? '…' : 'Add'}
+            </button>
+          </div>
+        )}
+
+        {/* Stats */}
+        <div className="grid grid-cols-4 gap-2 mb-6">
+          {(Object.keys(STATUS_LABELS) as MangaStatus[]).map(s => (
+            <div key={s} className="bg-zinc-900 rounded-lg p-3 text-center">
+              <div className="text-xl font-bold">{counts[s] ?? 0}</div>
+              <div className="text-xs text-zinc-500 mt-0.5">{STATUS_LABELS[s]}</div>
+            </div>
+          ))}
         </div>
-      </main>
-    </div>
-  );
+
+        {/* Filter tabs */}
+        <div className="flex gap-1 mb-6 bg-zinc-900 p-1 rounded-lg w-fit">
+          {(['all', ...Object.keys(STATUS_LABELS)] as (MangaStatus | 'all')[]).map(s => (
+            <button
+              key={s}
+              onClick={() => setFilter(s)}
+              className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+                filter === s ? 'bg-white text-black font-medium' : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              {s === 'all' ? 'All' : STATUS_LABELS[s as MangaStatus]}
+            </button>
+          ))}
+        </div>
+
+        {/* List */}
+        {loading ? (
+          <div className="text-zinc-500 text-sm">Loading…</div>
+        ) : filtered.length === 0 ? (
+          <div className="text-zinc-500 text-sm">Nothing here.</div>
+        ) : (
+          <div className="space-y-2">
+            {filtered.map(m => (
+              <div key={m.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center gap-4">
+                {/* Title + status badge */}
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{m.title}</div>
+                  <div className="mt-1">
+                    <select
+                      value={m.status}
+                      onChange={e => updateStatus(m.id, e.target.value as MangaStatus)}
+                      className={`text-xs px-2 py-0.5 rounded-full border bg-transparent cursor-pointer outline-none ${STATUS_COLORS[m.status]}`}
+                    >
+                      {(Object.keys(STATUS_LABELS) as MangaStatus[]).map(s => (
+                        <option key={s} value={s} className="bg-zinc-900 text-white">{STATUS_LABELS[s]}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Chapter stepper */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => updateChapter(m.id, -1, m.current_chapter)}
+                    className="w-7 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-sm transition-colors"
+                  >
+                    −
+                  </button>
+                  <span className="w-12 text-center text-sm font-mono tabular-nums">
+                    Ch.{m.current_chapter}
+                  </span>
+                  <button
+                    onClick={() => updateChapter(m.id, 1, m.current_chapter)}
+                    className="w-7 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-sm transition-colors"
+                  >
+                    +
+                  </button>
+                </div>
+
+                {/* Delete */}
+                <button
+                  onClick={() => deleteManga(m.id)}
+                  className="text-zinc-600 hover:text-red-400 transition-colors shrink-0 text-lg leading-none"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </main>
+  )
 }
