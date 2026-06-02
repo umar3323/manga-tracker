@@ -154,6 +154,11 @@ export default function Home() {
     notesTimers.current.set(id, timer)
   }
 
+  const signOut = async () => {
+    await supabase.auth.signOut()
+    window.location.href = '/login'
+  }
+
   const confirmDelete = (id: string) => setPendingDelete(id)
   const cancelDelete = () => setPendingDelete(null)
 
@@ -274,6 +279,13 @@ export default function Home() {
               className="px-4 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-zinc-200 transition-colors"
             >
               + Add
+            </button>
+            <button
+              onClick={signOut}
+              aria-label="Sign out"
+              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors"
+            >
+              Sign out
             </button>
           </div>
         </div>
