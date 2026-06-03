@@ -80,6 +80,7 @@ const STATUS_LABELS: Record<MangaStatus, string> = {
   on_hold:      'On Hold',
   dropped:      'Dropped',
   plan_to_read: 'Plan to Read',
+  watching:     'Watching',
 }
 
 const STATUS_COLORS: Record<MangaStatus, string> = {
@@ -88,6 +89,7 @@ const STATUS_COLORS: Record<MangaStatus, string> = {
   on_hold:      'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
   dropped:      'bg-red-500/20 text-red-300 border-red-500/30',
   plan_to_read: 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30',
+  watching:     'bg-violet-500/20 text-violet-300 border-violet-500/30',
 }
 
 type SortKey = 'last_read' | 'title' | 'chapter'
@@ -779,6 +781,7 @@ export default function Home() {
   const [shelfPickerManga, setShelfPickerManga] = useState<Manga | null>(null)
   const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null)
   const [mood, setMood] = useState<string | null>(null)
+  const [watchPrompt, setWatchPrompt] = useState<{ id: string; epInput: string } | null>(null)
   const [pacePerDay, setPacePerDay] = useState(0)
   const [shareModal, setShareModal] = useState(false)
   const [shareToken, setShareToken] = useState<string | null>(null)
@@ -888,6 +891,12 @@ export default function Home() {
   }
 
   const updateStatus = async (id: string, status: MangaStatus) => {
+    // Intercept "watching" — ask for episode count first
+    if (status === 'watching') {
+      const m = manga.find(m => m.id === id)
+      setWatchPrompt({ id, epInput: String(m?.episodes_watched ?? 0) })
+      return
+    }
     const prev_status = manga.find(m => m.id === id)?.status
     setManga(prev => prev.map(m => m.id === id ? { ...m, status } : m))
     const { error } = await supabase.from('manga_list').update({ status }).eq('id', id)
@@ -895,6 +904,21 @@ export default function Home() {
       showToast('Failed to update status')
       if (prev_status) setManga(prev => prev.map(m => m.id === id ? { ...m, status: prev_status } : m))
     }
+  }
+
+  const confirmWatching = async () => {
+    if (!watchPrompt) return
+    const ep = Math.max(0, parseInt(watchPrompt.epInput, 10) || 0)
+    const m = manga.find(m => m.id === watchPrompt.id)
+    if (!m) return
+    setManga(prev => prev.map(x => x.id === watchPrompt.id
+      ? { ...x, status: 'watching', episodes_watched: ep } : x))
+    await supabase.from('manga_list')
+      .update({ status: 'watching', episodes_watched: ep })
+      .eq('id', watchPrompt.id)
+    if (ep > 0) await supabase.from('reading_log').insert({ manga_id: watchPrompt.id, chapters_read: 0 })
+    showToast(`Now watching — ep. ${ep} logged`)
+    setWatchPrompt(null)
   }
 
   // Debounced notes save — fires 500ms after last keystroke
@@ -1247,9 +1271,9 @@ export default function Home() {
           })()}
         />
 
-        {/* Stats — 2 cols on mobile, 5 on desktop */}
+        {/* Stats — 2 cols on mobile, responsive on desktop (hide watching if 0) */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-5">
-          {(Object.keys(STATUS_LABELS) as MangaStatus[]).map(s => (
+          {(Object.keys(STATUS_LABELS) as MangaStatus[]).filter(s => s !== 'watching' || (counts.watching ?? 0) > 0).map(s => (
             <button key={s} onClick={() => setFilter(filter === s ? 'all' : s)}
               className={`rounded-xl p-3 text-center transition-colors ${filter === s ? 'bg-white text-black' : 'bg-zinc-900 hover:bg-zinc-800'}`}>
               <div className="text-xl font-bold">{counts[s] ?? 0}</div>
@@ -1393,9 +1417,11 @@ export default function Home() {
                         aria-label={`Status for ${m.title}`}
                         className={`text-xs px-2 py-0.5 rounded-full border bg-transparent cursor-pointer outline-none ${STATUS_COLORS[m.status]}`}
                       >
-                        {(Object.keys(STATUS_LABELS) as MangaStatus[]).map(s => (
-                          <option key={s} value={s} className="bg-zinc-900 text-white">{STATUS_LABELS[s]}</option>
-                        ))}
+                        {(Object.keys(STATUS_LABELS) as MangaStatus[])
+                          .filter(s => s !== 'watching' || m.has_anime)
+                          .map(s => (
+                            <option key={s} value={s} className="bg-zinc-900 text-white">{STATUS_LABELS[s]}</option>
+                          ))}
                       </select>
                       <span className="text-xs text-zinc-600" aria-label={`Last read ${timeAgo(m.last_read_at)}`}>{timeAgo(m.last_read_at)}</span>
                       {m.status === 'reading' && finishEstimate(m) && (
@@ -1543,6 +1569,33 @@ export default function Home() {
                     )}
                   </div>
                 </div>
+
+                {/* Watching episode prompt */}
+                {watchPrompt?.id === m.id && (
+                  <div className="border-t border-zinc-800 px-3 py-3 bg-violet-900/10">
+                    <p className="text-xs text-violet-300 font-medium mb-2">📺 How many episodes have you watched?</p>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="number" min={0}
+                        value={watchPrompt.epInput}
+                        onChange={e => setWatchPrompt(p => p ? { ...p, epInput: e.target.value } : null)}
+                        onKeyDown={e => { if (e.key === 'Enter') confirmWatching(); if (e.key === 'Escape') setWatchPrompt(null) }}
+                        autoFocus
+                        placeholder="0"
+                        className="w-24 bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-center outline-none focus:border-violet-500 text-white"
+                      />
+                      {m.total_episodes && (
+                        <span className="text-xs text-zinc-500">/ {m.total_episodes} eps</span>
+                      )}
+                      <button onClick={confirmWatching}
+                        className="px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-xs font-medium transition-colors">
+                        Confirm
+                      </button>
+                      <button onClick={() => setWatchPrompt(null)}
+                        className="text-xs text-zinc-600 hover:text-zinc-400">Cancel</button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Notes */}
                 {(expandedNotes.has(m.id) || m.notes) && (

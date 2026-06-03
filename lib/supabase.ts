@@ -1,6 +1,6 @@
 import { createBrowserClient } from '@supabase/ssr'
 
-export type MangaStatus = 'reading' | 'completed' | 'on_hold' | 'dropped' | 'plan_to_read'
+export type MangaStatus = 'reading' | 'completed' | 'on_hold' | 'dropped' | 'plan_to_read' | 'watching'
 
 export interface Author {
   id: number
