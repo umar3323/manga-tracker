@@ -144,7 +144,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
 
   const STATUS_LABELS: Record<MangaStatus, string> = {
     reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-    dropped: 'Dropped', plan_to_read: 'Plan to Read',
+    dropped: 'Dropped', plan_to_read: 'Plan to Read', watching: 'Watching',
   }
   return (
     <div className="fixed inset-0 z-50 flex items-end lg:items-stretch lg:justify-end" onClick={onClose}>
@@ -448,7 +448,7 @@ function RecommendationModal({ rec, onClose }: { rec: Recommendation; onClose: (
 
   const STATUS_LABELS: Record<MangaStatus, string> = {
     reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-    dropped: 'Dropped', plan_to_read: 'Plan to Read',
+    dropped: 'Dropped', plan_to_read: 'Plan to Read', watching: 'Watching',
   }
 
   useEffect(() => {

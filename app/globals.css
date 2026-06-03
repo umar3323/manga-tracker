@@ -1,26 +1,223 @@
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Hanken+Grotesk:ital,wght@0,300..800;1,400..700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
 @import "tailwindcss";
 
+/* ============================================================
+   YOMU Design System — CSS tokens
+   Dark manga-ink surfaces, warm paper foreground, vermillion accent
+   ============================================================ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* INK (dark surfaces) */
+  --ink-900: #09090C;
+  --ink-850: #0D0D12;
+  --ink-800: #121218;
+  --ink-700: #17171F;
+  --ink-600: #1E1E28;
+  --ink-550: #262631;
+  --ink-500: #30303D;
+  --ink-450: #3C3C4B;
+  --ink-400: #4C4C5C;
+
+  /* PAPER (foreground) */
+  --paper:   #F7F4EC;
+  --fg-1:    #F3F1E9;
+  --fg-2:    #ACABB8;
+  --fg-3:    #6F6E7C;
+  --fg-4:    #4E4E5B;
+
+  /* BRAND ACCENTS */
+  --vermillion:       #FF2D46;
+  --vermillion-bright:#FF4F63;
+  --vermillion-deep:  #D11B33;
+  --vermillion-tint:  rgba(255, 45, 70, 0.14);
+
+  --cyan:       #2BE6DC;
+  --cyan-deep:  #11B3AB;
+  --cyan-tint:  rgba(43, 230, 220, 0.14);
+
+  --screen-yellow: #FFC93D;
+
+  /* SEMANTIC STATUS */
+  --success: #2FCF7A;
+  --success-tint: rgba(47, 207, 122, 0.14);
+  --warning: #FFB02E;
+  --warning-tint: rgba(255, 176, 46, 0.14);
+  --danger:  #FF4757;
+  --danger-tint: rgba(255, 71, 87, 0.14);
+  --info:    #4DA3FF;
+
+  /* READING STATES */
+  --status-reading:   var(--vermillion);
+  --status-caughtup:  var(--cyan);
+  --status-completed: var(--success);
+  --status-planned:   var(--screen-yellow);
+  --status-onhold:    var(--warning);
+  --status-dropped:   var(--fg-3);
+
+  /* TYPE FAMILIES */
+  --font-display: 'Anton', 'Hanken Grotesk', system-ui, sans-serif;
+  --font-sans:    'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono:    'Space Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* RADII */
+  --r-xs:   4px;
+  --r-sm:   6px;
+  --r-md:   10px;
+  --r-lg:   14px;
+  --r-xl:   20px;
+  --r-pill: 999px;
+
+  /* SPACING */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-10: 40px;
+
+  /* BORDERS */
+  --border-hair: 1px solid var(--ink-500);
+  --border-bold: 2px solid var(--paper);
+
+  /* SHADOWS + GLOWS */
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-2: 0 4px 16px rgba(0,0,0,0.45);
+  --shadow-3: 0 12px 40px rgba(0,0,0,0.55);
+  --shadow-cover: 0 8px 28px rgba(0,0,0,0.6);
+  --glow-vermillion: 0 0 0 1px rgba(255,45,70,0.5), 0 0 24px rgba(255,45,70,0.35);
+  --glow-cyan:       0 0 0 1px rgba(43,230,220,0.5), 0 0 22px rgba(43,230,220,0.30);
+
+  /* MOTION */
+  --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-snap: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast:  120ms;
+  --dur-med:   220ms;
+  --dur-slow:  380ms;
+
+  /* SCREENTONE TEXTURE */
+  --screentone: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1.4px);
+  --screentone-size: 6px 6px;
+
+  /* Tailwind compat aliases */
+  --background: var(--ink-850);
+  --foreground: var(--fg-1);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--ink-850);
+  color: var(--fg-1);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--ink-500); border-radius: 999px; border: 2px solid var(--ink-850); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--vermillion);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* Typography utilities */
+.yomu-hero, .yomu-d1, .yomu-d2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  color: var(--fg-1);
+}
+.yomu-hero { font-size: 72px; }
+.yomu-d1   { font-size: 56px; }
+.yomu-d2   { font-size: 40px; }
+
+.yomu-eyebrow {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+}
+
+.yomu-mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   Tailwind color remapping — zinc → ink, violet → vermillion
+   Applied via @layer utilities so YOMU tokens win over defaults
+   ============================================================ */
+@layer utilities {
+  /* Surfaces */
+  .bg-zinc-950 { background-color: var(--ink-900) !important; }
+  .bg-zinc-900 { background-color: var(--ink-700) !important; }
+  .bg-zinc-800 { background-color: var(--ink-600) !important; }
+  .bg-zinc-700 { background-color: var(--ink-550) !important; }
+
+  /* Text */
+  .text-white { color: var(--fg-1) !important; }
+  .text-zinc-100, .text-zinc-200, .text-zinc-300 { color: var(--fg-1) !important; }
+  .text-zinc-400 { color: var(--fg-2) !important; }
+  .text-zinc-500, .text-zinc-600 { color: var(--fg-3) !important; }
+  .text-zinc-700 { color: var(--fg-4) !important; }
+
+  /* Borders */
+  .border-zinc-800, .border-zinc-700, .border-zinc-600 { border-color: var(--ink-500) !important; }
+
+  /* Accent: violet → vermillion */
+  .bg-violet-500, .bg-violet-600 { background-color: var(--vermillion) !important; }
+  .bg-violet-700, .bg-violet-800, .bg-violet-900, .bg-violet-950 { background-color: var(--vermillion-deep) !important; }
+  .bg-violet-300, .bg-violet-400 { background-color: var(--vermillion-bright) !important; }
+  .text-violet-400, .text-violet-500 { color: var(--vermillion) !important; }
+  .text-violet-300 { color: var(--vermillion-bright) !important; }
+  .border-violet-500 { border-color: var(--vermillion) !important; }
+  .ring-violet-500 { --tw-ring-color: var(--vermillion) !important; }
+
+  /* Semantic colors preserved */
+  .bg-emerald-500 { background-color: var(--success) !important; }
+  .bg-yellow-500 { background-color: var(--screen-yellow) !important; }
+  .bg-red-500 { background-color: var(--danger) !important; }
+  .bg-blue-500 { background-color: var(--info) !important; }
+  .bg-red-500\/70 { background-color: rgba(255,71,87,0.7) !important; }
+
+  /* Rounded */
+  .rounded-xl { border-radius: var(--r-lg) !important; }
+  .rounded-lg  { border-radius: var(--r-md) !important; }
+  .rounded-full { border-radius: var(--r-pill) !important; }
+
+  /* Hover states */
+  .hover\:bg-zinc-800:hover { background-color: var(--ink-600) !important; }
+  .hover\:text-white:hover { color: var(--fg-1) !important; }
+
+  /* Active/selected: bg-white → vermillion */
+  .bg-white.text-black { background-color: var(--vermillion) !important; color: #fff !important; }
+}
+
+/* Screentone overlay helper */
+.screentone-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--screentone);
+  background-size: var(--screentone-size);
+  opacity: 0.5;
+  pointer-events: none;
 }

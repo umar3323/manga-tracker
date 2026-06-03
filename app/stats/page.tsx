@@ -5,11 +5,11 @@ import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
 
 const STATUS_LABELS: Record<MangaStatus, string> = {
   reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-  dropped: 'Dropped', plan_to_read: 'Plan to Read',
+  dropped: 'Dropped', plan_to_read: 'Plan to Read', watching: 'Watching',
 }
 const STATUS_COLORS: Record<MangaStatus, string> = {
-  reading: 'bg-emerald-500', completed: 'bg-blue-500',
-  on_hold: 'bg-yellow-500', dropped: 'bg-red-500', plan_to_read: 'bg-zinc-500',
+  reading: '#FF2D46', completed: '#2FCF7A',
+  on_hold: '#FFB02E', dropped: '#6F6E7C', plan_to_read: '#FFC93D', watching: '#2BE6DC',
 }
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -18,7 +18,7 @@ const GOAL_KEY = 'manga_weekly_goal'
 interface LogEntry { chapters_read: number; logged_at: string }
 interface SwipeEntry { genres: string[]; direction: string }
 
-const HEAT_COLORS = ['bg-zinc-800', 'bg-violet-950', 'bg-violet-700', 'bg-violet-500', 'bg-violet-300']
+const HEAT_COLORS = ['#30303D', '#5a0a18', '#a01c30', '#D11B33', '#FF2D46']
 
 function ReadingHeatmap({ log }: { log: LogEntry[] }) {
   const activityMap: Record<string, number> = {}
@@ -96,7 +96,8 @@ function ReadingHeatmap({ log }: { log: LogEntry[] }) {
             <div key={wi} className="flex flex-col gap-[3px]">
               {week.map((day, di) => (
                 <div key={di}
-                  className={`w-3 h-3 rounded-sm ${HEAT_COLORS[level(day.chapters)]} transition-colors`}
+                  className="w-3 h-3 rounded-sm transition-colors"
+                  style={{ backgroundColor: HEAT_COLORS[level(day.chapters)] }}
                   title={`${day.date}: ${day.chapters} chapter${day.chapters !== 1 ? 's' : ''}`}
                 />
               ))}
@@ -106,7 +107,7 @@ function ReadingHeatmap({ log }: { log: LogEntry[] }) {
         {/* Legend */}
         <div className="flex items-center gap-1 mt-2 justify-end">
           <span className="text-[10px] text-zinc-600">Less</span>
-          {HEAT_COLORS.map((c, i) => <div key={i} className={`w-3 h-3 rounded-sm ${c}`} />)}
+          {HEAT_COLORS.map((c, i) => <div key={i} className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
           <span className="text-[10px] text-zinc-600">More</span>
         </div>
       </div>
@@ -119,7 +120,7 @@ function StatCard({ value, label, sub }: { value: string | number; label: string
     <div className="bg-zinc-900 rounded-xl p-4 text-center">
       <div className="text-2xl md:text-3xl font-bold text-white">{value}</div>
       <div className="text-xs text-zinc-500 mt-1">{label}</div>
-      {sub && <div className="text-xs text-violet-400 mt-0.5">{sub}</div>}
+      {sub && <div className="text-xs mt-0.5" style={{ color: 'var(--cyan)' }}>{sub}</div>}
     </div>
   )
 }
@@ -130,8 +131,8 @@ function ProgressRing({ pct, size = 80 }: { pct: number; size?: number }) {
   const dash = (Math.min(pct, 100) / 100) * circ
   return (
     <svg width={size} height={size} className="-rotate-90">
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#27272a" strokeWidth="6" />
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#7c3aed" strokeWidth="6"
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--ink-500)" strokeWidth="6" />
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--vermillion)" strokeWidth="6"
         strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
         style={{ transition: 'stroke-dasharray 0.5s ease' }} />
     </svg>
@@ -276,8 +277,8 @@ export default function StatsPage() {
                 <span>Progress</span><span>{goalPct}%</span>
               </div>
               <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
-                <div className="h-full bg-violet-500 rounded-full transition-all"
-                  style={{ width: `${Math.min(goalPct, 100)}%` }} />
+                <div className="h-full rounded-full transition-all"
+                  style={{ width: `${Math.min(goalPct, 100)}%`, backgroundColor: goalPct >= 100 ? 'var(--cyan)' : 'var(--vermillion)' }} />
               </div>
               {weekChapters >= goal && (
                 <p className="text-xs text-emerald-400 mt-1.5">🎉 Goal achieved this week!</p>
@@ -296,10 +297,10 @@ export default function StatsPage() {
               {last7.map((d, i) => (
                 <div key={i} className="flex-1 flex flex-col items-center gap-1">
                   <div className="w-full flex items-end justify-center" style={{ height: '72px' }}>
-                    <div className={`w-full rounded-t-md transition-all ${d.isToday ? 'bg-violet-500' : 'bg-zinc-700'}`}
-                      style={{ height: `${Math.max((d.chapters / maxDay) * 72, d.chapters > 0 ? 4 : 0)}px` }} />
+                    <div className="w-full rounded-t-md transition-all"
+                      style={{ height: `${Math.max((d.chapters / maxDay) * 72, d.chapters > 0 ? 4 : 0)}px`, backgroundColor: d.isToday ? 'var(--vermillion)' : 'var(--ink-500)' }} />
                   </div>
-                  <span className={`text-xs ${d.isToday ? 'text-violet-400' : 'text-zinc-600'}`}>{d.label}</span>
+                  <span className="text-xs" style={{ color: d.isToday ? 'var(--vermillion)' : 'var(--fg-3)' }}>{d.label}</span>
                   {d.chapters > 0 && <span className="text-xs text-zinc-500">{d.chapters}</span>}
                 </div>
               ))}
@@ -318,8 +319,7 @@ export default function StatsPage() {
                 <div key={s} className="flex items-center gap-3">
                   <span className="text-xs text-zinc-400 w-24 shrink-0">{STATUS_LABELS[s]}</span>
                   <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full transition-all ${STATUS_COLORS[s]}`}
-                      style={{ width: `${(n / maxStatus) * 100}%` }} />
+                    <div className="h-full rounded-full transition-all" style={{ backgroundColor: STATUS_COLORS[s], width: `${(n / maxStatus) * 100}%` }} />
                   </div>
                   <span className="text-xs text-zinc-500 w-6 text-right shrink-0">{n}</span>
                 </div>
@@ -337,7 +337,7 @@ export default function StatsPage() {
               {topGenres.map(([genre, score]) => (
                 <span key={genre}
                   className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-full text-xs text-zinc-300 flex items-center gap-1.5">
-                  <span className="text-violet-400">♥</span>
+                  <span style={{ color: 'var(--vermillion)' }}>♥</span>
                   {genre}
                   <span className="text-zinc-600">{score}</span>
                 </span>
@@ -394,8 +394,8 @@ export default function StatsPage() {
                   <div key={genre} className="flex items-center gap-3">
                     <span className="text-xs text-zinc-400 w-28 shrink-0 truncate">{genre}</span>
                     <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                      <div className="h-full bg-violet-500 rounded-full transition-all"
-                        style={{ width: `${(chapters / maxG) * 100}%` }} />
+                      <div className="h-full rounded-full transition-all"
+                        style={{ width: `${(chapters / maxG) * 100}%`, backgroundColor: 'var(--vermillion)' }} />
                     </div>
                     <span className="text-xs text-zinc-500 w-16 text-right shrink-0">
                       {chapters.toLocaleString()} ch
@@ -463,7 +463,7 @@ export default function StatsPage() {
                       <div key={range} className="flex items-center gap-3">
                         <span className="text-xs text-zinc-500 w-16 shrink-0">Ch. {range}</span>
                         <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                          <div className="h-full bg-red-500/70 rounded-full" style={{ width: `${(count / maxDrop) * 100}%` }} />
+                          <div className="h-full rounded-full" style={{ width: `${(count / maxDrop) * 100}%`, backgroundColor: 'rgba(255,71,87,0.7)' }} />
                         </div>
                         <span className="text-xs text-zinc-500 w-4 text-right shrink-0">{count}</span>
                       </div>
@@ -482,8 +482,8 @@ export default function StatsPage() {
                       <div key={genre} className="flex items-center gap-3">
                         <span className="text-xs text-zinc-400 w-24 shrink-0 truncate">{genre}</span>
                         <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full ${rate >= 70 ? 'bg-emerald-500' : rate >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                            style={{ width: `${rate}%` }} />
+                          <div className="h-full rounded-full"
+                            style={{ width: `${rate}%`, backgroundColor: rate >= 70 ? 'var(--success)' : rate >= 40 ? 'var(--screen-yellow)' : 'var(--danger)' }} />
                         </div>
                         <span className="text-xs text-zinc-500 w-14 text-right shrink-0">{rate}% / {total}</span>
                       </div>
