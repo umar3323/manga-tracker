@@ -969,8 +969,13 @@ export default function Home() {
           </div>
         )}
 
-        {/* Trending section */}
-        <TrendingSection onSelect={rec => setSelectedRec(rec)} />
+        {/* Trending section — reads excluded genres from localStorage (set on Search page) */}
+        <TrendingSection
+          onSelect={rec => setSelectedRec(rec)}
+          excludeGenreIds={(() => {
+            try { return JSON.parse(localStorage.getItem('excluded_genres') ?? '[]') } catch { return [] }
+          })()}
+        />
 
         {/* Stats — 2 cols on mobile, 5 on desktop */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-5">

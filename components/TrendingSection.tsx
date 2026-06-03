@@ -15,9 +15,10 @@ const TABS: { id: Tab; label: string; emoji: string }[] = [
 
 interface Props {
   onSelect: (rec: Recommendation) => void
+  excludeGenreIds?: number[]
 }
 
-export default function TrendingSection({ onSelect }: Props) {
+export default function TrendingSection({ onSelect, excludeGenreIds = [] }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('now')
   const [data, setData] = useState<Partial<Record<Tab, JikanSearchResult[]>>>({})
   const [loading, setLoading] = useState<Partial<Record<Tab, boolean>>>({})
@@ -31,13 +32,21 @@ export default function TrendingSection({ onSelect }: Props) {
     setLoading(prev => ({ ...prev, [tab]: true }))
 
     let results: JikanSearchResult[] = []
-    if (tab === 'now')     results = await getTopManga('publishing')
-    if (tab === 'year')    results = await getTrendingThisYear()
-    if (tab === 'alltime') results = await getTopManga('bypopularity')
+    if (tab === 'now')     results = await getTopManga('publishing',   12, excludeGenreIds)
+    if (tab === 'year')    results = await getTrendingThisYear(         12, excludeGenreIds)
+    if (tab === 'alltime') results = await getTopManga('bypopularity', 12, excludeGenreIds)
 
     setData(prev => ({ ...prev, [tab]: results }))
     setLoading(prev => ({ ...prev, [tab]: false }))
   }
+
+  useEffect(() => {
+    // Re-fetch all cached tabs when exclusion list changes
+    fetched.current.clear()
+    setData({})
+    fetchTab(activeTab)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(excludeGenreIds)])
 
   useEffect(() => { fetchTab('now') }, [])
 

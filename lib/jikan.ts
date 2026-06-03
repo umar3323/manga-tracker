@@ -34,28 +34,117 @@ export const GENRE_IDS: Record<string, number> = {
   Shounen: 27, Seinen: 42, Shoujo: 25,
 }
 
+export const MANGA_GENRES: { id: number; name: string }[] = [
+  { id: 1,  name: 'Action'       }, { id: 2,  name: 'Adventure'    },
+  { id: 4,  name: 'Comedy'       }, { id: 8,  name: 'Drama'         },
+  { id: 9,  name: 'Ecchi'        }, { id: 10, name: 'Fantasy'       },
+  { id: 13, name: 'Historical'   }, { id: 14, name: 'Horror'        },
+  { id: 17, name: 'Martial Arts' }, { id: 19, name: 'Music'         },
+  { id: 7,  name: 'Mystery'      }, { id: 22, name: 'Romance'       },
+  { id: 24, name: 'Sci-Fi'       }, { id: 23, name: 'School'        },
+  { id: 36, name: 'Slice of Life'}, { id: 30, name: 'Sports'        },
+  { id: 37, name: 'Supernatural' }, { id: 41, name: 'Thriller'      },
+  { id: 40, name: 'Psychological'}, { id: 38, name: 'Military'      },
+  { id: 27, name: 'Shounen'      }, { id: 42, name: 'Seinen'        },
+  { id: 25, name: 'Shoujo'       }, { id: 43, name: 'Josei'         },
+  { id: 35, name: 'Harem'        }, { id: 49, name: 'Isekai'        },
+  { id: 46, name: 'Award Winning'}, { id: 65, name: 'Gourmet'       },
+]
+
+export interface SearchFilters {
+  query?: string
+  includeGenres?: number[]
+  excludeGenres?: number[]
+  status?: 'publishing' | 'complete' | 'hiatus' | 'discontinued' | 'upcoming'
+  orderBy?: 'score' | 'members' | 'rank' | 'popularity' | 'chapters' | 'favorites' | 'title'
+  sort?: 'asc' | 'desc'
+  minScore?: number
+  minChapters?: number
+  maxChapters?: number
+  authorId?: number
+  page?: number
+}
+
+export async function searchMangaWithFilters(filters: SearchFilters): Promise<JikanSearchResult[]> {
+  try {
+    // Author-based search: use person's manga works directly
+    if (filters.authorId) {
+      let works = await getAuthorWorks(filters.authorId)
+      if (filters.excludeGenres?.length) {
+        const exc = new Set(filters.excludeGenres)
+        works = works.filter(m => !m.genres.some(g => {
+          const gid = MANGA_GENRES.find(mg => mg.name === g)?.id
+          return gid && exc.has(gid)
+        }))
+      }
+      return works
+    }
+
+    const p = new URLSearchParams()
+    if (filters.query?.trim())           p.set('q',              filters.query.trim())
+    if (filters.includeGenres?.length)   p.set('genres',         filters.includeGenres.join(','))
+    if (filters.excludeGenres?.length)   p.set('genres_exclude', filters.excludeGenres.join(','))
+    if (filters.status)                  p.set('status',         filters.status)
+    if (filters.orderBy)                 p.set('order_by',       filters.orderBy)
+    if (filters.sort)                    p.set('sort',           filters.sort)
+    if (filters.minScore)                p.set('min_score',      String(filters.minScore))
+    p.set('limit', '24')
+    p.set('page',  String(filters.page ?? 1))
+    p.set('sfw', 'false')
+
+    const res = await jikanGet(`/manga?${p.toString()}`)
+    if (!res.ok) return []
+    const json = await res.json()
+    let results = (json.data ?? []).map(mapMangaResult) as JikanSearchResult[]
+
+    // Client-side chapter range filter (Jikan has no min/max chapters param)
+    if (filters.minChapters) results = results.filter(m => !m.total_chapters || m.total_chapters >= filters.minChapters!)
+    if (filters.maxChapters) results = results.filter(m => !m.total_chapters || m.total_chapters <= filters.maxChapters!)
+
+    return results
+  } catch { return [] }
+}
+
+export async function searchPeople(name: string): Promise<{ id: number; name: string }[]> {
+  try {
+    const res = await jikanGet(`/people?q=${encodeURIComponent(name)}&limit=6`)
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.data ?? []).map((p: { mal_id: number; name: string }) => ({
+      id: p.mal_id, name: p.name,
+    }))
+  } catch { return [] }
+}
+
 async function jikanGet(path: string): Promise<Response> {
   return fetch(`https://api.jikan.moe/v4${path}`)
 }
 
 export async function getTopManga(
   filter: 'publishing' | 'bypopularity' | 'favorite',
-  limit = 12
+  limit = 12,
+  excludeGenreIds: number[] = []
 ): Promise<JikanSearchResult[]> {
   try {
-    const res = await jikanGet(`/top/manga?filter=${filter}&limit=${limit}`)
+    const p = new URLSearchParams({ filter, limit: String(limit) })
+    if (excludeGenreIds.length) p.set('genres_exclude', excludeGenreIds.join(','))
+    const res = await jikanGet(`/top/manga?${p.toString()}`)
     if (!res.ok) return []
     const json = await res.json()
     return (json.data ?? []).map(mapMangaResult)
   } catch { return [] }
 }
 
-export async function getTrendingThisYear(limit = 12): Promise<JikanSearchResult[]> {
+export async function getTrendingThisYear(limit = 12, excludeGenreIds: number[] = []): Promise<JikanSearchResult[]> {
   try {
     const year = new Date().getFullYear()
-    const res = await jikanGet(
-      `/manga?start_date=${year - 1}-01-01&order_by=members&sort=desc&limit=${limit}&status=publishing`
-    )
+    const p = new URLSearchParams({
+      start_date: `${year - 1}-01-01`,
+      order_by: 'members', sort: 'desc',
+      limit: String(limit), status: 'publishing',
+    })
+    if (excludeGenreIds.length) p.set('genres_exclude', excludeGenreIds.join(','))
+    const res = await jikanGet(`/manga?${p.toString()}`)
     if (!res.ok) return []
     const json = await res.json()
     return (json.data ?? []).map(mapMangaResult)
