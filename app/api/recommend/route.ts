@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 
 export interface Recommendation {
   title: string
@@ -63,6 +64,30 @@ export async function POST(req: Request) {
 
     const genreIds = topGenres.map(g => GENRE_IDS[g]).filter(Boolean)
 
+    // Build AniList tag weight vector from cached data
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const malIds = manga.map(m => m.mal_id).filter(Boolean)
+    const tagWeights: Record<string, number> = {}
+    if (malIds.length > 0) {
+      const { data: alCache } = await supabase
+        .from('anilist_cache')
+        .select('payload')
+        .in('mal_id', malIds)
+        .eq('media_type', 'MANGA')
+      for (const row of (alCache ?? [])) {
+        const tags: { name: string; rank: number }[] = row.payload?.tags ?? []
+        for (const t of tags) {
+          if (t.rank >= 50) {
+            const w = (t.rank / 100) * (genreScore[t.name] ?? 0.5)
+            tagWeights[t.name] = (tagWeights[t.name] ?? 0) + w
+          }
+        }
+      }
+    }
+
     // Fetch candidates from Jikan — try genre-filtered first, fall back to top manga
     let candidates: Record<string, unknown>[] = []
     if (genreIds.length > 0) {
@@ -96,9 +121,13 @@ export async function POST(req: Request) {
       const overlap = cGenres.filter(g => userGenreSet.has(g))
       const jaccardScore = overlap.length / Math.max(userGenreSet.size, cGenres.length, 1)
 
-      // Normalise Jikan score (0–10) + genre overlap into 55–92
+      // AniList tag overlap bonus
+      const tagBonus = cGenres.reduce((s, g) => s + (tagWeights[g] ?? 0), 0)
+      const tagBonusNorm = Math.min(1, tagBonus / 5)
+
+      // Normalise: Jikan score (0-10) + genre overlap + AniList tag bonus → 55-92
       const jikanScore = (c.score as number | null) ?? 7
-      const base = ((jikanScore / 10) * 30) + (jaccardScore * 45) + 17
+      const base = ((jikanScore / 10) * 25) + (jaccardScore * 40) + (tagBonusNorm * 15) + 17
       const confidence = Math.min(92, Math.max(55, Math.round(base)))
 
       // Build reason string
@@ -108,13 +137,17 @@ export async function POST(req: Request) {
         .map(m => m.title)
         .slice(0, 1)
 
+      const topTag = Object.entries(tagWeights)
+        .filter(([name]) => cGenres.includes(name))
+        .sort((a, b) => b[1] - a[1])[0]?.[0]
+
       let reason = ''
       if (matchedGenres.length > 0 && similarTo.length > 0) {
-        reason = `Shares ${matchedGenres.join(' and ')} with ${similarTo[0]}${jikanScore >= 8.5 ? ` — MAL score ${jikanScore}` : ''}.`
+        reason = `Shares ${matchedGenres.join(' and ')} with ${similarTo[0]}${topTag && !matchedGenres.includes(topTag) ? ` · strong ${topTag} themes` : ''}${jikanScore >= 8.5 ? ` — MAL ${jikanScore}` : ''}.`
       } else if (matchedGenres.length > 0) {
-        reason = `Matches your taste for ${matchedGenres.join(' and ')}${jikanScore >= 8.5 ? ` — MAL score ${jikanScore}` : ''}.`
+        reason = `Matches your taste for ${matchedGenres.join(' and ')}${topTag ? ` with strong ${topTag} elements` : ''}${jikanScore >= 8.5 ? ` — MAL ${jikanScore}` : ''}.`
       } else {
-        reason = `Top-rated manga (MAL score ${jikanScore}) that readers with similar lists enjoy.`
+        reason = `Top-rated ${topTag ? `${topTag} ` : ''}manga (MAL score ${jikanScore}) that readers with similar lists enjoy.`
       }
 
       return {

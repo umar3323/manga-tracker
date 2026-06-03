@@ -10,6 +10,8 @@ import SessionTimer, { type ActiveSession } from '@/components/SessionTimer'
 import RereadSection from '@/components/RereadSection'
 import type { Arc } from '@/components/ArcEditor'
 import type { Recommendation } from '@/app/api/recommend/route'
+import type { AniListMangaData, AniListAnimeData } from '@/lib/anilist'
+import { RELATION_LABELS, formatCountdown } from '@/lib/anilist'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
 function EditableNumber({
@@ -124,6 +126,20 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
   onClose: () => void
   onStatusChange: (id: string, status: MangaStatus) => void
 }) {
+  const [alManga, setAlManga] = useState<AniListMangaData | null>(null)
+  const [alAnime, setAlAnime] = useState<AniListAnimeData | null>(null)
+
+  useEffect(() => {
+    if (manga.mal_id) {
+      fetch(`/api/anilist?mal_id=${manga.mal_id}&type=MANGA`)
+        .then(r => r.json()).then(j => { if (j.data) setAlManga(j.data) })
+    }
+    if (manga.anime_mal_id) {
+      fetch(`/api/anilist?mal_id=${manga.anime_mal_id}&type=ANIME`)
+        .then(r => r.json()).then(j => { if (j.data) setAlAnime(j.data) })
+    }
+  }, [manga.mal_id, manga.anime_mal_id])
+
   const STATUS_LABELS: Record<MangaStatus, string> = {
     reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
     dropped: 'Dropped', plan_to_read: 'Plan to Read',
@@ -187,6 +203,91 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
           {manga.notes && (
             <div className="bg-zinc-800 rounded-lg p-3 mb-4">
               <p className="text-xs text-zinc-400 leading-relaxed">{manga.notes}</p>
+            </div>
+          )}
+
+          {/* AniList: airing countdown for adapted anime */}
+          {alAnime?.nextAiringEpisode && (
+            <div className="flex items-center gap-2 bg-violet-900/20 border border-violet-500/30 rounded-xl px-3 py-2.5 mb-4">
+              <span className="text-violet-400 text-sm">📺</span>
+              <div>
+                <span className="text-xs font-medium text-violet-300">
+                  Ep. {alAnime.nextAiringEpisode.episode} airing in {formatCountdown(alAnime.nextAiringEpisode.timeUntilAiring)}
+                </span>
+                <span className="text-xs text-zinc-500 ml-2">
+                  {new Date(alAnime.nextAiringEpisode.airingAt * 1000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* AniList: ranked tags */}
+          {alManga && alManga.tags.filter(t => t.rank >= 60).length > 0 && (
+            <div className="mb-4">
+              <p className="text-xs font-medium text-zinc-500 mb-2">Tags</p>
+              <div className="flex flex-wrap gap-1.5">
+                {alManga.tags.filter(t => t.rank >= 60).slice(0, 8).map(tag => (
+                  <span key={tag.name}
+                    className="flex items-center gap-1 px-2 py-0.5 bg-zinc-800 rounded-full text-xs text-zinc-400"
+                    title={`Relevance: ${tag.rank}%`}>
+                    {tag.name}
+                    <span className="text-zinc-600 text-[10px]">{tag.rank}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* AniList: relations graph */}
+          {alManga && alManga.relations.filter(r => RELATION_LABELS[r.relationType]).length > 0 && (
+            <div className="mb-4">
+              <p className="text-xs font-medium text-zinc-500 mb-2">Related works</p>
+              <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+                {alManga.relations
+                  .filter(r => RELATION_LABELS[r.relationType])
+                  .slice(0, 8)
+                  .map((rel, i) => (
+                    <div key={i} className="shrink-0 w-24">
+                      <div className="relative w-24 h-32 rounded-xl overflow-hidden bg-zinc-800 mb-1.5">
+                        {rel.node.coverImage?.medium && (
+                          <Image src={rel.node.coverImage.medium} alt={rel.node.title.romaji}
+                            fill className="object-cover" unoptimized />
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1.5 py-1">
+                          <span className={`text-[10px] font-medium ${
+                            rel.relationType === 'SEQUEL' ? 'text-emerald-400' :
+                            rel.relationType === 'PREQUEL' ? 'text-blue-400' :
+                            rel.relationType === 'ADAPTATION' ? 'text-violet-400' :
+                            'text-zinc-400'
+                          }`}>{RELATION_LABELS[rel.relationType]}</span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-zinc-500 leading-tight line-clamp-2">{rel.node.title.romaji}</p>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* AniList: community recommendations */}
+          {alManga && alManga.recommendations.filter(r => r.rating > 0 && r.mediaRecommendation?.idMal).length > 0 && (
+            <div className="mb-4">
+              <p className="text-xs font-medium text-zinc-500 mb-2">Community also likes</p>
+              <div className="space-y-1.5">
+                {alManga.recommendations.filter(r => r.rating > 0 && r.mediaRecommendation?.idMal).slice(0, 4).map((rec, i) => (
+                  <div key={i} className="flex items-center gap-2.5 bg-zinc-800 rounded-xl px-3 py-2">
+                    {rec.mediaRecommendation?.coverImage?.medium && (
+                      <Image src={rec.mediaRecommendation.coverImage.medium} alt={rec.mediaRecommendation.title.romaji}
+                        width={28} height={36} className="w-7 h-9 object-cover rounded shrink-0" unoptimized />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{rec.mediaRecommendation?.title.romaji}</p>
+                      <p className="text-xs text-zinc-600">{rec.mediaRecommendation?.type?.toLowerCase()}</p>
+                    </div>
+                    <span className="text-xs text-zinc-500 shrink-0">👍 {rec.rating}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

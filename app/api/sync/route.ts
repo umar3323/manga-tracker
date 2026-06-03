@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { getLatestChapterFromMangaDex } from '@/lib/mangadex'
+import { fetchAniListManga, fetchAniListAnime } from '@/lib/anilist'
 
 interface SyncResult {
   title: string
@@ -156,6 +157,31 @@ export async function POST() {
       if (Object.keys(updates).length > 0) {
         await supabase.from('manga_list').update(updates).eq('id', m.id)
         results.push({ title: m.title, changes })
+      }
+
+      // Populate AniList cache for manga (throttled alongside Jikan calls)
+      await delay(450)
+      const alManga = await fetchAniListManga(m.mal_id)
+      if (alManga) {
+        await supabase.from('anilist_cache').upsert({
+          mal_id: m.mal_id, media_type: 'MANGA',
+          anilist_id: alManga.id, payload: alManga,
+          fetched_at: new Date().toISOString(),
+        }, { onConflict: 'mal_id,media_type' })
+      }
+
+      // Also cache anime data for adapted titles
+      const animeId = (m as Record<string, unknown>).anime_mal_id as number | null
+      if (animeId) {
+        await delay(450)
+        const alAnime = await fetchAniListAnime(animeId)
+        if (alAnime) {
+          await supabase.from('anilist_cache').upsert({
+            mal_id: animeId, media_type: 'ANIME',
+            anilist_id: alAnime.id, payload: alAnime,
+            fetched_at: new Date().toISOString(),
+          }, { onConflict: 'mal_id,media_type' })
+        }
       }
     }
 
