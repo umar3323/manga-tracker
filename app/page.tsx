@@ -6,6 +6,7 @@ import { supabase, type Manga, type MangaStatus, type Author } from '@/lib/supab
 import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, getMangaById, getAnimeAdaptations, type JikanSearchResult } from '@/lib/jikan'
 import TrendingSection from '@/components/TrendingSection'
 import ArcEditor from '@/components/ArcEditor'
+import SessionTimer, { type ActiveSession } from '@/components/SessionTimer'
 import type { Recommendation } from '@/app/api/recommend/route'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
@@ -677,6 +678,7 @@ export default function Home() {
   const [shareModal, setShareModal] = useState(false)
   const [shareToken, setShareToken] = useState<string | null>(null)
   const [shareEnabled, setShareEnabled] = useState(false)
+  const [activeSession, setActiveSession] = useState<ActiveSession | null>(null)
 
   // Cover fetch tracking — prevents re-fetching on every render
   const fetchedIds = useRef<Set<string>>(new Set())
@@ -840,6 +842,35 @@ export default function Home() {
     if (days < 7) return `~${days}d`
     if (days < 60) return `~${Math.ceil(days / 7)}w`
     return `~${Math.ceil(days / 30)}mo`
+  }
+
+  const startSession = (m: Manga) => {
+    setActiveSession({
+      mangaId: m.id,
+      mangaTitle: m.title,
+      startChapter: m.current_chapter,
+      startTime: Date.now(),
+      coverUrl: m.cover_url,
+    })
+  }
+
+  const endSession = async (chaptersRead: number, durationMinutes: number) => {
+    if (!activeSession) return
+    const now = new Date().toISOString()
+    // Update chapter count
+    if (chaptersRead > 0) {
+      const m = manga.find(m => m.id === activeSession.mangaId)
+      if (m) await updateChapter(activeSession.mangaId, chaptersRead, m.current_chapter)
+    }
+    // Log with duration
+    await supabase.from('reading_log').insert({
+      manga_id: activeSession.mangaId,
+      chapters_read: chaptersRead,
+      duration_minutes: durationMinutes,
+      logged_at: now,
+    })
+    showToast(`Session logged — ${chaptersRead} ch in ${durationMinutes} min`)
+    setActiveSession(null)
   }
 
   const dismissNotifications = async () => {
@@ -1094,6 +1125,37 @@ export default function Home() {
           ))}
         </div>
 
+        {/* Backlog pressure score */}
+        {(() => {
+          const reading = manga.filter(m => m.status === 'reading' && m.total_chapters)
+          const totalUnread = reading.reduce((s, m) => s + Math.max(0, (m.total_chapters ?? 0) - m.current_chapter), 0)
+          if (totalUnread === 0) return null
+          const weeksLeft = pacePerDay > 0 ? Math.ceil(totalUnread / (pacePerDay * 7)) : null
+          const pressurePct = Math.min(100, Math.round((totalUnread / 2000) * 100)) // 2000 = "full"
+          const colour = pressurePct < 30 ? 'bg-emerald-500' : pressurePct < 60 ? 'bg-yellow-500' : 'bg-red-500'
+          return (
+            <div className="mb-5 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">📚</span>
+                  <span className="text-sm font-medium">
+                    {totalUnread.toLocaleString()} unread chapters
+                  </span>
+                  <span className="text-xs text-zinc-500">across {reading.length} series</span>
+                </div>
+                {weeksLeft !== null && (
+                  <span className="text-xs text-zinc-500">
+                    ~{weeksLeft < 1 ? 'this week' : weeksLeft === 1 ? '1 week' : `${weeksLeft} weeks`} at your pace
+                  </span>
+                )}
+              </div>
+              <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full transition-all ${colour}`} style={{ width: `${pressurePct}%` }} />
+              </div>
+            </div>
+          )
+        })()}
+
         {/* Mood filter */}
         <div className="flex gap-1.5 flex-wrap mb-4">
           {MOODS.map(mo => (
@@ -1296,6 +1358,20 @@ export default function Home() {
                         >
                           +
                         </button>
+                        {m.status === 'reading' && (
+                          <button
+                            onClick={() => activeSession?.mangaId === m.id ? setActiveSession(null) : startSession(m)}
+                            aria-label={activeSession?.mangaId === m.id ? 'Stop session' : `Start reading session for ${m.title}`}
+                            title={activeSession?.mangaId === m.id ? 'Stop session' : 'Start reading session'}
+                            className={`ml-1 text-sm leading-none transition-colors ${
+                              activeSession?.mangaId === m.id
+                                ? 'text-violet-400 animate-pulse'
+                                : 'text-zinc-700 hover:text-violet-400'
+                            }`}
+                          >
+                            {activeSession?.mangaId === m.id ? '⏱' : '▶'}
+                          </button>
+                        )}
                         <button
                           onClick={() => setShelfPickerManga(m)}
                           aria-label={`Add ${m.title} to shelf`}
@@ -1435,6 +1511,16 @@ export default function Home() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Session timer */}
+      {activeSession && (
+        <SessionTimer
+          session={activeSession}
+          currentChapter={manga.find(m => m.id === activeSession.mangaId)?.current_chapter ?? activeSession.startChapter}
+          onEnd={endSession}
+          onCancel={() => setActiveSession(null)}
+        />
       )}
 
       {/* Share modal */}
