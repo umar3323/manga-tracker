@@ -18,6 +18,9 @@ export default function DiscoverPage() {
   const [genreProfile, setGenreProfile] = useState<string[] | null>(null)
   const [swipeCount, setSwipeCount] = useState(0)
   const [lastSwipe, setLastSwipe] = useState<'left' | 'right' | null>(null)
+  const [lastSwiped, setLastSwiped] = useState<SwipeCard | null>(null)
+  const [undoVisible, setUndoVisible] = useState(false)
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [toast, setToast] = useState('')
 
   // Drag state
@@ -52,9 +55,34 @@ export default function DiscoverPage() {
   const current = queue[0]
   const next = queue[1]
 
+  const undoSwipe = useCallback(async () => {
+    if (!lastSwiped) return
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    setUndoVisible(false)
+
+    // Delete from swipe_history
+    await supabase.from('swipe_history').delete().eq('mal_id', lastSwiped.mal_id)
+    // If right-swipe, remove from manga_list too
+    if (lastSwipe === 'right') {
+      await supabase.from('manga_list').delete().eq('mal_id', lastSwiped.mal_id)
+    }
+    // Re-add to front of queue
+    setQueue(prev => [lastSwiped, ...prev])
+    setSwipeCount(c => Math.max(0, c - 1))
+    setLastSwiped(null)
+    setLastSwipe(null)
+    showToast('Swipe undone')
+  }, [lastSwiped, lastSwipe])
+
   const commitSwipe = useCallback(async (direction: 'left' | 'right', manga: SwipeCard) => {
     setLastSwipe(direction)
+    setLastSwiped(manga)
     setSwipeCount(c => c + 1)
+
+    // Show undo for 4 seconds
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    setUndoVisible(true)
+    undoTimer.current = setTimeout(() => setUndoVisible(false), 4000)
 
     // Remove from queue
     setQueue(prev => prev.slice(1))
@@ -258,6 +286,14 @@ export default function DiscoverPage() {
               <span className="md:hidden">Swipe the card or tap the buttons</span>
               <span className="hidden md:inline">Drag card · Tap buttons · ← → arrows</span>
             </p>
+
+            {/* Undo last swipe */}
+            <div className={`flex justify-center mt-3 transition-all duration-300 ${undoVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}>
+              <button onClick={undoSwipe}
+                className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-full text-xs text-zinc-300 transition-colors">
+                ↩ Undo last swipe
+              </button>
+            </div>
           </>
         )}
       </div>

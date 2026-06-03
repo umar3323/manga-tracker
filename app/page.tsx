@@ -111,8 +111,89 @@ function MarkdownBold({ text }: { text: string }) {
   )
 }
 
-function MobileMenu({ onRecommend, onSync, onSignOut, loadingRec, syncing }: {
-  onRecommend: () => void; onSync: () => void; onSignOut: () => void
+/** Manga detail modal */
+function DetailModal({ manga, onClose, onStatusChange }: {
+  manga: Manga
+  onClose: () => void
+  onStatusChange: (id: string, status: MangaStatus) => void
+}) {
+  const STATUS_LABELS: Record<MangaStatus, string> = {
+    reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
+    dropped: 'Dropped', plan_to_read: 'Plan to Read',
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}>
+        {/* Drag handle on mobile */}
+        <div className="flex justify-center pt-3 pb-1 md:hidden">
+          <div className="w-10 h-1 bg-zinc-700 rounded-full" />
+        </div>
+        <div className="p-5">
+          <div className="flex gap-4 mb-4">
+            {manga.cover_url && (
+              <img src={manga.cover_url} alt={manga.title}
+                className="w-20 h-28 object-cover rounded-lg shrink-0" />
+            )}
+            <div className="min-w-0">
+              <h2 className="font-bold text-lg leading-snug">{manga.title}</h2>
+              {manga.mal_id && (
+                <a href={`https://myanimelist.net/manga/${manga.mal_id}`} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-violet-400 hover:text-violet-300 mt-1 inline-block">
+                  View on MyAnimeList ↗
+                </a>
+              )}
+              <div className="mt-2">
+                <select value={manga.status} onChange={e => onStatusChange(manga.id, e.target.value as MangaStatus)}
+                  className="text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-zinc-300 outline-none cursor-pointer">
+                  {(Object.keys(STATUS_LABELS) as MangaStatus[]).map(s => (
+                    <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 mb-4 text-center">
+            <div className="bg-zinc-800 rounded-lg p-2">
+              <div className="text-sm font-bold">{manga.current_chapter}</div>
+              <div className="text-xs text-zinc-500">Current ch.</div>
+            </div>
+            <div className="bg-zinc-800 rounded-lg p-2">
+              <div className="text-sm font-bold">{manga.total_chapters ?? '?'}</div>
+              <div className="text-xs text-zinc-500">Total ch.</div>
+            </div>
+            {manga.has_anime && (
+              <div className="bg-zinc-800 rounded-lg p-2">
+                <div className="text-sm font-bold">{manga.episodes_watched}</div>
+                <div className="text-xs text-zinc-500">Ep. watched</div>
+              </div>
+            )}
+          </div>
+          {manga.has_anime && manga.anime_title && (
+            <div className="bg-zinc-800 rounded-lg p-3 mb-4 flex items-center gap-2">
+              <span className="text-violet-400">🎬</span>
+              <span className="text-sm text-zinc-300">{manga.anime_title}</span>
+              {manga.total_episodes && <span className="text-xs text-zinc-500 ml-auto">{manga.total_episodes} eps</span>}
+            </div>
+          )}
+          {manga.notes && (
+            <div className="bg-zinc-800 rounded-lg p-3 mb-4">
+              <p className="text-xs text-zinc-400 leading-relaxed">{manga.notes}</p>
+            </div>
+          )}
+          <button onClick={onClose}
+            className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300 transition-colors">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MobileMenu({ onRecommend, onSync, onSignOut, onExport, loadingRec, syncing }: {
+  onRecommend: () => void; onSync: () => void; onSignOut: () => void; onExport: () => void
   loadingRec: boolean; syncing: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -133,6 +214,10 @@ function MobileMenu({ onRecommend, onSync, onSignOut, loadingRec, syncing }: {
             <button onClick={() => { onSync(); setOpen(false) }} disabled={syncing}
               className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40 border-t border-zinc-700">
               <span>⟳</span> {syncing ? 'Syncing…' : 'Sync from MAL'}
+            </button>
+            <button onClick={() => { onExport(); setOpen(false) }}
+              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
+              <span>↓</span> Export CSV
             </button>
             <button onClick={() => { onSignOut(); setOpen(false) }}
               className="w-full px-4 py-3 text-sm text-left text-zinc-400 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
@@ -174,6 +259,8 @@ export default function Home() {
   const [toast, setToast] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [syncResults, setSyncResults] = useState<{ updated: number; results: { title: string; changes: string[] }[]; timestamp: string } | null>(null)
+  const [notifications, setNotifications] = useState<{ id: string; title: string; new_chapters: number; previous_chapters: number }[]>([])
+  const [selectedManga, setSelectedManga] = useState<Manga | null>(null)
 
   // Cover fetch tracking — prevents re-fetching on every render
   const fetchedIds = useRef<Set<string>>(new Set())
@@ -190,6 +277,13 @@ export default function Home() {
     if (error) { showToast('Failed to load manga list'); return }
     if (data) setManga(data as Manga[])
     setLoading(false)
+    // Fetch unseen chapter notifications
+    const { data: notifs } = await supabase
+      .from('chapter_notifications')
+      .select('id, title, new_chapters, previous_chapters')
+      .eq('seen', false)
+      .order('created_at', { ascending: false })
+    if (notifs?.length) setNotifications(notifs)
   }, [])
 
   useEffect(() => { fetchManga() }, [fetchManga])
@@ -227,6 +321,9 @@ export default function Home() {
     if (error) {
       showToast('Failed to update chapter')
       setManga(prev => prev.map(m => m.id === id ? { ...m, current_chapter: current } : m))
+    } else if (delta > 0) {
+      // Log reading activity for stats
+      await supabase.from('reading_log').insert({ manga_id: id, chapters_read: delta })
     }
   }
 
@@ -272,6 +369,32 @@ export default function Home() {
   const signOut = async () => {
     await supabase.auth.signOut()
     window.location.href = '/login'
+  }
+
+  const exportCSV = () => {
+    const headers = ['Title', 'Status', 'Current Chapter', 'Total Chapters', 'Has Anime', 'Episodes Watched', 'Last Read', 'Notes']
+    const rows = manga.map(m => [
+      `"${m.title.replace(/"/g, '""')}"`,
+      m.status,
+      m.current_chapter,
+      m.total_chapters ?? '',
+      m.has_anime ? 'Yes' : 'No',
+      m.episodes_watched,
+      m.last_read_at ? new Date(m.last_read_at).toLocaleDateString() : '',
+      `"${(m.notes ?? '').replace(/"/g, '""')}"`,
+    ])
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `manga-list-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click(); URL.revokeObjectURL(url)
+  }
+
+  const dismissNotifications = async () => {
+    const ids = notifications.map(n => n.id)
+    setNotifications([])
+    await supabase.from('chapter_notifications').update({ seen: true }).in('id', ids)
   }
 
   const updateEpisodes = async (id: string, delta: number, current: number) => {
@@ -404,6 +527,10 @@ export default function Home() {
               className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white disabled:opacity-40 transition-colors">
               {syncing ? '⟳ Syncing…' : '⟳ Sync'}
             </button>
+            <button onClick={exportCSV} aria-label="Export list as CSV"
+              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
+              ↓ Export
+            </button>
             <button onClick={signOut} aria-label="Sign out"
               className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
               Sign out
@@ -420,11 +547,34 @@ export default function Home() {
               onRecommend={getRecommendations}
               onSync={runSync}
               onSignOut={signOut}
+              onExport={exportCSV}
               loadingRec={loadingRec}
               syncing={syncing}
             />
           </div>
         </div>
+
+        {/* Chapter notifications banner */}
+        {notifications.length > 0 && (
+          <div className="mb-5 bg-violet-900/30 border border-violet-500/40 rounded-xl p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-violet-300 mb-1">📬 New chapters available!</p>
+                <div className="space-y-0.5">
+                  {notifications.map(n => (
+                    <p key={n.id} className="text-xs text-zinc-400">
+                      <span className="text-white">{n.title}</span>
+                      {n.previous_chapters && <span> · {n.previous_chapters} → </span>}
+                      <span className="text-emerald-400">{n.new_chapters} chapters</span>
+                    </p>
+                  ))}
+                </div>
+              </div>
+              <button onClick={dismissNotifications} aria-label="Dismiss notifications"
+                className="text-zinc-600 hover:text-zinc-400 shrink-0 text-lg">×</button>
+            </div>
+          </div>
+        )}
 
         {/* Add form */}
         {showAdd && (
@@ -510,7 +660,10 @@ export default function Home() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm leading-snug truncate">{m.title}</div>
+                    <button onClick={() => setSelectedManga(m)}
+                      className="font-medium text-sm leading-snug truncate text-left w-full hover:text-violet-300 transition-colors">
+                      {m.title}
+                    </button>
 
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <select
@@ -684,6 +837,18 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Detail modal */}
+      {selectedManga && (
+        <DetailModal
+          manga={selectedManga}
+          onClose={() => setSelectedManga(null)}
+          onStatusChange={(id, status) => {
+            updateStatus(id, status)
+            setSelectedManga(prev => prev ? { ...prev, status } : null)
+          }}
+        />
+      )}
 
       {/* Toast */}
       {toast && (

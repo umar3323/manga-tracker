@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import { supabase, type MangaStatus } from '@/lib/supabase'
-import { searchManga, getAnimeAdaptations, type JikanSearchResult } from '@/lib/jikan'
+import { searchManga, getAnimeAdaptations, getMangaById, type JikanSearchResult } from '@/lib/jikan'
 
 const STATUS_OPTIONS: { value: MangaStatus; label: string }[] = [
   { value: 'reading',      label: 'Currently Reading' },
@@ -13,6 +13,11 @@ const STATUS_OPTIONS: { value: MangaStatus; label: string }[] = [
   { value: 'dropped',      label: 'Dropped'            },
 ]
 
+const MAL_STATUS: Record<string, MangaStatus> = {
+  'Reading': 'reading', 'Completed': 'completed',
+  'On-Hold': 'on_hold', 'Dropped': 'dropped', 'Plan to Read': 'plan_to_read',
+}
+
 export default function SearchPage() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<JikanSearchResult[]>([])
@@ -21,20 +26,75 @@ export default function SearchPage() {
   const [added, setAdded] = useState<Set<number>>(new Set())
   const [toast, setToast] = useState('')
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importResults, setImportResults] = useState<{ added: number; skipped: number } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const showToast = (msg: string) => {
     setToast(msg)
-    setTimeout(() => setToast(''), 3000)
+    setTimeout(() => setToast(''), 4000)
   }
 
+  // Detect if query is a MAL URL and resolve it directly
   const doSearch = useCallback(async () => {
     if (!query.trim()) return
     setLoading(true)
     setResults([])
+
+    // Detect MAL URL: myanimelist.net/manga/11977/...
+    const malMatch = query.match(/myanimelist\.net\/manga\/(\d+)/i)
+    if (malMatch) {
+      const manga = await getMangaById(parseInt(malMatch[1], 10))
+      setResults(manga ? [manga] : [])
+      setLoading(false)
+      return
+    }
+
     const res = await searchManga(query.trim())
     setResults(res)
     setLoading(false)
   }, [query])
+
+  const importMALFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    setImportResults(null)
+
+    try {
+      const text = await file.text()
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(text, 'text/xml')
+      const entries = Array.from(doc.querySelectorAll('manga'))
+
+      let addedCount = 0; let skippedCount = 0
+
+      for (const entry of entries) {
+        const title = entry.querySelector('manga_title')?.textContent?.trim()
+        const malId = parseInt(entry.querySelector('manga_mangadb_id')?.textContent ?? '0', 10)
+        const rawStatus = entry.querySelector('my_status')?.textContent?.trim() ?? ''
+        const chapters = parseInt(entry.querySelector('my_read_chapters')?.textContent ?? '0', 10)
+        const status: MangaStatus = MAL_STATUS[rawStatus] ?? 'plan_to_read'
+
+        if (!title || !malId) { skippedCount++; continue }
+
+        const { error } = await supabase.from('manga_list').insert({
+          mal_id: malId, title, current_chapter: chapters, status,
+        })
+        if (error?.code === '23505') skippedCount++  // already exists
+        else if (error) skippedCount++
+        else addedCount++
+      }
+
+      setImportResults({ added: addedCount, skipped: skippedCount })
+      showToast(`Imported ${addedCount} manga${skippedCount > 0 ? `, ${skippedCount} skipped (already in list)` : ''}`)
+    } catch {
+      showToast('Failed to parse MAL export file')
+    } finally {
+      setImporting(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
 
   const addManga = async (manga: JikanSearchResult, status: MangaStatus) => {
     setAdding(manga.mal_id)
@@ -87,22 +147,33 @@ export default function SearchPage() {
         <h1 className="text-2xl font-bold mb-6">Search Manga</h1>
 
         {/* Search bar */}
-        <div className="flex gap-2 mb-8">
-          <input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
+        <div className="flex gap-2 mb-3">
+          <input value={query} onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && doSearch()}
-            placeholder="Search by title…"
-            autoFocus
-            className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
+            placeholder="Title or paste a MAL URL…" autoFocus
+            className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
           />
-          <button
-            onClick={doSearch}
-            disabled={loading || !query.trim()}
-            className="px-6 py-3 bg-white text-black rounded-lg text-sm font-medium hover:bg-zinc-200 disabled:opacity-40 transition-colors"
-          >
+          <button onClick={doSearch} disabled={loading || !query.trim()}
+            className="px-6 py-3 bg-white text-black rounded-xl text-sm font-medium hover:bg-zinc-200 disabled:opacity-40 transition-colors">
             {loading ? '…' : 'Search'}
           </button>
+        </div>
+
+        {/* MAL import */}
+        <div className="flex items-center gap-3 mb-8">
+          <span className="text-xs text-zinc-600">or</span>
+          <label className={`flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 cursor-pointer transition-colors ${importing ? 'opacity-40 pointer-events-none' : ''}`}>
+            <span>📥</span>
+            {importing ? 'Importing…' : 'Import MAL export (XML)'}
+            <input ref={fileRef} type="file" accept=".xml" className="hidden" onChange={importMALFile} />
+          </label>
+          {importResults && (
+            <span className="text-xs text-emerald-400">{importResults.added} added · {importResults.skipped} skipped</span>
+          )}
+          <a href="https://myanimelist.net/panel.php?go=export" target="_blank" rel="noopener noreferrer"
+            className="text-xs text-zinc-700 hover:text-zinc-500 ml-auto transition-colors">
+            Get MAL export ↗
+          </a>
         </div>
 
         {/* Results */}
