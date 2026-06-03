@@ -110,7 +110,7 @@ export default function Sidebar() {
         }}>
           <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: '#fff', lineHeight: 1 }}>Y</span>
         </div>
-        <span style={{ fontFamily: "'Osaka Pulse', var(--font-display)", fontSize: 34, letterSpacing: '1px', color: 'var(--fg-1)', lineHeight: 1 }}>
+        <span style={{ fontFamily: "'Osaka Pulse', var(--font-display)", fontSize: 34, letterSpacing: '1px', color: 'var(--fg-1)', lineHeight: 1, position: 'relative', top: 4 }}>
           YOMU<span style={{ color: 'var(--vermillion)' }}>.</span>
         </span>
       </div>
