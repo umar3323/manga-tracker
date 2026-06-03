@@ -121,6 +121,7 @@ export default function SearchPage() {
         cover_url: manga.cover_url,
         total_chapters: manga.total_chapters,
         authors: manga.authors ?? [],
+        genres: manga.genres ?? [],
         has_anime,
         anime_mal_id,
         anime_title,

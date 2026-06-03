@@ -12,6 +12,7 @@ export interface Manga {
   mal_id: number | null
   title: string
   authors: Author[]
+  genres: string[]
   current_chapter: number
   status: MangaStatus
   cover_url: string | null

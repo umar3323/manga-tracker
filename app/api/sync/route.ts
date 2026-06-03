@@ -73,6 +73,17 @@ export async function POST() {
         changes.push(`authors: ${freshAuthors.map((a: { name: string }) => a.name).join(', ')}`)
       }
 
+      // Genres
+      const freshGenres = [
+        ...((d.genres as { name: string }[]) ?? []),
+        ...((d.themes as { name: string }[]) ?? []),
+      ].map((g: { name: string }) => g.name)
+      const currentGenres = (m as Record<string, unknown>).genres as string[] ?? []
+      if (freshGenres.length > 0 && currentGenres.length === 0) {
+        updates.genres = freshGenres
+        changes.push(`genres: ${freshGenres.slice(0, 3).join(', ')}`)
+      }
+
       // ── 2. Total / latest chapters ──────────────────────────────────────
       const officialChapters: number | null = d.chapters ?? null
       const isCompleted = d.status === 'Finished'

@@ -22,10 +22,9 @@ export default function Sidebar() {
   const [weekChapters, setWeekChapters] = useState(0)
   const [goal, setGoal] = useState(10)
 
-  if (path === '/login') return null
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks
+  // Effect always runs — guards itself for login page
   useEffect(() => {
+    if (path === '/login') return
     const saved = localStorage.getItem(GOAL_KEY)
     if (saved) setGoal(parseInt(saved, 10))
 
@@ -63,9 +62,12 @@ export default function Sidebar() {
         }
         setStreak(s)
       })
-  }, [])
+  }, [path])
 
   const goalPct = Math.min(100, Math.round((weekChapters / goal) * 100))
+
+  // Render-level guard — all hooks above have already run
+  if (path === '/login') return null
 
   return (
     <aside className="hidden lg:flex flex-col w-64 shrink-0 min-h-screen bg-[#0d0d0d] border-r border-zinc-800 sticky top-0 overflow-y-auto">

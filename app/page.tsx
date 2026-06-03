@@ -113,8 +113,9 @@ function MarkdownBold({ text }: { text: string }) {
 }
 
 /** Manga detail modal */
-function DetailModal({ manga, onClose, onStatusChange }: {
+function DetailModal({ manga, allManga, onClose, onStatusChange }: {
   manga: Manga
+  allManga: Manga[]
   onClose: () => void
   onStatusChange: (id: string, status: MangaStatus) => void
 }) {
@@ -183,6 +184,43 @@ function DetailModal({ manga, onClose, onStatusChange }: {
               <p className="text-xs text-zinc-400 leading-relaxed">{manga.notes}</p>
             </div>
           )}
+
+          {/* Similar titles from your list */}
+          {(() => {
+            if (!manga.genres?.length) return null
+            const myGenres = new Set(manga.genres)
+            const similar = allManga
+              .filter(m => m.id !== manga.id && m.genres?.length)
+              .map(m => {
+                const overlap = m.genres.filter(g => myGenres.has(g)).length
+                const score = overlap / Math.max(myGenres.size, m.genres.length)
+                return { m, score }
+              })
+              .filter(({ score }) => score > 0)
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 4)
+            if (!similar.length) return null
+            return (
+              <div className="mb-4">
+                <p className="text-xs font-medium text-zinc-500 mb-2">Similar in your list</p>
+                <div className="space-y-1.5">
+                  {similar.map(({ m, score }) => (
+                    <div key={m.id} className="flex items-center gap-2.5 bg-zinc-800 rounded-xl px-3 py-2">
+                      {m.cover_url && <img src={m.cover_url} alt="" className="w-7 h-9 object-cover rounded shrink-0" />}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium truncate">{m.title}</p>
+                        <p className="text-xs text-zinc-600">
+                          {m.genres.filter(g => myGenres.has(g)).slice(0, 2).join(', ')}
+                        </p>
+                      </div>
+                      <span className="text-xs text-violet-400 shrink-0">{Math.round(score * 100)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
+
           <button onClick={onClose}
             className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300 transition-colors">
             Close
@@ -1070,6 +1108,7 @@ export default function Home() {
       {selectedManga && (
         <DetailModal
           manga={selectedManga}
+          allManga={manga}
           onClose={() => setSelectedManga(null)}
           onStatusChange={(id, status) => {
             updateStatus(id, status)
