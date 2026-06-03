@@ -5,6 +5,67 @@ import Image from 'next/image'
 import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
 import { fetchMangaInfo } from '@/lib/jikan'
 
+/** Click the number to type directly. Enter or blur saves; Escape cancels. */
+function EditableNumber({
+  value,
+  onSave,
+  label,
+  className = '',
+}: {
+  value: number
+  onSave: (n: number) => void
+  label?: string
+  className?: string
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }
+  }, [editing])
+
+  const start = () => { setDraft(String(value)); setEditing(true) }
+
+  const commit = () => {
+    const n = parseInt(draft, 10)
+    if (!isNaN(n) && n >= 0) onSave(n)
+    setEditing(false)
+  }
+
+  const cancel = () => setEditing(false)
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="number"
+        value={draft}
+        min={0}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }}
+        onBlur={commit}
+        aria-label={label}
+        className={`text-center font-mono bg-zinc-700 border border-zinc-500 rounded outline-none text-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${className}`}
+      />
+    )
+  }
+
+  return (
+    <button
+      onClick={start}
+      title="Click to type a number"
+      aria-label={label}
+      className={`font-mono tabular-nums text-zinc-300 hover:text-white hover:bg-zinc-700 rounded cursor-text transition-colors ${className}`}
+    >
+      {value}
+    </button>
+  )
+}
+
 const STATUS_LABELS: Record<MangaStatus, string> = {
   reading:      'Reading',
   completed:    'Completed',
@@ -473,9 +534,16 @@ export default function Home() {
                         <span className="text-xs text-zinc-600 truncate">{m.anime_title ?? 'Anime'}</span>
                         <div className="flex items-center gap-1 ml-auto shrink-0">
                           <button onClick={() => updateEpisodes(m.id, -1, m.episodes_watched)} aria-label="Decrease episode" className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
-                          <span className="text-xs font-mono tabular-nums text-zinc-400 w-14 text-center">
-                            ep {m.episodes_watched}{m.total_episodes ? `/${m.total_episodes}` : ''}
-                          </span>
+                          <span className="text-xs text-zinc-500 font-mono">ep</span>
+                          <EditableNumber
+                            value={m.episodes_watched}
+                            onSave={n => updateEpisodes(m.id, n - m.episodes_watched, m.episodes_watched)}
+                            label={`Episodes watched for ${m.title}`}
+                            className="w-8 text-xs py-0.5"
+                          />
+                          {m.total_episodes && (
+                            <span className="text-xs text-zinc-600 font-mono">/{m.total_episodes}</span>
+                          )}
                           <button onClick={() => updateEpisodes(m.id, 1, m.episodes_watched)} aria-label="Increase episode" className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
                         </div>
                       </div>
@@ -507,9 +575,12 @@ export default function Home() {
                         >
                           −
                         </button>
-                        <span className="w-10 text-center text-xs font-mono tabular-nums text-zinc-300" aria-label={`Chapter ${m.current_chapter}`}>
-                          {m.current_chapter}
-                        </span>
+                        <EditableNumber
+                          value={m.current_chapter}
+                          onSave={n => updateChapter(m.id, n - m.current_chapter, m.current_chapter)}
+                          label={`Chapter for ${m.title}`}
+                          className="w-10 text-xs py-0.5"
+                        />
                         <button
                           onClick={() => updateChapter(m.id, 1, m.current_chapter)}
                           aria-label={`Increase chapter for ${m.title}`}
