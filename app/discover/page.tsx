@@ -188,17 +188,14 @@ export default function DiscoverPage() {
 
         {!loading && !error && queue.length > 0 && (
           <>
-            {/* Card stack */}
-            <div className="relative h-[520px] mb-6">
-              {/* Background card (next) */}
+            {/* Card stack — adapts to viewport height on mobile */}
+            <div className="relative mb-5" style={{ height: 'min(520px, calc(100dvh - 260px))' }}>
               {next && (
                 <div className="absolute inset-0 rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 scale-95 opacity-60 pointer-events-none" />
               )}
-
-              {/* Active card */}
               <div
                 ref={cardRef}
-                className="absolute inset-0 rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 cursor-grab active:cursor-grabbing"
+                className="absolute inset-0 rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 cursor-grab active:cursor-grabbing touch-none"
                 style={{
                   transform: `translateX(${dragX}px) rotate(${rotation}deg)`,
                   transition: isDragging ? 'none' : 'transform 0.3s ease',
@@ -209,53 +206,30 @@ export default function DiscoverPage() {
                 onTouchMove={onTouchMove}
                 onTouchEnd={onTouchEnd}
               >
-                {/* Cover — top half */}
-                <div className="relative h-64 bg-zinc-800">
+                {/* Cover — top 55% */}
+                <div className="relative bg-zinc-800" style={{ height: '55%' }}>
                   {current.cover_url ? (
-                    <Image
-                      src={current.cover_url}
-                      alt={current.title}
-                      fill
-                      className="object-cover pointer-events-none"
-                      unoptimized
-                    />
+                    <Image src={current.cover_url} alt={current.title} fill
+                      className="object-cover pointer-events-none" unoptimized />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-zinc-700">No cover</div>
                   )}
-
-                  {/* LIKE overlay */}
-                  <div
-                    className="absolute inset-0 bg-emerald-500/20 flex items-center justify-center pointer-events-none"
-                    style={{ opacity: likeOpacity }}
-                  >
-                    <div className="border-4 border-emerald-400 text-emerald-400 text-4xl font-black px-4 py-1 rounded-xl rotate-[-15deg]">
-                      LIKE
-                    </div>
+                  <div className="absolute inset-0 bg-emerald-500/20 flex items-center justify-center pointer-events-none" style={{ opacity: likeOpacity }}>
+                    <div className="border-4 border-emerald-400 text-emerald-400 text-4xl font-black px-4 py-1 rounded-xl -rotate-12">LIKE</div>
                   </div>
-                  {/* SKIP overlay */}
-                  <div
-                    className="absolute inset-0 bg-red-500/20 flex items-center justify-center pointer-events-none"
-                    style={{ opacity: skipOpacity }}
-                  >
-                    <div className="border-4 border-red-400 text-red-400 text-4xl font-black px-4 py-1 rounded-xl rotate-[15deg]">
-                      SKIP
-                    </div>
+                  <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center pointer-events-none" style={{ opacity: skipOpacity }}>
+                    <div className="border-4 border-red-400 text-red-400 text-4xl font-black px-4 py-1 rounded-xl rotate-12">SKIP</div>
                   </div>
                 </div>
-
-                {/* Info — bottom half */}
-                <div className="p-4 overflow-y-auto h-[256px]">
+                {/* Info — bottom 45% */}
+                <div className="p-4 overflow-y-auto" style={{ height: '45%' }}>
                   <div className="font-bold text-base leading-snug mb-2">{current.title}</div>
-
                   <div className="flex flex-wrap gap-1 mb-3">
                     {current.genres.slice(0, 5).map(g => (
                       <span key={g} className="text-xs px-2 py-0.5 bg-zinc-800 text-zinc-400 rounded-full">{g}</span>
                     ))}
-                    {current.score && (
-                      <span className="text-xs px-2 py-0.5 bg-zinc-800 text-yellow-400 rounded-full">★ {current.score}</span>
-                    )}
+                    {current.score && <span className="text-xs px-2 py-0.5 bg-zinc-800 text-yellow-400 rounded-full">★ {current.score}</span>}
                   </div>
-
                   {current.synopsis && (
                     <p className="text-xs text-zinc-400 leading-relaxed">
                       {current.synopsis.slice(0, 280)}{current.synopsis.length > 280 ? '…' : ''}
@@ -265,30 +239,24 @@ export default function DiscoverPage() {
               </div>
             </div>
 
-            {/* Action buttons */}
-            <div className="flex items-center justify-center gap-6">
-              <button
-                onClick={() => commitSwipe('left', current)}
-                aria-label="Skip"
-                className="w-16 h-16 rounded-full bg-zinc-900 border-2 border-red-500/50 flex items-center justify-center text-2xl hover:bg-red-500/10 hover:border-red-500 transition-colors"
-              >
+            {/* Action buttons — bigger on mobile for easier tapping */}
+            <div className="flex items-center justify-center gap-8">
+              <button onClick={() => commitSwipe('left', current)} aria-label="Skip"
+                className="w-20 h-20 md:w-16 md:h-16 rounded-full bg-zinc-900 border-2 border-red-500/50 flex items-center justify-center text-3xl md:text-2xl hover:bg-red-500/10 hover:border-red-500 active:scale-95 transition-all">
                 ✕
               </button>
-              <div className="text-xs text-zinc-600 text-center">
+              <div className="text-xs text-zinc-600 text-center leading-relaxed">
                 <div>← Skip</div>
                 <div>Like →</div>
               </div>
-              <button
-                onClick={() => commitSwipe('right', current)}
-                aria-label="Like"
-                className="w-16 h-16 rounded-full bg-zinc-900 border-2 border-emerald-500/50 flex items-center justify-center text-2xl hover:bg-emerald-500/10 hover:border-emerald-500 transition-colors"
-              >
+              <button onClick={() => commitSwipe('right', current)} aria-label="Like"
+                className="w-20 h-20 md:w-16 md:h-16 rounded-full bg-zinc-900 border-2 border-emerald-500/50 flex items-center justify-center text-3xl md:text-2xl hover:bg-emerald-500/10 hover:border-emerald-500 active:scale-95 transition-all">
                 ♥
               </button>
             </div>
-
             <p className="text-center text-xs text-zinc-700 mt-3">
-              Drag card · Tap buttons · ← → arrows
+              <span className="md:hidden">Swipe the card or tap the buttons</span>
+              <span className="hidden md:inline">Drag card · Tap buttons · ← → arrows</span>
             </p>
           </>
         )}

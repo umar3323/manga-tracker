@@ -111,6 +111,40 @@ function MarkdownBold({ text }: { text: string }) {
   )
 }
 
+function MobileMenu({ onRecommend, onSync, onSignOut, loadingRec, syncing }: {
+  onRecommend: () => void; onSync: () => void; onSignOut: () => void
+  loadingRec: boolean; syncing: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(v => !v)} aria-label="More actions"
+        className="w-10 h-10 rounded-xl bg-zinc-800 text-zinc-300 text-xl flex items-center justify-center hover:bg-zinc-700">
+        ⋮
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-12 z-20 bg-zinc-800 border border-zinc-700 rounded-xl overflow-hidden shadow-xl w-44">
+            <button onClick={() => { onRecommend(); setOpen(false) }} disabled={loadingRec}
+              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40">
+              <span>✦</span> {loadingRec ? 'Thinking…' : 'Recommend'}
+            </button>
+            <button onClick={() => { onSync(); setOpen(false) }} disabled={syncing}
+              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40 border-t border-zinc-700">
+              <span>⟳</span> {syncing ? 'Syncing…' : 'Sync from MAL'}
+            </button>
+            <button onClick={() => { onSignOut(); setOpen(false) }}
+              className="w-full px-4 py-3 text-sm text-left text-zinc-400 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
+              <span>↩</span> Sign out
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function RecommendationText({ text }: { text: string }) {
   return (
     <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
@@ -347,120 +381,105 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#0d0d0d] text-white">
-      <div className="max-w-3xl mx-auto px-4 py-10">
+      <div className="max-w-3xl mx-auto px-4 py-6 md:py-10">
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        {/* Header — responsive */}
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Manga Tracker</h1>
-            <p className="text-zinc-500 text-sm mt-1">{manga.length} titles</p>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Manga Tracker</h1>
+            <p className="text-zinc-500 text-xs md:text-sm mt-0.5">{manga.length} titles</p>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={getRecommendations}
-              disabled={manga.length === 0}
-              aria-label="Get AI manga recommendations"
-              className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 disabled:opacity-40 transition-colors"
-            >
+
+          {/* Desktop actions (all visible) */}
+          <div className="hidden md:flex gap-2">
+            <button onClick={getRecommendations} disabled={manga.length === 0} aria-label="Get AI recommendations"
+              className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 disabled:opacity-40 transition-colors">
               {loadingRec ? 'Thinking…' : '✦ Recommend'}
             </button>
-            <button
-              onClick={() => setShowAdd(v => !v)}
-              aria-label="Add manga"
-              className="px-4 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-zinc-200 transition-colors"
-            >
+            <button onClick={() => setShowAdd(v => !v)} aria-label="Add manga"
+              className="px-4 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-zinc-200 transition-colors">
               + Add
             </button>
-            <button
-              onClick={runSync}
-              disabled={syncing}
-              aria-label="Sync metadata from MAL"
-              title="Refresh chapter counts, covers, and anime info from MyAnimeList"
-              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white disabled:opacity-40 transition-colors"
-            >
+            <button onClick={runSync} disabled={syncing} aria-label="Sync from MAL"
+              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white disabled:opacity-40 transition-colors">
               {syncing ? '⟳ Syncing…' : '⟳ Sync'}
             </button>
-            <button
-              onClick={signOut}
-              aria-label="Sign out"
-              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors"
-            >
+            <button onClick={signOut} aria-label="Sign out"
+              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
               Sign out
             </button>
+          </div>
+
+          {/* Mobile actions (compact) */}
+          <div className="flex md:hidden gap-2">
+            <button onClick={() => setShowAdd(v => !v)} aria-label="Add manga"
+              className="w-10 h-10 rounded-xl bg-white text-black text-lg font-medium hover:bg-zinc-200 transition-colors flex items-center justify-center">
+              +
+            </button>
+            <MobileMenu
+              onRecommend={getRecommendations}
+              onSync={runSync}
+              onSignOut={signOut}
+              loadingRec={loadingRec}
+              syncing={syncing}
+            />
           </div>
         </div>
 
         {/* Add form */}
         {showAdd && (
-          <div className="mb-6 flex gap-2">
-            <input
-              autoFocus
-              value={newTitle}
+          <div className="mb-5 flex gap-2">
+            <input autoFocus value={newTitle}
               onChange={e => setNewTitle(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') addManga()
-                if (e.key === 'Escape') { setShowAdd(false); setNewTitle('') }
-              }}
-              placeholder="Manga title…"
-              aria-label="New manga title"
-              className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
+              onKeyDown={e => { if (e.key === 'Enter') addManga(); if (e.key === 'Escape') { setShowAdd(false); setNewTitle('') } }}
+              placeholder="Manga title…" aria-label="New manga title"
+              className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
             />
-            <button
-              onClick={addManga}
-              disabled={adding || !newTitle.trim()}
-              className="px-4 py-2 rounded-lg bg-white text-black text-sm font-medium disabled:opacity-40"
-            >
+            <button onClick={addManga} disabled={adding || !newTitle.trim()}
+              className="px-5 py-3 rounded-xl bg-white text-black text-sm font-medium disabled:opacity-40">
               {adding ? '…' : 'Add'}
             </button>
           </div>
         )}
 
-        {/* Stats */}
-        <div className="grid grid-cols-4 gap-2 mb-6">
+        {/* Stats — 2 cols on mobile, 5 on desktop */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-5">
           {(Object.keys(STATUS_LABELS) as MangaStatus[]).map(s => (
-            <div key={s} className="bg-zinc-900 rounded-lg p-3 text-center">
+            <button key={s} onClick={() => setFilter(filter === s ? 'all' : s)}
+              className={`rounded-xl p-3 text-center transition-colors ${filter === s ? 'bg-white text-black' : 'bg-zinc-900 hover:bg-zinc-800'}`}>
               <div className="text-xl font-bold">{counts[s] ?? 0}</div>
-              <div className="text-xs text-zinc-500 mt-0.5">{STATUS_LABELS[s]}</div>
-            </div>
+              <div className={`text-xs mt-0.5 ${filter === s ? 'text-zinc-600' : 'text-zinc-500'}`}>{STATUS_LABELS[s]}</div>
+            </button>
           ))}
         </div>
 
-        {/* Controls: filter + search + sort */}
-        <div className="flex flex-wrap gap-3 mb-6 items-center">
-          <div className="flex gap-1 bg-zinc-900 p-1 rounded-lg" role="group" aria-label="Filter by status">
-            {(['all', ...Object.keys(STATUS_LABELS)] as (MangaStatus | 'all')[]).map(s => (
-              <button
-                key={s}
-                onClick={() => setFilter(s)}
-                aria-pressed={filter === s}
-                className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
-                  filter === s ? 'bg-white text-black font-medium' : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                {s === 'all' ? 'All' : STATUS_LABELS[s as MangaStatus]}
-              </button>
-            ))}
+        {/* Controls — stacked on mobile */}
+        <div className="flex flex-col gap-2 mb-5 md:flex-row md:items-center md:flex-wrap md:gap-3">
+          {/* Filter tabs — horizontal scroll on mobile */}
+          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+            <div className="flex gap-1 bg-zinc-900 p-1 rounded-xl w-fit min-w-full md:min-w-0" role="group" aria-label="Filter by status">
+              {(['all', ...Object.keys(STATUS_LABELS)] as (MangaStatus | 'all')[]).map(s => (
+                <button key={s} onClick={() => setFilter(s)} aria-pressed={filter === s}
+                  className={`px-3 py-2 rounded-lg text-sm whitespace-nowrap transition-colors ${filter === s ? 'bg-white text-black font-medium' : 'text-zinc-400 hover:text-white'}`}>
+                  {s === 'all' ? 'All' : STATUS_LABELS[s as MangaStatus]}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => e.key === 'Escape' && setSearch('')}
-            placeholder="Search…"
-            aria-label="Search manga"
-            className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-zinc-600 placeholder:text-zinc-600 w-36"
-          />
-
-          <select
-            value={sort}
-            onChange={e => setSort(e.target.value as SortKey)}
-            aria-label="Sort order"
-            className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm text-zinc-300 outline-none cursor-pointer"
-          >
-            <option value="last_read">Recently read</option>
-            <option value="title">A → Z</option>
-            <option value="chapter">Most chapters</option>
-          </select>
+          <div className="flex gap-2">
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => e.key === 'Escape' && setSearch('')}
+              placeholder="Search…" aria-label="Search manga"
+              className="flex-1 md:w-36 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-sm outline-none focus:border-zinc-600 placeholder:text-zinc-600"
+            />
+            <select value={sort} onChange={e => setSort(e.target.value as SortKey)} aria-label="Sort order"
+              className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-300 outline-none cursor-pointer">
+              <option value="last_read">Recent</option>
+              <option value="title">A → Z</option>
+              <option value="chapter">Chapters</option>
+            </select>
+          </div>
         </div>
 
         {/* List */}
