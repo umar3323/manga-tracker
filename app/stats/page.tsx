@@ -347,6 +347,66 @@ export default function StatsPage() {
         )}
         </div>{/* end two-column grid */}
 
+        {/* Taste profile */}
+        {(() => {
+          // Genre breakdown by chapters read
+          const genreChapters: Record<string, number> = {}
+          for (const m of manga) {
+            if (!m.genres?.length || !m.current_chapter) continue
+            for (const g of m.genres) {
+              genreChapters[g] = (genreChapters[g] ?? 0) + m.current_chapter
+            }
+          }
+          const topGenres = Object.entries(genreChapters).sort((a, b) => b[1] - a[1]).slice(0, 6)
+          if (!topGenres.length) return null
+          const maxG = topGenres[0][1]
+
+          // Reading personality
+          const topGenre = topGenres[0]?.[0] ?? ''
+          const personality: Record<string, string> = {
+            Action: '⚔️ Battle-hungry',    Fantasy: '🧙 World-builder',
+            Romance: '💝 Heart-seeker',     Horror: '👻 Thrill-chaser',
+            Comedy: '😄 Laughter-seeker',  Psychological: '🧠 Mind-explorer',
+            Shounen: '🔥 Determined soul', Seinen: '🎯 Thoughtful reader',
+            'Sci-Fi': '🚀 Future-gazer',   Drama: '🎭 Story-chaser',
+          }
+
+          // Reading speed
+          const activeDaysCount = new Set(log.map(l => new Date(l.logged_at).toDateString())).size
+          const avgPerActiveDay = activeDaysCount > 0
+            ? Math.round(log.reduce((s, l) => s + l.chapters_read, 0) / activeDaysCount)
+            : 0
+
+          return (
+            <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+              <h2 className="text-sm font-semibold mb-1">Your reading DNA</h2>
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-2xl">{personality[topGenre]?.split(' ')[0] ?? '📚'}</span>
+                <div>
+                  <p className="text-sm font-medium text-white">{personality[topGenre]?.split(' ').slice(1).join(' ') ?? 'Avid reader'}</p>
+                  <p className="text-xs text-zinc-500">
+                    {avgPerActiveDay > 0 ? `${avgPerActiveDay} chapters per active day` : 'Start logging chapters to see pace'}
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {topGenres.map(([genre, chapters]) => (
+                  <div key={genre} className="flex items-center gap-3">
+                    <span className="text-xs text-zinc-400 w-28 shrink-0 truncate">{genre}</span>
+                    <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-violet-500 rounded-full transition-all"
+                        style={{ width: `${(chapters / maxG) * 100}%` }} />
+                    </div>
+                    <span className="text-xs text-zinc-500 w-16 text-right shrink-0">
+                      {chapters.toLocaleString()} ch
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
+
         {/* All-time totals */}
         <div className="bg-zinc-900 rounded-xl p-5">
           <h2 className="text-sm font-semibold mb-4">All time</h2>

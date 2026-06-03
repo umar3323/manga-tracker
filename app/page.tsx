@@ -548,8 +548,48 @@ function ShelfPicker({ manga, onClose }: { manga: Manga; onClose: () => void }) 
   )
 }
 
-function MobileMenu({ onRecommend, onSync, onSignOut, onExport, loadingRec, syncing }: {
-  onRecommend: () => void; onSync: () => void; onSignOut: () => void; onExport: () => void
+function ShareModal({ token, enabled, onToggle, onClose }: {
+  token: string | null; enabled: boolean; onToggle: () => void; onClose: () => void
+}) {
+  const shareUrl = token ? `${typeof window !== 'undefined' ? window.location.origin : ''}/share/${token}` : null
+  const copy = () => { if (shareUrl) { navigator.clipboard.writeText(shareUrl); } }
+  return (
+    <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-2xl w-full lg:max-w-sm p-5"
+        onClick={e => e.stopPropagation()}>
+        <h2 className="font-semibold mb-1">Share your list</h2>
+        <p className="text-xs text-zinc-500 mb-4">Generate a public read-only link to your manga list.</p>
+        <div className="flex items-center justify-between bg-zinc-800 rounded-xl px-4 py-3 mb-4">
+          <span className="text-sm font-medium">Sharing {enabled ? 'on' : 'off'}</span>
+          <button onClick={onToggle}
+            className={`w-12 h-6 rounded-full transition-colors relative ${enabled ? 'bg-emerald-500' : 'bg-zinc-600'}`}>
+            <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${enabled ? 'translate-x-7' : 'translate-x-1'}`} />
+          </button>
+        </div>
+        {enabled && shareUrl && (
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <input readOnly value={shareUrl}
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-300 outline-none" />
+              <button onClick={copy} className="px-3 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-xl text-xs text-zinc-300">
+                Copy
+              </button>
+            </div>
+            <a href={shareUrl} target="_blank" rel="noopener noreferrer"
+              className="block text-xs text-violet-400 hover:text-violet-300">
+              Preview ↗
+            </a>
+          </div>
+        )}
+        <button onClick={onClose} className="mt-4 w-full py-2 text-xs text-zinc-600 hover:text-zinc-400">Close</button>
+      </div>
+    </div>
+  )
+}
+
+function MobileMenu({ onRecommend, onSync, onSignOut, onExport, onShare, loadingRec, syncing }: {
+  onRecommend: () => void; onSync: () => void; onSignOut: () => void; onExport: () => void; onShare: () => void
   loadingRec: boolean; syncing: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -574,6 +614,10 @@ function MobileMenu({ onRecommend, onSync, onSignOut, onExport, loadingRec, sync
             <button onClick={() => { onExport(); setOpen(false) }}
               className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
               <span>↓</span> Export CSV
+            </button>
+            <button onClick={() => { onShare(); setOpen(false) }}
+              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
+              <span>🔗</span> Share list
             </button>
             <button onClick={() => { onSignOut(); setOpen(false) }}
               className="w-full px-4 py-3 text-sm text-left text-zinc-400 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
@@ -621,6 +665,11 @@ export default function Home() {
   const [selectedManga, setSelectedManga] = useState<Manga | null>(null)
   const [shelfPickerManga, setShelfPickerManga] = useState<Manga | null>(null)
   const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null)
+  const [mood, setMood] = useState<string | null>(null)
+  const [pacePerDay, setPacePerDay] = useState(0)
+  const [shareModal, setShareModal] = useState(false)
+  const [shareToken, setShareToken] = useState<string | null>(null)
+  const [shareEnabled, setShareEnabled] = useState(false)
 
   // Cover fetch tracking — prevents re-fetching on every render
   const fetchedIds = useRef<Set<string>>(new Set())
@@ -647,6 +696,20 @@ export default function Home() {
   }, [])
 
   useEffect(() => { fetchManga() }, [fetchManga])
+
+  // Pace tracking: avg chapters/day over last 30 days
+  useEffect(() => {
+    const ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    supabase.from('reading_log').select('chapters_read').gte('logged_at', ago)
+      .then(({ data }) => {
+        if (!data?.length) return
+        const total = data.reduce((s, l) => s + l.chapters_read, 0)
+        setPacePerDay(total / 30)
+      })
+    // Public share token
+    supabase.from('public_shares').select('token, enabled').limit(1).single()
+      .then(({ data }) => { if (data) { setShareToken(data.token); setShareEnabled(data.enabled) } })
+  }, [])
 
   // Fetch missing covers — tracks fetched IDs in ref to avoid re-fetching
   useEffect(() => {
@@ -749,6 +812,27 @@ export default function Home() {
     const a = document.createElement('a'); a.href = url
     a.download = `manga-list-${new Date().toISOString().slice(0, 10)}.csv`
     a.click(); URL.revokeObjectURL(url)
+  }
+
+  const toggleShare = async () => {
+    if (!shareToken) {
+      const { data } = await supabase.from('public_shares').insert({}).select('token, enabled').single()
+      if (data) { setShareToken(data.token); setShareEnabled(true) }
+    } else {
+      const next = !shareEnabled
+      await supabase.from('public_shares').update({ enabled: next }).eq('token', shareToken)
+      setShareEnabled(next)
+    }
+  }
+
+  const finishEstimate = (m: Manga): string | null => {
+    if (!pacePerDay || !m.total_chapters || m.current_chapter >= m.total_chapters) return null
+    const days = Math.ceil((m.total_chapters - m.current_chapter) / pacePerDay)
+    if (days > 365) return null
+    if (days < 1) return 'today'
+    if (days < 7) return `~${days}d`
+    if (days < 60) return `~${Math.ceil(days / 7)}w`
+    return `~${Math.ceil(days / 30)}mo`
   }
 
   const dismissNotifications = async () => {
@@ -874,9 +958,19 @@ export default function Home() {
     return new Date(b.last_read_at).getTime() - new Date(a.last_read_at).getTime()
   }
 
+  const MOODS: { id: string; label: string; test: (m: Manga) => boolean }[] = [
+    { id: 'quick',     label: '⚡ Quick',      test: m => !!m.total_chapters && m.total_chapters <= 100 },
+    { id: 'epic',      label: '⚔️ Epic',        test: m => !!m.total_chapters && m.total_chapters >= 300 },
+    { id: 'light',     label: '☁️ Light',       test: m => m.genres.some(g => ['Comedy','Slice of Life'].includes(g)) },
+    { id: 'dark',      label: '🌑 Dark',        test: m => m.genres.some(g => ['Horror','Psychological','Thriller'].includes(g)) },
+    { id: 'action',    label: '💥 Action',      test: m => m.genres.some(g => ['Action','Martial Arts'].includes(g)) },
+    { id: 'heartfelt', label: '💙 Heartfelt',   test: m => m.genres.some(g => ['Romance','Drama'].includes(g)) },
+  ]
+
   const filtered = manga
     .filter(m => filter === 'all' || m.status === filter)
     .filter(m => !search || m.title.toLowerCase().includes(search.toLowerCase()))
+    .filter(m => !mood || MOODS.find(mo => mo.id === mood)?.test(m))
     .sort(sortFn)
 
   return (
@@ -908,6 +1002,10 @@ export default function Home() {
               className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
               ↓ Export
             </button>
+            <button onClick={() => setShareModal(true)} aria-label="Share my list"
+              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
+              🔗 Share
+            </button>
             <button onClick={signOut} aria-label="Sign out"
               className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
               Sign out
@@ -925,6 +1023,7 @@ export default function Home() {
               onSync={runSync}
               onSignOut={signOut}
               onExport={exportCSV}
+              onShare={() => setShareModal(true)}
               loadingRec={loadingRec}
               syncing={syncing}
             />
@@ -986,6 +1085,21 @@ export default function Home() {
               <div className={`text-xs mt-0.5 ${filter === s ? 'text-zinc-600' : 'text-zinc-500'}`}>{STATUS_LABELS[s]}</div>
             </button>
           ))}
+        </div>
+
+        {/* Mood filter */}
+        <div className="flex gap-1.5 flex-wrap mb-4">
+          {MOODS.map(mo => (
+            <button key={mo.id} onClick={() => setMood(mood === mo.id ? null : mo.id)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                mood === mo.id
+                  ? 'bg-violet-600/30 border-violet-500/50 text-violet-300'
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'
+              }`}>
+              {mo.label}
+            </button>
+          ))}
+          {mood && <button onClick={() => setMood(null)} className="text-xs text-zinc-600 hover:text-zinc-400 px-2">✕ clear</button>}
         </div>
 
         {/* Controls — stacked on mobile */}
@@ -1082,6 +1196,11 @@ export default function Home() {
                         ))}
                       </select>
                       <span className="text-xs text-zinc-600" aria-label={`Last read ${timeAgo(m.last_read_at)}`}>{timeAgo(m.last_read_at)}</span>
+                      {m.status === 'reading' && finishEstimate(m) && (
+                        <span className="text-xs text-zinc-600" title="Estimated finish at your current reading pace">
+                          🏁 {finishEstimate(m)}
+                        </span>
+                      )}
                       <button
                         onClick={() => toggleNotes(m.id)}
                         aria-label={expandedNotes.has(m.id) ? 'Hide notes' : 'Show notes'}
@@ -1309,6 +1428,11 @@ export default function Home() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Share modal */}
+      {shareModal && (
+        <ShareModal token={shareToken} enabled={shareEnabled} onToggle={toggleShare} onClose={() => setShareModal(false)} />
       )}
 
       {/* Recommendation detail modal */}

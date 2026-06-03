@@ -28,8 +28,9 @@ export async function proxy(request: NextRequest) {
 
   const isLoginPage = request.nextUrl.pathname === '/login'
   const isCallback = request.nextUrl.pathname.startsWith('/auth/')
+  const isPublicShare = request.nextUrl.pathname.startsWith('/share/')
 
-  if (!user && !isLoginPage && !isCallback) {
+  if (!user && !isLoginPage && !isCallback && !isPublicShare) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
