@@ -8,6 +8,7 @@ const tabs = [
   { href: '/search',   label: 'Search',   icon: '🔍' },
   { href: '/discover', label: 'Discover', icon: '✨' },
   { href: '/stats',    label: 'Stats',    icon: '📊' },
+  { href: '/shelves',  label: 'Shelves',  icon: '📂' },
 ]
 
 export default function Nav() {
@@ -16,8 +17,8 @@ export default function Nav() {
 
   return (
     <>
-      {/* Desktop: sticky top bar */}
-      <nav className="hidden md:block sticky top-0 z-50 bg-[#0d0d0d]/90 backdrop-blur border-b border-zinc-800">
+      {/* Desktop top bar — visible on md, hidden on lg+ (sidebar takes over) */}
+      <nav className="hidden md:block lg:hidden sticky top-0 z-50 bg-[#0d0d0d]/90 backdrop-blur border-b border-zinc-800">
         <div className="max-w-3xl mx-auto px-4 flex gap-1 py-2">
           {tabs.map(t => (
             <Link key={t.href} href={t.href}

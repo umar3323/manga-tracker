@@ -144,8 +144,9 @@ export default function SearchPage() {
 
   return (
     <main className="min-h-screen bg-[#0d0d0d] text-white">
-      <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className="max-w-3xl lg:max-w-5xl mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold mb-6">Search Manga</h1>
+
 
         {/* Search bar */}
         <div className="flex gap-2 mb-3">
@@ -186,7 +187,7 @@ export default function SearchPage() {
           <div className="text-zinc-500 text-sm">No results found.</div>
         )}
 
-        <div className="space-y-3">
+        <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
           {results.map(manga => (
             <div key={manga.mal_id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
               <div className="flex gap-4 p-4">

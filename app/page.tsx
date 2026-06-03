@@ -123,9 +123,9 @@ function DetailModal({ manga, onClose, onStatusChange }: {
     dropped: 'Dropped', plan_to_read: 'Plan to Read',
   }
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end lg:items-stretch lg:justify-end" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg max-h-[90vh] overflow-y-auto"
+      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-l-2xl lg:rounded-t-none w-full lg:w-[380px] max-h-[90vh] lg:max-h-none overflow-y-auto"
         onClick={e => e.stopPropagation()}>
         {/* Drag handle on mobile */}
         <div className="flex justify-center pt-3 pb-1 md:hidden">
@@ -283,6 +283,74 @@ function AuthorModal({ author, onClose }: { author: Author; onClose: () => void 
   )
 }
 
+function ShelfPicker({ manga, onClose }: { manga: Manga; onClose: () => void }) {
+  const [shelves, setShelves] = useState<{ id: string; name: string }[]>([])
+  const [adding, setAdding] = useState<string | null>(null)
+  const [added, setAdded] = useState<Set<string>>(new Set())
+  const [newName, setNewName] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  useEffect(() => {
+    supabase.from('shelves').select('id, name').order('created_at').then(({ data }) => {
+      if (data) setShelves(data)
+    })
+  }, [])
+
+  const addToShelf = async (shelfId: string) => {
+    setAdding(shelfId)
+    const { error } = await supabase.from('shelf_manga').insert({ shelf_id: shelfId, manga_id: manga.id })
+    if (!error || error.code === '23505') setAdded(prev => new Set([...prev, shelfId]))
+    setAdding(null)
+  }
+
+  const createAndAdd = async () => {
+    if (!newName.trim()) return
+    setCreating(true)
+    const { data } = await supabase.from('shelves').insert({ name: newName.trim() }).select().single()
+    if (data) {
+      setShelves(prev => [...prev, data])
+      await addToShelf(data.id)
+    }
+    setNewName('')
+    setCreating(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-2xl w-full lg:max-w-sm p-5"
+        onClick={e => e.stopPropagation()}>
+        <h2 className="font-semibold mb-1">Add to shelf</h2>
+        <p className="text-xs text-zinc-500 mb-4 truncate">{manga.title}</p>
+        <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
+          {shelves.length === 0 && <p className="text-xs text-zinc-600">No shelves yet — create one below.</p>}
+          {shelves.map(s => (
+            <button key={s.id} onClick={() => addToShelf(s.id)} disabled={adding === s.id || added.has(s.id)}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-colors ${
+                added.has(s.id) ? 'bg-emerald-900/30 text-emerald-400' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-40'
+              }`}>
+              <span>{s.name}</span>
+              <span>{added.has(s.id) ? '✓' : adding === s.id ? '…' : '+'}</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2 border-t border-zinc-800 pt-4">
+          <input value={newName} onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && createAndAdd()}
+            placeholder="New shelf name…"
+            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
+          />
+          <button onClick={createAndAdd} disabled={creating || !newName.trim()}
+            className="px-4 py-2 bg-white text-black rounded-xl text-sm font-medium disabled:opacity-40">
+            {creating ? '…' : 'Create'}
+          </button>
+        </div>
+        <button onClick={onClose} className="mt-3 w-full py-2 text-xs text-zinc-600 hover:text-zinc-400">Done</button>
+      </div>
+    </div>
+  )
+}
+
 function MobileMenu({ onRecommend, onSync, onSignOut, onExport, loadingRec, syncing }: {
   onRecommend: () => void; onSync: () => void; onSignOut: () => void; onExport: () => void
   loadingRec: boolean; syncing: boolean
@@ -353,6 +421,7 @@ export default function Home() {
   const [syncResults, setSyncResults] = useState<{ updated: number; results: { title: string; changes: string[] }[]; timestamp: string } | null>(null)
   const [notifications, setNotifications] = useState<{ id: string; title: string; new_chapters: number; previous_chapters: number }[]>([])
   const [selectedManga, setSelectedManga] = useState<Manga | null>(null)
+  const [shelfPickerManga, setShelfPickerManga] = useState<Manga | null>(null)
 
   // Cover fetch tracking — prevents re-fetching on every render
   const fetchedIds = useRef<Set<string>>(new Set())
@@ -596,7 +665,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#0d0d0d] text-white">
-      <div className="max-w-3xl mx-auto px-4 py-6 md:py-10">
+      <div className="max-w-3xl lg:max-w-5xl mx-auto px-4 py-6 md:py-10">
 
         {/* Header — responsive */}
         <div className="flex items-center justify-between mb-6">
@@ -730,7 +799,7 @@ export default function Home() {
         ) : filtered.length === 0 ? (
           <div className="text-zinc-500 text-sm">Nothing here.</div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
             {filtered.map(m => (
               <div key={m.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
                 <div className="flex gap-3 p-3">
@@ -878,9 +947,17 @@ export default function Home() {
                           +
                         </button>
                         <button
+                          onClick={() => setShelfPickerManga(m)}
+                          aria-label={`Add ${m.title} to shelf`}
+                          title="Add to shelf"
+                          className="ml-1 text-zinc-700 hover:text-violet-400 transition-colors text-sm leading-none"
+                        >
+                          📂
+                        </button>
+                        <button
                           onClick={() => confirmDelete(m.id)}
                           aria-label={`Delete ${m.title}`}
-                          className="ml-1 text-zinc-700 hover:text-red-400 transition-colors text-lg leading-none"
+                          className="text-zinc-700 hover:text-red-400 transition-colors text-lg leading-none"
                         >
                           ×
                         </button>
@@ -978,6 +1055,11 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Shelf picker */}
+      {shelfPickerManga && (
+        <ShelfPicker manga={shelfPickerManga} onClose={() => setShelfPickerManga(null)} />
+      )}
 
       {/* Author modal */}
       {selectedAuthor && (

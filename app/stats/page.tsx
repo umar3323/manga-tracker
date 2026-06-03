@@ -18,6 +18,102 @@ const GOAL_KEY = 'manga_weekly_goal'
 interface LogEntry { chapters_read: number; logged_at: string }
 interface SwipeEntry { genres: string[]; direction: string }
 
+const HEAT_COLORS = ['bg-zinc-800', 'bg-violet-950', 'bg-violet-700', 'bg-violet-500', 'bg-violet-300']
+
+function ReadingHeatmap({ log }: { log: LogEntry[] }) {
+  const activityMap: Record<string, number> = {}
+  log.forEach(l => {
+    const d = new Date(l.logged_at).toISOString().slice(0, 10)
+    activityMap[d] = (activityMap[d] ?? 0) + l.chapters_read
+  })
+
+  // Build 52-week grid starting from the most recent Sunday ≥ 52 weeks ago
+  const today = new Date()
+  const origin = new Date(today)
+  origin.setDate(today.getDate() - 52 * 7)
+  origin.setDate(origin.getDate() - origin.getDay()) // align to Sunday
+
+  const weeks: { date: string; chapters: number }[][] = []
+  for (let w = 0; w < 53; w++) {
+    const week = []
+    for (let d = 0; d < 7; d++) {
+      const dt = new Date(origin)
+      dt.setDate(origin.getDate() + w * 7 + d)
+      if (dt > today) break
+      const ds = dt.toISOString().slice(0, 10)
+      week.push({ date: ds, chapters: activityMap[ds] ?? 0 })
+    }
+    if (week.length) weeks.push(week)
+  }
+
+  const maxCh = Math.max(...Object.values(activityMap), 1)
+  const level = (ch: number) => {
+    if (!ch) return 0
+    const r = ch / maxCh
+    return r < 0.25 ? 1 : r < 0.5 ? 2 : r < 0.75 ? 3 : 4
+  }
+
+  // Month label positions
+  const monthLabels: { label: string; col: number }[] = []
+  let lastMonth = -1
+  weeks.forEach((week, wi) => {
+    const m = new Date(week[0].date).getMonth()
+    if (m !== lastMonth) {
+      monthLabels.push({ label: new Date(week[0].date).toLocaleDateString('en', { month: 'short' }), col: wi })
+      lastMonth = m
+    }
+  })
+
+  const totalCh = Object.values(activityMap).reduce((s, v) => s + v, 0)
+  const activeDays = Object.values(activityMap).filter(Boolean).length
+
+  return (
+    <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-semibold">Reading calendar</h2>
+        <div className="flex gap-3 text-xs text-zinc-500">
+          <span>{totalCh} chapters</span>
+          <span>{activeDays} active days</span>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        {/* Month labels */}
+        <div className="flex gap-[3px] mb-1 pl-5 text-[10px] text-zinc-600">
+          {weeks.map((_, wi) => {
+            const ml = monthLabels.find(m => m.col === wi)
+            return <div key={wi} className="w-3 shrink-0">{ml?.label ?? ''}</div>
+          })}
+        </div>
+        <div className="flex gap-[3px]">
+          {/* Day labels */}
+          <div className="flex flex-col gap-[3px] mr-1 text-[9px] text-zinc-700">
+            {['S','M','T','W','T','F','S'].map((d, i) => (
+              <div key={i} className={`h-3 flex items-center ${i % 2 ? '' : 'invisible'}`}>{d}</div>
+            ))}
+          </div>
+          {/* Cells */}
+          {weeks.map((week, wi) => (
+            <div key={wi} className="flex flex-col gap-[3px]">
+              {week.map((day, di) => (
+                <div key={di}
+                  className={`w-3 h-3 rounded-sm ${HEAT_COLORS[level(day.chapters)]} transition-colors`}
+                  title={`${day.date}: ${day.chapters} chapter${day.chapters !== 1 ? 's' : ''}`}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+        {/* Legend */}
+        <div className="flex items-center gap-1 mt-2 justify-end">
+          <span className="text-[10px] text-zinc-600">Less</span>
+          {HEAT_COLORS.map((c, i) => <div key={i} className={`w-3 h-3 rounded-sm ${c}`} />)}
+          <span className="text-[10px] text-zinc-600">More</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function StatCard({ value, label, sub }: { value: string | number; label: string; sub?: string }) {
   return (
     <div className="bg-zinc-900 rounded-xl p-4 text-center">
@@ -52,9 +148,10 @@ export default function StatsPage() {
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
+    const oneYearAgo = new Date(Date.now() - 52 * 7 * 24 * 60 * 60 * 1000).toISOString()
     const [{ data: ml }, { data: lg }, { data: sw }] = await Promise.all([
       supabase.from('manga_list').select('*'),
-      supabase.from('reading_log').select('chapters_read, logged_at').order('logged_at', { ascending: false }).limit(500),
+      supabase.from('reading_log').select('chapters_read, logged_at').gte('logged_at', oneYearAgo).order('logged_at', { ascending: false }).limit(5000),
       supabase.from('swipe_history').select('genres, direction').eq('direction', 'right').limit(300),
     ])
     if (ml) setManga(ml as Manga[])
@@ -124,7 +221,7 @@ export default function StatsPage() {
 
   return (
     <main className="min-h-screen bg-[#0d0d0d] text-white">
-      <div className="max-w-3xl mx-auto px-4 py-6">
+      <div className="max-w-3xl lg:max-w-5xl mx-auto px-4 py-6">
         <h1 className="text-2xl md:text-3xl font-bold mb-6">Stats</h1>
 
         {/* Hero stats */}
@@ -143,6 +240,11 @@ export default function StatsPage() {
           </div>
         )}
 
+        {/* Reading calendar heatmap */}
+        <ReadingHeatmap log={log} />
+
+        {/* Two-column layout on lg+ */}
+        <div className="lg:grid lg:grid-cols-2 lg:gap-6">
         {/* Reading goal */}
         <div className="bg-zinc-900 rounded-xl p-5 mb-6">
           <div className="flex items-center justify-between mb-4">
@@ -243,6 +345,7 @@ export default function StatsPage() {
             </div>
           </div>
         )}
+        </div>{/* end two-column grid */}
 
         {/* All-time totals */}
         <div className="bg-zinc-900 rounded-xl p-5">
