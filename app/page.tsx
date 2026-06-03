@@ -657,15 +657,26 @@ export default function Home() {
     setRecError('')
     setShowRecModal(true)   // open modal immediately so user sees "Asking Claude…"
     try {
+      // Include genres so the algorithm can match preferences
       const payload = manga.map(m => ({
         title: m.title,
         current_chapter: m.current_chapter,
         status: m.status,
+        genres: m.genres ?? [],
+        mal_id: m.mal_id,
       }))
+
+      // Also send right-swiped genre preferences from Discover history
+      const { data: swipeData } = await supabase
+        .from('swipe_history')
+        .select('genres')
+        .eq('direction', 'right')
+        .limit(200)
+      const likedGenres = [...new Set((swipeData ?? []).flatMap(s => s.genres))]
       const res = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ manga: payload }),
+        body: JSON.stringify({ manga: payload, likedGenres }),
       })
       const data = await res.json()
       if (!res.ok) { setRecError(data.error ?? 'Something went wrong'); return }
@@ -1089,7 +1100,8 @@ export default function Home() {
 
               {recError && !loadingRec && (
                 <div className="text-center py-6">
-                  <p className="text-red-400 text-sm mb-3">{recError}</p>
+                  <p className="text-red-400 text-sm mb-1">{recError}</p>
+                  <p className="text-zinc-600 text-xs mb-4 font-mono break-all px-2">{recError}</p>
                   <button onClick={getRecommendations}
                     className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300">
                     Try again
