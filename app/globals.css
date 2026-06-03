@@ -1,6 +1,14 @@
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=Hanken+Grotesk:ital,wght@0,300..800;1,400..700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
 @import "tailwindcss";
 
+@font-face {
+  font-family: 'Osaka Pulse';
+  src: url('/fonts/OsakaPulse.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ============================================================
    YOMU Design System — CSS tokens
    Dark manga-ink surfaces, warm paper foreground, vermillion accent
