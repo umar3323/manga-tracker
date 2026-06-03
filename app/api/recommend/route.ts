@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 export interface Recommendation {
   title: string
+  mal_id: number | null
   confidence: number   // 0–100
   reason: string
   isAnime: boolean
@@ -130,7 +131,13 @@ export async function POST(req: Request) {
     const recommendations: Recommendation[] = scored
       .sort((a, b) => b.confidence - a.confidence || b.overlap - a.overlap)
       .slice(0, 5)
-      .map(({ title, confidence, reason, isAnime }) => ({ title, confidence, reason, isAnime }))
+      .map(c => ({
+        title: c.title,
+        mal_id: (filtered.find(f => String(f.title) === c.title)?.mal_id as number) ?? null,
+        confidence: c.confidence,
+        reason: c.reason,
+        isAnime: c.isAnime,
+      }))
 
     return NextResponse.json({ recommendations })
   } catch (err) {

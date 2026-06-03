@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import { supabase, type Manga, type MangaStatus, type Author } from '@/lib/supabase'
-import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, type JikanSearchResult } from '@/lib/jikan'
+import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, getMangaById, getAnimeAdaptations, type JikanSearchResult } from '@/lib/jikan'
 import type { Recommendation } from '@/app/api/recommend/route'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
@@ -321,6 +321,164 @@ function AuthorModal({ author, onClose }: { author: Author; onClose: () => void 
   )
 }
 
+/** Full-page detail modal for a recommended manga */
+function RecommendationModal({ rec, onClose }: { rec: Recommendation; onClose: () => void }) {
+  const [detail, setDetail] = useState<JikanSearchResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [added, setAdded] = useState(false)
+  const [selectedStatus, setSelectedStatus] = useState<MangaStatus>('plan_to_read')
+  const [toast, setToast] = useState('')
+
+  const STATUS_LABELS: Record<MangaStatus, string> = {
+    reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
+    dropped: 'Dropped', plan_to_read: 'Plan to Read',
+  }
+
+  useEffect(() => {
+    if (!rec.mal_id) { setLoading(false); return }
+    getMangaById(rec.mal_id).then(d => { setDetail(d); setLoading(false) })
+  }, [rec.mal_id])
+
+  const addToList = async () => {
+    if (!detail) return
+    setAdding(true)
+    const adaptations = detail.mal_id ? await getAnimeAdaptations(detail.mal_id) : []
+    const anim = adaptations[0]
+    const { error } = await supabase.from('manga_list').insert({
+      mal_id: detail.mal_id,
+      title: detail.title,
+      current_chapter: 0,
+      status: selectedStatus,
+      cover_url: detail.cover_url,
+      total_chapters: detail.total_chapters,
+      genres: detail.genres ?? [],
+      authors: detail.authors ?? [],
+      has_anime: anim ? true : false,
+      anime_mal_id: anim?.mal_id ?? null,
+      anime_title: anim?.title ?? null,
+      total_episodes: anim?.episodes ?? null,
+    })
+    if (!error || error.code === '23505') {
+      setAdded(true)
+      setToast(error?.code === '23505' ? 'Already in your list' : 'Added to your list!')
+    } else {
+      setToast('Failed to add — try again')
+    }
+    setAdding(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end lg:items-stretch lg:justify-end" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+      <div
+        className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-l-2xl lg:rounded-t-none w-full lg:w-[420px] max-h-[92vh] lg:max-h-none overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1 lg:hidden">
+          <div className="w-10 h-1 bg-zinc-700 rounded-full" />
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center h-64 text-zinc-500 text-sm">Loading…</div>
+        ) : (
+          <div className="p-5">
+            {/* Header */}
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex-1 min-w-0 pr-3">
+                <h2 className="font-bold text-xl leading-tight">{rec.title}</h2>
+                {detail?.authors && detail.authors.length > 0 && (
+                  <p className="text-xs text-zinc-500 mt-1">by {detail.authors.map(a => a.name).join(', ')}</p>
+                )}
+              </div>
+              <button onClick={onClose} aria-label="Close" className="text-zinc-600 hover:text-zinc-400 text-2xl leading-none shrink-0">×</button>
+            </div>
+
+            {/* Cover + meta */}
+            <div className="flex gap-4 mb-5">
+              {detail?.cover_url && (
+                <Image src={detail.cover_url} alt={rec.title} width={96} height={136}
+                  className="w-24 h-[136px] object-cover rounded-xl shrink-0" unoptimized />
+              )}
+              <div className="flex-1 space-y-2">
+                {detail?.score && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-yellow-400 text-sm">★</span>
+                    <span className="text-sm font-semibold">{detail.score}</span>
+                    <span className="text-xs text-zinc-500">/ 10 on MAL</span>
+                  </div>
+                )}
+                {detail?.total_chapters && (
+                  <p className="text-xs text-zinc-500">{detail.total_chapters} chapters</p>
+                )}
+                {detail?.status && (
+                  <p className="text-xs text-zinc-500">{detail.status}</p>
+                )}
+                {/* Genres */}
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {(detail?.genres ?? []).slice(0, 5).map(g => (
+                    <span key={g} className="text-xs px-2 py-0.5 bg-zinc-800 text-zinc-400 rounded-full">{g}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Recommendation reason */}
+            <div className="flex items-center gap-3 bg-zinc-800 rounded-xl p-3 mb-5">
+              <div className="w-10 h-10 rounded-full bg-zinc-700 flex flex-col items-center justify-center shrink-0">
+                <span className="text-sm font-bold text-violet-300 leading-none">{rec.confidence}</span>
+                <span className="text-zinc-600 text-[9px] leading-none">%</span>
+              </div>
+              <p className="text-xs text-zinc-400 leading-relaxed">{rec.reason}</p>
+            </div>
+
+            {/* Synopsis */}
+            {detail?.synopsis && (
+              <div className="mb-5">
+                <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">Synopsis</h3>
+                <p className="text-sm text-zinc-300 leading-relaxed">{detail.synopsis}</p>
+              </div>
+            )}
+
+            {/* MAL link */}
+            {detail?.mal_id && (
+              <a href={`https://myanimelist.net/manga/${detail.mal_id}`} target="_blank" rel="noopener noreferrer"
+                className="block text-xs text-violet-400 hover:text-violet-300 mb-5">
+                View on MyAnimeList ↗
+              </a>
+            )}
+
+            {/* Add to list */}
+            {added ? (
+              <div className="w-full py-3 bg-emerald-900/30 border border-emerald-700/40 rounded-xl text-sm text-emerald-400 text-center">
+                ✓ {toast || 'Added to your list'}
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value as MangaStatus)}
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-sm text-zinc-300 outline-none cursor-pointer">
+                  {(Object.keys(STATUS_LABELS) as MangaStatus[]).map(s => (
+                    <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                  ))}
+                </select>
+                <button onClick={addToList} disabled={adding || !detail}
+                  className="px-5 py-3 bg-white text-black rounded-xl text-sm font-medium hover:bg-zinc-200 disabled:opacity-40 transition-colors">
+                  {adding ? '…' : '+ Add'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {toast && added && (
+          <div className="mx-5 mb-5 text-xs text-zinc-500 text-center">{toast}</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ShelfPicker({ manga, onClose }: { manga: Manga; onClose: () => void }) {
   const [shelves, setShelves] = useState<{ id: string; name: string }[]>([])
   const [adding, setAdding] = useState<string | null>(null)
@@ -461,6 +619,7 @@ export default function Home() {
   const [notifications, setNotifications] = useState<{ id: string; title: string; new_chapters: number; previous_chapters: number }[]>([])
   const [selectedManga, setSelectedManga] = useState<Manga | null>(null)
   const [shelfPickerManga, setShelfPickerManga] = useState<Manga | null>(null)
+  const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null)
 
   // Cover fetch tracking — prevents re-fetching on every render
   const fetchedIds = useRef<Set<string>>(new Set())
@@ -1122,7 +1281,10 @@ export default function Home() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="font-semibold text-sm text-white">{r.title}</span>
+                            <button onClick={() => setSelectedRec(r)}
+                              className="font-semibold text-sm text-white hover:text-violet-300 transition-colors text-left">
+                              {r.title} ↗
+                            </button>
                             {r.isAnime && <span className="text-xs px-1.5 py-0.5 bg-violet-500/20 text-violet-400 rounded-full">anime</span>}
                           </div>
                           <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-1.5">
@@ -1138,6 +1300,11 @@ export default function Home() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Recommendation detail modal */}
+      {selectedRec && (
+        <RecommendationModal rec={selectedRec} onClose={() => setSelectedRec(null)} />
       )}
 
       {/* Shelf picker */}
