@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import Nav from '@/components/Nav'
 import Sidebar from '@/components/Sidebar'
+import { FeatureRequestButton } from '@/components/FeatureRequestModal'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             {children}
           </main>
         </div>
+        <FeatureRequestButton />
       </body>
     </html>
   )
