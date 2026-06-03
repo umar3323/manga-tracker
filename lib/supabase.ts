@@ -1,9 +1,10 @@
 import { createBrowserClient } from '@supabase/ssr'
 
-export type MangaStatus = 'reading' | 'completed' | 'on_hold' | 'dropped'
+export type MangaStatus = 'reading' | 'completed' | 'on_hold' | 'dropped' | 'plan_to_read'
 
 export interface Manga {
   id: string
+  mal_id: number | null
   title: string
   current_chapter: number
   status: MangaStatus
@@ -11,8 +12,23 @@ export interface Manga {
   total_chapters: number | null
   notes: string | null
   last_read_at: string | null
+  has_anime: boolean
+  anime_mal_id: number | null
+  anime_title: string | null
+  episodes_watched: number
+  total_episodes: number | null
   created_at: string
   updated_at: string
+}
+
+export interface SwipeRecord {
+  id: string
+  mal_id: number
+  title: string
+  direction: 'right' | 'left'
+  genres: string[]
+  synopsis: string | null
+  swiped_at: string
 }
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL

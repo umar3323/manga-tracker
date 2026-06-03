@@ -6,17 +6,19 @@ import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
 import { fetchMangaInfo } from '@/lib/jikan'
 
 const STATUS_LABELS: Record<MangaStatus, string> = {
-  reading: 'Reading',
-  completed: 'Completed',
-  on_hold: 'On Hold',
-  dropped: 'Dropped',
+  reading:      'Reading',
+  completed:    'Completed',
+  on_hold:      'On Hold',
+  dropped:      'Dropped',
+  plan_to_read: 'Plan to Read',
 }
 
 const STATUS_COLORS: Record<MangaStatus, string> = {
-  reading: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-  completed: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  on_hold: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
-  dropped: 'bg-red-500/20 text-red-300 border-red-500/30',
+  reading:      'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  completed:    'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  on_hold:      'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+  dropped:      'bg-red-500/20 text-red-300 border-red-500/30',
+  plan_to_read: 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30',
 }
 
 type SortKey = 'last_read' | 'title' | 'chapter'
@@ -157,6 +159,16 @@ export default function Home() {
   const signOut = async () => {
     await supabase.auth.signOut()
     window.location.href = '/login'
+  }
+
+  const updateEpisodes = async (id: string, delta: number, current: number) => {
+    const next = Math.max(0, current + delta)
+    setManga(prev => prev.map(m => m.id === id ? { ...m, episodes_watched: next } : m))
+    const { error } = await supabase.from('manga_list').update({ episodes_watched: next }).eq('id', id)
+    if (error) {
+      showToast('Failed to update episodes')
+      setManga(prev => prev.map(m => m.id === id ? { ...m, episodes_watched: current } : m))
+    }
   }
 
   const confirmDelete = (id: string) => setPendingDelete(id)
@@ -426,6 +438,19 @@ export default function Home() {
                         <span className="text-xs text-zinc-600 tabular-nums shrink-0">
                           {m.current_chapter}/{m.total_chapters}
                         </span>
+                      </div>
+                    )}
+                    {m.has_anime && (
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="text-xs text-violet-400">🎬</span>
+                        <span className="text-xs text-zinc-600 truncate">{m.anime_title ?? 'Anime'}</span>
+                        <div className="flex items-center gap-1 ml-auto shrink-0">
+                          <button onClick={() => updateEpisodes(m.id, -1, m.episodes_watched)} aria-label="Decrease episode" className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
+                          <span className="text-xs font-mono tabular-nums text-zinc-400 w-14 text-center">
+                            ep {m.episodes_watched}{m.total_episodes ? `/${m.total_episodes}` : ''}
+                          </span>
+                          <button onClick={() => updateEpisodes(m.id, 1, m.episodes_watched)} aria-label="Increase episode" className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
+                        </div>
                       </div>
                     )}
                   </div>
