@@ -407,6 +407,119 @@ export default function StatsPage() {
           )
         })()}
 
+        {/* Personal analytics — Chat's reframe of "social proof" */}
+        {(() => {
+          // Drop-off analysis: where do you stop reading?
+          const droppedOrHold = manga.filter(m => m.status === 'dropped' || m.status === 'on_hold')
+          const dropBuckets: Record<string, number> = { '1–25': 0, '26–75': 0, '76–150': 0, '151–300': 0, '300+': 0 }
+          for (const m of droppedOrHold) {
+            const ch = m.current_chapter
+            if (ch <= 25) dropBuckets['1–25']++
+            else if (ch <= 75) dropBuckets['26–75']++
+            else if (ch <= 150) dropBuckets['76–150']++
+            else if (ch <= 300) dropBuckets['151–300']++
+            else dropBuckets['300+']++
+          }
+          const maxDrop = Math.max(...Object.values(dropBuckets), 1)
+
+          // Genre completion rates
+          const genreTotal: Record<string, number> = {}
+          const genreDone: Record<string, number> = {}
+          for (const m of manga) {
+            for (const g of (m.genres ?? [])) {
+              genreTotal[g] = (genreTotal[g] ?? 0) + 1
+              if (m.status === 'completed') genreDone[g] = (genreDone[g] ?? 0) + 1
+            }
+          }
+          const genreRates = Object.entries(genreTotal)
+            .filter(([, n]) => n >= 2)
+            .map(([g, n]) => ({ genre: g, rate: Math.round(((genreDone[g] ?? 0) / n) * 100), total: n }))
+            .sort((a, b) => b.rate - a.rate)
+            .slice(0, 6)
+
+          // Session analysis from log
+          const byDay: Record<string, number> = {}
+          for (const l of log) {
+            const d = new Date(l.logged_at).toDateString()
+            byDay[d] = (byDay[d] ?? 0) + l.chapters_read
+          }
+          const sessionValues = Object.values(byDay)
+          const avgSession = sessionValues.length
+            ? Math.round(sessionValues.reduce((s, v) => s + v, 0) / sessionValues.length)
+            : 0
+          const maxSession = sessionValues.length ? Math.max(...sessionValues) : 0
+
+          if (!droppedOrHold.length && !genreRates.length && !log.length) return null
+
+          return (
+            <div className="lg:grid lg:grid-cols-2 lg:gap-6">
+              {/* Drop-off histogram */}
+              {droppedOrHold.length > 0 && (
+                <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+                  <h2 className="text-sm font-semibold mb-1">Where you stop reading</h2>
+                  <p className="text-xs text-zinc-500 mb-4">Chapter range when you dropped or paused ({droppedOrHold.length} titles)</p>
+                  <div className="space-y-2">
+                    {Object.entries(dropBuckets).map(([range, count]) => (
+                      <div key={range} className="flex items-center gap-3">
+                        <span className="text-xs text-zinc-500 w-16 shrink-0">Ch. {range}</span>
+                        <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-red-500/70 rounded-full" style={{ width: `${(count / maxDrop) * 100}%` }} />
+                        </div>
+                        <span className="text-xs text-zinc-500 w-4 text-right shrink-0">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Genre completion rates */}
+              {genreRates.length > 0 && (
+                <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+                  <h2 className="text-sm font-semibold mb-1">Completion rate by genre</h2>
+                  <p className="text-xs text-zinc-500 mb-4">How often you finish what you start</p>
+                  <div className="space-y-2">
+                    {genreRates.map(({ genre, rate, total }) => (
+                      <div key={genre} className="flex items-center gap-3">
+                        <span className="text-xs text-zinc-400 w-24 shrink-0 truncate">{genre}</span>
+                        <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${rate >= 70 ? 'bg-emerald-500' : rate >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                            style={{ width: `${rate}%` }} />
+                        </div>
+                        <span className="text-xs text-zinc-500 w-14 text-right shrink-0">{rate}% / {total}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Session stats */}
+              {log.length > 0 && (
+                <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+                  <h2 className="text-sm font-semibold mb-4">Reading sessions</h2>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="bg-zinc-800 rounded-xl p-3 text-center">
+                      <div className="text-2xl font-bold">{avgSession}</div>
+                      <div className="text-xs text-zinc-500 mt-1">Avg ch per day</div>
+                    </div>
+                    <div className="bg-zinc-800 rounded-xl p-3 text-center">
+                      <div className="text-2xl font-bold">{maxSession}</div>
+                      <div className="text-xs text-zinc-500 mt-1">Best single day</div>
+                    </div>
+                    <div className="bg-zinc-800 rounded-xl p-3 text-center">
+                      <div className="text-2xl font-bold">{Object.keys(byDay).length}</div>
+                      <div className="text-xs text-zinc-500 mt-1">Reading days (yr)</div>
+                    </div>
+                    <div className="bg-zinc-800 rounded-xl p-3 text-center">
+                      <div className="text-2xl font-bold">{droppedOrHold.length}</div>
+                      <div className="text-xs text-zinc-500 mt-1">Abandoned titles</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })()}
+
         {/* All-time totals */}
         <div className="bg-zinc-900 rounded-xl p-5">
           <h2 className="text-sm font-semibold mb-4">All time</h2>

@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { supabase, type Manga, type MangaStatus, type Author } from '@/lib/supabase'
 import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, getMangaById, getAnimeAdaptations, type JikanSearchResult } from '@/lib/jikan'
 import TrendingSection from '@/components/TrendingSection'
+import ArcEditor from '@/components/ArcEditor'
 import type { Recommendation } from '@/app/api/recommend/route'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
@@ -222,8 +223,14 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
             )
           })()}
 
+          <ArcEditor
+            mangaId={manga.id}
+            totalChapters={manga.total_chapters}
+            currentChapter={manga.current_chapter}
+          />
+
           <button onClick={onClose}
-            className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300 transition-colors">
+            className="w-full mt-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300 transition-colors">
             Close
           </button>
         </div>
