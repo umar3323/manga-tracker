@@ -7,6 +7,8 @@ import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, getMangaById, getAnimeAd
 import TrendingSection from '@/components/TrendingSection'
 import ArcEditor from '@/components/ArcEditor'
 import SessionTimer, { type ActiveSession } from '@/components/SessionTimer'
+import RereadSection from '@/components/RereadSection'
+import type { Arc } from '@/components/ArcEditor'
 import type { Recommendation } from '@/app/api/recommend/route'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
@@ -223,6 +225,8 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
               </div>
             )
           })()}
+
+          <RereadSection mangaId={manga.id} />
 
           <ArcEditor
             mangaId={manga.id}
@@ -679,6 +683,8 @@ export default function Home() {
   const [shareToken, setShareToken] = useState<string | null>(null)
   const [shareEnabled, setShareEnabled] = useState(false)
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null)
+  const [arcsMap, setArcsMap] = useState<Record<string, Arc[]>>({})
+  const [rereadCounts, setRereadCounts] = useState<Record<string, number>>({})
 
   // Cover fetch tracking — prevents re-fetching on every render
   const fetchedIds = useRef<Set<string>>(new Set())
@@ -718,6 +724,27 @@ export default function Home() {
     // Public share token
     supabase.from('public_shares').select('token, enabled').limit(1).single()
       .then(({ data }) => { if (data) { setShareToken(data.token); setShareEnabled(data.enabled) } })
+    // Bulk fetch all arcs for arc-aware progress display
+    supabase.from('arcs').select('*').order('chapter_start')
+      .then(({ data }) => {
+        if (!data) return
+        const map: Record<string, Arc[]> = {}
+        for (const arc of data as Arc[]) {
+          if (!map[arc.manga_id]) map[arc.manga_id] = []
+          map[arc.manga_id].push(arc)
+        }
+        setArcsMap(map)
+      })
+    // Re-read counts per manga
+    supabase.from('rereads').select('manga_id')
+      .then(({ data }) => {
+        if (!data) return
+        const counts: Record<string, number> = {}
+        for (const r of data as { manga_id: string }[]) {
+          counts[r.manga_id] = (counts[r.manga_id] ?? 0) + 1
+        }
+        setRereadCounts(counts)
+      })
   }, [])
 
   // Fetch missing covers — tracks fetched IDs in ref to avoid re-fetching
@@ -994,6 +1021,11 @@ export default function Home() {
     if (!a.last_read_at) return 1
     if (!b.last_read_at) return -1
     return new Date(b.last_read_at).getTime() - new Date(a.last_read_at).getTime()
+  }
+
+  const currentArc = (m: Manga): Arc | null => {
+    const arcs = arcsMap[m.id] ?? []
+    return arcs.find(a => m.current_chapter >= a.chapter_start && m.current_chapter <= a.chapter_end) ?? null
   }
 
   const MOODS: { id: string; label: string; test: (m: Manga) => boolean }[] = [
@@ -1293,6 +1325,25 @@ export default function Home() {
                         </span>
                       </div>
                     )}
+                    {/* Arc-aware progress */}
+                    {(() => {
+                      const arc = currentArc(m)
+                      const rereadCount = rereadCounts[m.id] ?? 0
+                      if (!arc && !rereadCount) return null
+                      return (
+                        <div className="flex items-center gap-2 mt-1">
+                          {arc && (
+                            <span className="text-xs text-zinc-600 truncate" title={`${arc.tag} arc`}>
+                              📍 {arc.label}
+                            </span>
+                          )}
+                          {rereadCount > 0 && (
+                            <span className="text-xs text-violet-500 shrink-0">×{rereadCount} re-read</span>
+                          )}
+                        </div>
+                      )
+                    })()}
+
                     {m.has_anime && (
                       <div className="flex items-center gap-2 mt-1.5">
                         <span className="text-xs text-violet-400">🎬</span>
