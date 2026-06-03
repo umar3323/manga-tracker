@@ -77,6 +77,8 @@ export default function Home() {
   const [loadingRec, setLoadingRec] = useState(false)
   const [recError, setRecError] = useState('')
   const [toast, setToast] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [syncResults, setSyncResults] = useState<{ updated: number; results: { title: string; changes: string[] }[]; timestamp: string } | null>(null)
 
   // Cover fetch tracking — prevents re-fetching on every render
   const fetchedIds = useRef<Set<string>>(new Set())
@@ -154,6 +156,22 @@ export default function Home() {
       notesTimers.current.delete(id)
     }, 500)
     notesTimers.current.set(id, timer)
+  }
+
+  const runSync = async () => {
+    setSyncing(true)
+    setSyncResults(null)
+    try {
+      const res = await fetch('/api/sync', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { showToast(data.error ?? 'Sync failed'); return }
+      setSyncResults(data)
+      showToast(data.updated > 0 ? `Sync complete — ${data.updated} updates` : 'Sync complete — everything up to date')
+    } catch {
+      showToast('Sync failed — check your connection')
+    } finally {
+      setSyncing(false)
+    }
   }
 
   const signOut = async () => {
@@ -291,6 +309,15 @@ export default function Home() {
               className="px-4 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-zinc-200 transition-colors"
             >
               + Add
+            </button>
+            <button
+              onClick={runSync}
+              disabled={syncing}
+              aria-label="Sync metadata from MAL"
+              title="Refresh chapter counts, covers, and anime info from MyAnimeList"
+              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white disabled:opacity-40 transition-colors"
+            >
+              {syncing ? '⟳ Syncing…' : '⟳ Sync'}
             </button>
             <button
               onClick={signOut}
@@ -517,6 +544,36 @@ export default function Home() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Sync results */}
+        {syncResults && (
+          <div className="mt-6 bg-zinc-900 border border-zinc-700 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-zinc-300">⟳ Sync Results</h2>
+              <button onClick={() => setSyncResults(null)} aria-label="Dismiss sync results" className="text-zinc-600 hover:text-zinc-400 text-lg leading-none">×</button>
+            </div>
+            <p className="text-xs text-zinc-500 mb-3">
+              Checked {manga.filter(m => m.mal_id).length} titles against MyAnimeList
+              {syncResults.timestamp && ` · ${new Date(syncResults.timestamp).toLocaleTimeString()}`}
+            </p>
+            {syncResults.updated === 0 ? (
+              <p className="text-xs text-zinc-500">Everything is up to date.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {syncResults.results.map((r, i) => (
+                  <div key={i} className="flex items-start gap-2 text-xs">
+                    <span className="text-emerald-400 shrink-0">✓</span>
+                    <span className="text-zinc-300 font-medium">{r.title}</span>
+                    <span className="text-zinc-500">{r.changes.join(' · ')}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-zinc-700 mt-3">
+              Note: sync only works for manga added via Search (MAL ID required). Use the local sync script for browser history — see README.
+            </p>
           </div>
         )}
 
