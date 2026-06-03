@@ -63,6 +63,16 @@ export async function POST() {
         changes.push('cover added')
       }
 
+      // Authors
+      const freshAuthors = (d.authors ?? []).map((a: { mal_id: number; name: string }) => ({
+        id: a.mal_id, name: a.name,
+      }))
+      const currentAuthors = (m as Record<string, unknown>).authors as { id: number; name: string }[] ?? []
+      if (freshAuthors.length > 0 && currentAuthors.length === 0) {
+        updates.authors = freshAuthors
+        changes.push(`authors: ${freshAuthors.map((a: { name: string }) => a.name).join(', ')}`)
+      }
+
       // ── 2. Total / latest chapters ──────────────────────────────────────
       const officialChapters: number | null = d.chapters ?? null
       const isCompleted = d.status === 'Finished'

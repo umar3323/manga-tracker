@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Image from 'next/image'
-import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
-import { fetchMangaInfo } from '@/lib/jikan'
+import { supabase, type Manga, type MangaStatus, type Author } from '@/lib/supabase'
+import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, type JikanSearchResult } from '@/lib/jikan'
+import type { Recommendation } from '@/app/api/recommend/route'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
 function EditableNumber({
@@ -192,6 +193,96 @@ function DetailModal({ manga, onClose, onStatusChange }: {
   )
 }
 
+/** Author works modal */
+function AuthorModal({ author, onClose }: { author: Author; onClose: () => void }) {
+  const [works, setWorks] = useState<JikanSearchResult[]>([])
+  const [info, setInfo] = useState<{ name: string; about: string | null } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState<number | null>(null)
+  const [added, setAdded] = useState<Set<number>>(new Set())
+  const [toast, setToast] = useState('')
+
+  useEffect(() => {
+    const load = async () => {
+      const [authorInfo, authorWorks] = await Promise.all([
+        getAuthorInfo(author.id),
+        getAuthorWorks(author.id),
+      ])
+      setInfo(authorInfo)
+      setWorks(authorWorks)
+      setLoading(false)
+    }
+    load()
+  }, [author.id])
+
+  const addWork = async (manga: JikanSearchResult) => {
+    setAdding(manga.mal_id)
+    const { error } = await supabase.from('manga_list').insert({
+      mal_id: manga.mal_id, title: manga.title, current_chapter: 0,
+      status: 'plan_to_read', cover_url: manga.cover_url,
+      total_chapters: manga.total_chapters, authors: manga.authors ?? [],
+    })
+    if (!error) setAdded(prev => new Set([...prev, manga.mal_id]))
+    else if (error.code === '23505') setToast('Already in your list')
+    setAdding(null)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg max-h-[85vh] flex flex-col"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex justify-center pt-3 pb-1 md:hidden">
+          <div className="w-10 h-1 bg-zinc-700 rounded-full" />
+        </div>
+        <div className="px-5 pt-4 pb-3 border-b border-zinc-800 shrink-0">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="font-bold text-lg">{author.name}</h2>
+              {info?.about && (
+                <p className="text-xs text-zinc-500 mt-1 line-clamp-2">{info.about.slice(0, 120)}…</p>
+              )}
+            </div>
+            <button onClick={onClose} aria-label="Close" className="text-zinc-600 hover:text-zinc-400 text-xl ml-3 shrink-0">×</button>
+          </div>
+        </div>
+        <div className="overflow-y-auto flex-1 p-4 space-y-2">
+          {loading && <p className="text-sm text-zinc-500 text-center py-8">Loading works…</p>}
+          {!loading && works.length === 0 && <p className="text-sm text-zinc-500 text-center py-8">No works found.</p>}
+          {works.map(w => (
+            <div key={w.mal_id} className="flex gap-3 items-center bg-zinc-800 rounded-xl p-3">
+              {w.cover_url && (
+                <Image src={w.cover_url} alt={w.title} width={36} height={50}
+                  className="w-9 h-12 object-cover rounded shrink-0" unoptimized />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{w.title}</div>
+                <div className="flex gap-1 mt-1 flex-wrap">
+                  {w.genres.slice(0, 3).map(g => (
+                    <span key={g} className="text-xs px-1.5 py-0.5 bg-zinc-700 text-zinc-400 rounded">{g}</span>
+                  ))}
+                  {w.score && <span className="text-xs text-yellow-400">★ {w.score}</span>}
+                </div>
+              </div>
+              <button onClick={() => addWork(w)} disabled={adding === w.mal_id || added.has(w.mal_id)}
+                className={`shrink-0 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                  added.has(w.mal_id) ? 'bg-emerald-600/20 text-emerald-400' : 'bg-zinc-700 hover:bg-zinc-600 text-zinc-300 disabled:opacity-40'
+                }`}>
+                {added.has(w.mal_id) ? '✓ Added' : adding === w.mal_id ? '…' : '+ Add'}
+              </button>
+            </div>
+          ))}
+        </div>
+        {toast && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-zinc-700 text-xs text-white px-3 py-2 rounded-lg">
+            {toast}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function MobileMenu({ onRecommend, onSync, onSignOut, onExport, loadingRec, syncing }: {
   onRecommend: () => void; onSync: () => void; onSignOut: () => void; onExport: () => void
   loadingRec: boolean; syncing: boolean
@@ -253,9 +344,10 @@ export default function Home() {
   const [showAdd, setShowAdd] = useState(false)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
-  const [recommendations, setRecommendations] = useState('')
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [loadingRec, setLoadingRec] = useState(false)
   const [recError, setRecError] = useState('')
+  const [selectedAuthor, setSelectedAuthor] = useState<Author | null>(null)
   const [toast, setToast] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [syncResults, setSyncResults] = useState<{ updated: number; results: { title: string; changes: string[] }[]; timestamp: string } | null>(null)
@@ -453,7 +545,7 @@ export default function Home() {
 
   const getRecommendations = async () => {
     setLoadingRec(true)
-    setRecommendations('')
+    setRecommendations([])
     setRecError('')
     try {
       const payload = manga.map(m => ({
@@ -468,7 +560,7 @@ export default function Home() {
       })
       const data = await res.json()
       if (!res.ok) { setRecError(data.error ?? 'Something went wrong'); return }
-      setRecommendations(data.recommendations)
+      setRecommendations(data.recommendations ?? [])
     } catch {
       setRecError('Network error — check your connection')
     } finally {
@@ -673,6 +765,18 @@ export default function Home() {
                       )}
                     </div>
 
+                    {/* Authors — clickable */}
+                    {m.authors?.length > 0 && (
+                      <div className="flex gap-1 flex-wrap mt-0.5 mb-1">
+                        {m.authors.map((a: Author) => (
+                          <button key={a.id} onClick={() => setSelectedAuthor(a)}
+                            className="text-xs text-zinc-500 hover:text-violet-400 transition-colors">
+                            {a.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <select
                         value={m.status}
@@ -834,22 +938,51 @@ export default function Home() {
         )}
 
         {/* AI Recommendations */}
-        {(recommendations || loadingRec || recError) && (
+        {(recommendations.length > 0 || loadingRec || recError) && (
           <div className="mt-6 bg-zinc-900 border border-violet-500/30 rounded-xl p-5">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-violet-300">✦ AI Recommendations</h2>
-              <button
-                onClick={() => { setRecommendations(''); setRecError(''); setLoadingRec(false) }}
-                aria-label="Dismiss recommendations"
-                className="text-zinc-600 hover:text-zinc-400 text-lg leading-none"
-              >×</button>
+              <button onClick={() => { setRecommendations([]); setRecError(''); setLoadingRec(false) }}
+                aria-label="Dismiss" className="text-zinc-600 hover:text-zinc-400 text-lg leading-none">×</button>
             </div>
             {loadingRec && <div className="text-zinc-500 text-sm">Asking Claude…</div>}
             {recError && <div className="text-red-400 text-sm">{recError}</div>}
-            {recommendations && <RecommendationText text={recommendations} />}
+            {recommendations.length > 0 && (
+              <div className="space-y-4">
+                {recommendations.map((r, i) => {
+                  const colour = r.confidence >= 80 ? 'bg-emerald-500' : r.confidence >= 65 ? 'bg-yellow-500' : 'bg-zinc-500'
+                  const textColour = r.confidence >= 80 ? 'text-emerald-400' : r.confidence >= 65 ? 'text-yellow-400' : 'text-zinc-400'
+                  return (
+                    <div key={i} className="flex items-start gap-3">
+                      {/* Confidence ring */}
+                      <div className="shrink-0 w-11 h-11 rounded-full bg-zinc-800 border border-zinc-700 flex flex-col items-center justify-center">
+                        <span className={`text-sm font-bold leading-none ${textColour}`}>{r.confidence}</span>
+                        <span className="text-zinc-600 text-[9px] leading-none">%</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-sm text-white">{r.title}</span>
+                          {r.isAnime && <span className="text-xs px-1.5 py-0.5 bg-violet-500/20 text-violet-400 rounded-full">anime</span>}
+                        </div>
+                        <div className="h-1 bg-zinc-800 rounded-full overflow-hidden mb-1.5">
+                          <div className={`h-full rounded-full transition-all ${colour}`}
+                            style={{ width: `${r.confidence}%` }} />
+                        </div>
+                        <p className="text-xs text-zinc-500 leading-relaxed">{r.reason}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* Author modal */}
+      {selectedAuthor && (
+        <AuthorModal author={selectedAuthor} onClose={() => setSelectedAuthor(null)} />
+      )}
 
       {/* Detail modal */}
       {selectedManga && (

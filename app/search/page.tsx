@@ -120,6 +120,7 @@ export default function SearchPage() {
         status,
         cover_url: manga.cover_url,
         total_chapters: manga.total_chapters,
+        authors: manga.authors ?? [],
         has_anime,
         anime_mal_id,
         anime_title,
@@ -208,6 +209,12 @@ export default function SearchPage() {
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-sm leading-snug">{manga.title}</div>
+
+                  {manga.authors.length > 0 && (
+                    <div className="text-xs text-zinc-500 mt-1">
+                      by {manga.authors.map(a => a.name).join(', ')}
+                    </div>
+                  )}
 
                   <div className="flex flex-wrap gap-1 mt-1.5">
                     {manga.genres.slice(0, 4).map(g => (

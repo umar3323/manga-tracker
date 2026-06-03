@@ -3,6 +3,11 @@ export interface JikanManga {
   totalChapters: number | null
 }
 
+export interface JikanAuthor {
+  id: number
+  name: string
+}
+
 export interface JikanSearchResult {
   mal_id: number
   title: string
@@ -12,6 +17,7 @@ export interface JikanSearchResult {
   total_chapters: number | null
   score: number | null
   status: string | null
+  authors: JikanAuthor[]
 }
 
 export interface JikanAnimeAdaptation {
@@ -134,6 +140,11 @@ function mapMangaResult(item: Record<string, unknown>): JikanSearchResult {
     ...((item.themes as { name: string }[]) ?? []),
   ].map((g) => g.name)
 
+  const authors = ((item.authors as { mal_id: number; name: string }[]) ?? []).map(a => ({
+    id: a.mal_id,
+    name: a.name,
+  }))
+
   return {
     mal_id: item.mal_id as number,
     title: (item.title as string) ?? 'Unknown',
@@ -143,5 +154,36 @@ function mapMangaResult(item: Record<string, unknown>): JikanSearchResult {
     total_chapters: (item.chapters as number | null) ?? null,
     score: (item.score as number | null) ?? null,
     status: (item.status as string | null) ?? null,
+    authors,
+  }
+}
+
+export async function getAuthorWorks(personId: number): Promise<JikanSearchResult[]> {
+  try {
+    const res = await jikanGet(`/people/${personId}/manga`)
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.data ?? [])
+      .filter((e: { position: string }) =>
+        ['Story', 'Art', 'Story & Art'].includes(e.position)
+      )
+      .map((e: { manga: Record<string, unknown> }) => mapMangaResult(e.manga))
+      .filter((m: JikanSearchResult) => m.mal_id)
+  } catch {
+    return []
+  }
+}
+
+export async function getAuthorInfo(personId: number): Promise<{ name: string; about: string | null } | null> {
+  try {
+    const res = await jikanGet(`/people/${personId}/full`)
+    if (!res.ok) return null
+    const json = await res.json()
+    return {
+      name: json.data?.name ?? '',
+      about: json.data?.about ?? null,
+    }
+  } catch {
+    return null
   }
 }
