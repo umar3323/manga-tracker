@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
+import { getLatestChapterFromMangaDex } from '@/lib/mangadex'
 
 interface SyncResult {
   title: string
@@ -8,7 +9,9 @@ interface SyncResult {
 }
 
 async function jikanGet(path: string) {
-  const res = await fetch(`https://api.jikan.moe/v4${path}`)
+  const res = await fetch(`https://api.jikan.moe/v4${path}`, {
+    signal: AbortSignal.timeout(10000),
+  })
   if (!res.ok) return null
   return res.json()
 }
@@ -31,47 +34,59 @@ export async function POST() {
       }
     )
 
-    // Fetch all manga with a MAL ID
+    // Fetch all manga (with and without MAL ID — we still update what we can)
     const { data: mangaList, error } = await supabase
       .from('manga_list')
-      .select('id, mal_id, title, cover_url, total_chapters, has_anime')
-      .not('mal_id', 'is', null)
+      .select('id, mal_id, title, cover_url, total_chapters, has_anime, anime_mal_id, anime_title, total_episodes, status')
 
     if (error) return NextResponse.json({ error: 'DB error' }, { status: 500 })
 
     const results: SyncResult[] = []
-    const entries = mangaList ?? []
+    const entries = (mangaList ?? []).filter(m => m.mal_id)
 
     for (let i = 0; i < entries.length; i++) {
       const m = entries[i]
       const changes: string[] = []
       const updates: Record<string, unknown> = {}
 
-      // Rate-limit: 3 req/sec → 400ms gap
-      if (i > 0) await delay(450)
+      if (i > 0) await delay(450) // respect Jikan 3 req/s
 
-      // Fetch fresh manga data
+      // ── 1. Fetch fresh manga metadata from Jikan ────────────────────────
       const json = await jikanGet(`/manga/${m.mal_id}`)
       if (!json?.data) continue
-
       const d = json.data
 
-      // Update cover if missing
-      const newCover = d.images?.jpg?.image_url
+      // Cover art
+      const newCover = d.images?.jpg?.large_image_url ?? d.images?.jpg?.image_url
       if (!m.cover_url && newCover) {
         updates.cover_url = newCover
-        changes.push('added cover art')
+        changes.push('cover added')
       }
 
-      // Update total chapters if changed
-      const newChapters = d.chapters ?? null
-      if (newChapters && newChapters !== m.total_chapters) {
-        updates.total_chapters = newChapters
-        changes.push(`chapters updated: ${m.total_chapters ?? '?'} → ${newChapters}`)
+      // ── 2. Total / latest chapters ──────────────────────────────────────
+      const officialChapters: number | null = d.chapters ?? null
+      const isCompleted = d.status === 'Finished'
+
+      if (officialChapters && officialChapters !== m.total_chapters) {
+        updates.total_chapters = officialChapters
+        changes.push(`chapters: ${m.total_chapters ?? '?'} → ${officialChapters}`)
+      } else if (!officialChapters && !isCompleted) {
+        // Ongoing manga — ask MangaDex for the latest released chapter
+        await delay(300) // small extra gap before MangaDex call
+        const latestCh = await getLatestChapterFromMangaDex(m.mal_id)
+        if (latestCh && latestCh !== m.total_chapters) {
+          updates.total_chapters = latestCh
+          changes.push(
+            m.total_chapters
+              ? `latest chapter: ${m.total_chapters} → ${latestCh}`
+              : `latest chapter found: ${latestCh}`
+          )
+        }
       }
 
-      // Check for anime adaptations if not already set
+      // ── 3. Anime adaptations ────────────────────────────────────────────
       if (!m.has_anime) {
+        // First time — check for adaptation
         await delay(450)
         const relJson = await jikanGet(`/manga/${m.mal_id}/relations`)
         if (relJson?.data) {
@@ -79,23 +94,40 @@ export async function POST() {
             if (rel.relation === 'Adaptation') {
               for (const entry of rel.entry ?? []) {
                 if (entry.type === 'anime') {
-                  updates.has_anime = true
-                  updates.anime_mal_id = entry.mal_id
-                  // Fetch anime details for episode count + title
                   await delay(450)
                   const animeJson = await jikanGet(`/anime/${entry.mal_id}`)
                   if (animeJson?.data) {
-                    updates.anime_title = animeJson.data.title
-                    updates.total_episodes = animeJson.data.episodes ?? null
-                  } else {
-                    updates.anime_title = entry.name
+                    const ad = animeJson.data
+                    updates.has_anime = true
+                    updates.anime_mal_id = entry.mal_id
+                    updates.anime_title = ad.title
+                    // Use aired episodes if still airing, or total if finished
+                    updates.total_episodes = ad.episodes ?? null
+                    changes.push(`anime found: ${ad.title}${ad.episodes ? ` (${ad.episodes} eps)` : ''}`)
                   }
-                  changes.push(`anime found: ${updates.anime_title}`)
                   break
                 }
               }
               if (updates.has_anime) break
             }
+          }
+        }
+      } else if (m.anime_mal_id) {
+        // Already known — refresh episode count (catches newly aired episodes)
+        await delay(450)
+        const animeJson = await jikanGet(`/anime/${m.anime_mal_id}`)
+        if (animeJson?.data) {
+          const ad = animeJson.data
+          const freshEps: number | null = ad.episodes ?? null
+          if (freshEps && freshEps !== m.total_episodes) {
+            updates.total_episodes = freshEps
+            changes.push(
+              `anime episodes: ${m.total_episodes ?? '?'} → ${freshEps}${ad.airing ? ' (airing)' : ''}`
+            )
+          }
+          // Also update anime title if it changed
+          if (ad.title && ad.title !== m.anime_title) {
+            updates.anime_title = ad.title
           }
         }
       }

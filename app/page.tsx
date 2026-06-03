@@ -660,10 +660,18 @@ export default function Home() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <button onClick={() => setSelectedManga(m)}
-                      className="font-medium text-sm leading-snug truncate text-left w-full hover:text-violet-300 transition-colors">
-                      {m.title}
-                    </button>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <button onClick={() => setSelectedManga(m)}
+                        className="font-medium text-sm leading-snug truncate text-left hover:text-violet-300 transition-colors flex-1 min-w-0">
+                        {m.title}
+                      </button>
+                      {/* Behind badge — new chapters available */}
+                      {m.total_chapters && m.current_chapter < m.total_chapters && m.status === 'reading' && (
+                        <span className="shrink-0 text-xs px-1.5 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full whitespace-nowrap">
+                          +{m.total_chapters - m.current_chapter} new
+                        </span>
+                      )}
+                    </div>
 
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <select
@@ -704,6 +712,11 @@ export default function Home() {
                       <div className="flex items-center gap-2 mt-1.5">
                         <span className="text-xs text-violet-400">🎬</span>
                         <span className="text-xs text-zinc-600 truncate">{m.anime_title ?? 'Anime'}</span>
+                        {m.total_episodes && m.episodes_watched < m.total_episodes && (
+                          <span className="text-xs px-1.5 py-0.5 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded-full whitespace-nowrap shrink-0">
+                            +{m.total_episodes - m.episodes_watched} ep
+                          </span>
+                        )}
                         <div className="flex items-center gap-1 ml-auto shrink-0">
                           <button onClick={() => updateEpisodes(m.id, -1, m.episodes_watched)} aria-label="Decrease episode" className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
                           <span className="text-xs text-zinc-500 font-mono">ep</span>
