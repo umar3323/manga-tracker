@@ -38,6 +38,30 @@ async function jikanGet(path: string): Promise<Response> {
   return fetch(`https://api.jikan.moe/v4${path}`)
 }
 
+export async function getTopManga(
+  filter: 'publishing' | 'bypopularity' | 'favorite',
+  limit = 12
+): Promise<JikanSearchResult[]> {
+  try {
+    const res = await jikanGet(`/top/manga?filter=${filter}&limit=${limit}`)
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.data ?? []).map(mapMangaResult)
+  } catch { return [] }
+}
+
+export async function getTrendingThisYear(limit = 12): Promise<JikanSearchResult[]> {
+  try {
+    const year = new Date().getFullYear()
+    const res = await jikanGet(
+      `/manga?start_date=${year - 1}-01-01&order_by=members&sort=desc&limit=${limit}&status=publishing`
+    )
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.data ?? []).map(mapMangaResult)
+  } catch { return [] }
+}
+
 export async function fetchMangaInfo(title: string): Promise<JikanManga> {
   try {
     const res = await jikanGet(`/manga?q=${encodeURIComponent(title)}&limit=1`)

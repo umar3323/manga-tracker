@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import { supabase, type Manga, type MangaStatus, type Author } from '@/lib/supabase'
 import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, getMangaById, getAnimeAdaptations, type JikanSearchResult } from '@/lib/jikan'
+import TrendingSection from '@/components/TrendingSection'
 import type { Recommendation } from '@/app/api/recommend/route'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
@@ -967,6 +968,9 @@ export default function Home() {
             </button>
           </div>
         )}
+
+        {/* Trending section */}
+        <TrendingSection onSelect={rec => setSelectedRec(rec)} />
 
         {/* Stats — 2 cols on mobile, 5 on desktop */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-5">
