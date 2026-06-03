@@ -1272,7 +1272,7 @@ export default function Home() {
         />
 
         {/* Stats — 2 cols on mobile, responsive on desktop (hide watching if 0) */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-5">
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-5">
           {(Object.keys(STATUS_LABELS) as MangaStatus[]).filter(s => s !== 'watching' || (counts.watching ?? 0) > 0).map(s => (
             <button key={s} onClick={() => setFilter(filter === s ? 'all' : s)}
               className={`rounded-xl p-3 text-center transition-colors ${filter === s ? 'bg-white text-black' : 'bg-zinc-900 hover:bg-zinc-800'}`}>
