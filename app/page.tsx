@@ -453,6 +453,7 @@ export default function Home() {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [loadingRec, setLoadingRec] = useState(false)
   const [recError, setRecError] = useState('')
+  const [showRecModal, setShowRecModal] = useState(false)
   const [selectedAuthor, setSelectedAuthor] = useState<Author | null>(null)
   const [toast, setToast] = useState('')
   const [syncing, setSyncing] = useState(false)
@@ -654,6 +655,7 @@ export default function Home() {
     setLoadingRec(true)
     setRecommendations([])
     setRecError('')
+    setShowRecModal(true)   // open modal immediately so user sees "Asking Claude…"
     try {
       const payload = manga.map(m => ({
         title: m.title,
@@ -667,7 +669,12 @@ export default function Home() {
       })
       const data = await res.json()
       if (!res.ok) { setRecError(data.error ?? 'Something went wrong'); return }
-      setRecommendations(data.recommendations ?? [])
+      const recs = data.recommendations ?? []
+      if (recs.length === 0) {
+        setRecError("Couldn't generate recommendations — please try again")
+      } else {
+        setRecommendations(recs)
+      }
     } catch {
       setRecError('Network error — check your connection')
     } finally {
@@ -714,7 +721,7 @@ export default function Home() {
 
           {/* Desktop actions (all visible) */}
           <div className="hidden md:flex gap-2">
-            <button onClick={getRecommendations} disabled={manga.length === 0} aria-label="Get AI recommendations"
+            <button onClick={getRecommendations} disabled={manga.length === 0 || loadingRec} aria-label="Get AI recommendations"
               className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 disabled:opacity-40 transition-colors">
               {loadingRec ? 'Thinking…' : '✦ Recommend'}
             </button>
@@ -1052,47 +1059,74 @@ export default function Home() {
           </div>
         )}
 
-        {/* AI Recommendations */}
-        {(recommendations.length > 0 || loadingRec || recError) && (
-          <div className="mt-6 bg-zinc-900 border border-violet-500/30 rounded-xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-violet-300">✦ AI Recommendations</h2>
-              <button onClick={() => { setRecommendations([]); setRecError(''); setLoadingRec(false) }}
-                aria-label="Dismiss" className="text-zinc-600 hover:text-zinc-400 text-lg leading-none">×</button>
-            </div>
-            {loadingRec && <div className="text-zinc-500 text-sm">Asking Claude…</div>}
-            {recError && <div className="text-red-400 text-sm">{recError}</div>}
-            {recommendations.length > 0 && (
-              <div className="space-y-4">
-                {recommendations.map((r, i) => {
-                  const colour = r.confidence >= 80 ? 'bg-emerald-500' : r.confidence >= 65 ? 'bg-yellow-500' : 'bg-zinc-500'
-                  const textColour = r.confidence >= 80 ? 'text-emerald-400' : r.confidence >= 65 ? 'text-yellow-400' : 'text-zinc-400'
-                  return (
-                    <div key={i} className="flex items-start gap-3">
-                      {/* Confidence ring */}
-                      <div className="shrink-0 w-11 h-11 rounded-full bg-zinc-800 border border-zinc-700 flex flex-col items-center justify-center">
-                        <span className={`text-sm font-bold leading-none ${textColour}`}>{r.confidence}</span>
-                        <span className="text-zinc-600 text-[9px] leading-none">%</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-semibold text-sm text-white">{r.title}</span>
-                          {r.isAnime && <span className="text-xs px-1.5 py-0.5 bg-violet-500/20 text-violet-400 rounded-full">anime</span>}
-                        </div>
-                        <div className="h-1 bg-zinc-800 rounded-full overflow-hidden mb-1.5">
-                          <div className={`h-full rounded-full transition-all ${colour}`}
-                            style={{ width: `${r.confidence}%` }} />
-                        </div>
-                        <p className="text-xs text-zinc-500 leading-relaxed">{r.reason}</p>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Recommendations modal — rendered below, triggered via showRecModal */}
       </div>
+
+      {/* Recommendations modal */}
+      {showRecModal && (
+        <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center" onClick={() => { if (!loadingRec) { setShowRecModal(false); setRecommendations([]); setRecError('') } }}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-2xl w-full lg:max-w-lg max-h-[85vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex justify-center pt-3 pb-1 lg:hidden">
+              <div className="w-10 h-1 bg-zinc-700 rounded-full" />
+            </div>
+            <div className="px-5 pt-4 pb-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-semibold text-violet-300">✦ AI Recommendations</h2>
+                {!loadingRec && (
+                  <button onClick={() => { setShowRecModal(false); setRecommendations([]); setRecError('') }}
+                    aria-label="Close" className="text-zinc-600 hover:text-zinc-400 text-xl leading-none">×</button>
+                )}
+              </div>
+
+              {loadingRec && (
+                <div className="flex flex-col items-center py-10 gap-3">
+                  <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-sm text-zinc-500">Asking Claude…</p>
+                </div>
+              )}
+
+              {recError && !loadingRec && (
+                <div className="text-center py-6">
+                  <p className="text-red-400 text-sm mb-3">{recError}</p>
+                  <button onClick={getRecommendations}
+                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300">
+                    Try again
+                  </button>
+                </div>
+              )}
+
+              {recommendations.length > 0 && (
+                <div className="space-y-4">
+                  {recommendations.map((r, i) => {
+                    const barColour = r.confidence >= 80 ? 'bg-emerald-500' : r.confidence >= 65 ? 'bg-yellow-500' : 'bg-zinc-500'
+                    const textColour = r.confidence >= 80 ? 'text-emerald-400' : r.confidence >= 65 ? 'text-yellow-400' : 'text-zinc-400'
+                    return (
+                      <div key={i} className="flex items-start gap-3">
+                        <div className="shrink-0 w-12 h-12 rounded-full bg-zinc-800 border border-zinc-700 flex flex-col items-center justify-center">
+                          <span className={`text-sm font-bold leading-none ${textColour}`}>{r.confidence}</span>
+                          <span className="text-zinc-600 text-[9px] leading-none">%</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-semibold text-sm text-white">{r.title}</span>
+                            {r.isAnime && <span className="text-xs px-1.5 py-0.5 bg-violet-500/20 text-violet-400 rounded-full">anime</span>}
+                          </div>
+                          <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-1.5">
+                            <div className={`h-full rounded-full ${barColour}`} style={{ width: `${r.confidence}%` }} />
+                          </div>
+                          <p className="text-xs text-zinc-500 leading-relaxed">{r.reason}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Shelf picker */}
       {shelfPickerManga && (
