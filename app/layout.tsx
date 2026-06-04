@@ -24,13 +24,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full" style={{ background: 'var(--ink-850)', color: 'var(--fg-1)' }}>
-        {/* Mobile top nav hidden on lg (sidebar replaces it) */}
-        <Nav />
+        {/* Flex row: tablet rail (md) | sidebar (lg) | content */}
         <div className="flex">
-          {/* Persistent sidebar — lg+ only */}
+          <Nav />
           <Sidebar />
-          {/* Main content — pb for mobile bottom nav */}
-          <main className="flex-1 min-w-0 pb-20 lg:pb-0">
+          {/* pb-24 on mobile clears the floating bottom bar */}
+          <main className="flex-1 min-w-0 pb-24 md:pb-0">
             {children}
           </main>
         </div>
