@@ -11,15 +11,19 @@ import {
 } from '@/lib/jikan'
 
 import type { SJChapter } from '@/app/api/shonenjump/route'
+import MangaPlusFeed from '@/components/MangaPlusFeed'
+import WebtoonsFeed from '@/components/WebtoonsFeed'
 
-type DiscoverTab = 'swipe' | 'similar' | 'new' | 'updated' | 'jump'
+type DiscoverTab = 'swipe' | 'similar' | 'new' | 'updated' | 'jump' | 'plus' | 'webtoons'
 
 const DISC_TABS: { id: DiscoverTab; label: string; emoji: string; desc: string }[] = [
-  { id: 'swipe',   label: 'Swipe',    emoji: '🔀', desc: 'Rate manga to train your taste' },
-  { id: 'similar', label: 'Similar',  emoji: '🎯', desc: 'Based on what you read' },
-  { id: 'new',     label: 'New',      emoji: '✨', desc: 'Series started this year' },
-  { id: 'updated', label: 'Updated',  emoji: '🔔', desc: 'Ongoing with new chapters' },
-  { id: 'jump',    label: 'Jump',     emoji: '⚡', desc: 'Latest from Shonen Jump' },
+  { id: 'swipe',    label: 'Swipe',    emoji: '🔀', desc: 'Rate manga to train your taste' },
+  { id: 'similar',  label: 'Similar',  emoji: '🎯', desc: 'Based on what you read' },
+  { id: 'new',      label: 'New',      emoji: '✨', desc: 'Series started this year' },
+  { id: 'updated',  label: 'Updated',  emoji: '🔔', desc: 'Ongoing with new chapters' },
+  { id: 'jump',     label: 'Jump',     emoji: '⚡', desc: 'Latest from Shonen Jump' },
+  { id: 'plus',     label: 'Jump+',    emoji: '📖', desc: 'Latest from MangaPlus by Shueisha' },
+  { id: 'webtoons', label: 'Webtoons', emoji: '📱', desc: 'Korean manhwa originals' },
 ]
 
 function DiscoveryGrid({
@@ -318,7 +322,7 @@ export default function DiscoverPage() {
   const fetchedGridTabs = useRef<Set<DiscoverTab>>(new Set())
 
   const fetchGridTab = useCallback(async (tab: DiscoverTab) => {
-    if (tab === 'swipe' || tab === 'jump' || fetchedGridTabs.current.has(tab)) return
+    if (['swipe', 'jump', 'plus', 'webtoons'].includes(tab) || fetchedGridTabs.current.has(tab)) return
     fetchedGridTabs.current.add(tab)
     setGridLoading(prev => ({ ...prev, [tab]: true }))
 
@@ -565,8 +569,18 @@ export default function DiscoverPage() {
           <ShonenJumpFeed trackedTitles={trackedTitles} />
         )}
 
+        {/* MangaPlus tab */}
+        {activeTab === 'plus' && (
+          <MangaPlusFeed trackedTitles={trackedTitles} />
+        )}
+
+        {/* Webtoons tab */}
+        {activeTab === 'webtoons' && (
+          <WebtoonsFeed trackedTitles={trackedTitles} onSelect={setSelectedCard} />
+        )}
+
         {/* Grid tabs */}
-        {activeTab !== 'swipe' && activeTab !== 'jump' && (
+        {activeTab !== 'swipe' && activeTab !== 'jump' && activeTab !== 'plus' && activeTab !== 'webtoons' && (
           <DiscoveryGrid
             items={gridData[activeTab] ?? []}
             loading={gridLoading[activeTab] ?? false}

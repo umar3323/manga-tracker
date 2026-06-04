@@ -148,7 +148,7 @@ export default function SearchPage() {
   const addManga = async (manga: JikanSearchResult, status: MangaStatus) => {
     setAdding(manga.mal_id)
     try {
-      const adaptations = await getAnimeAdaptations(manga.mal_id)
+      const adaptations = manga.mal_id ? await getAnimeAdaptations(manga.mal_id) : []
       const anim = adaptations[0]
       const { error } = await supabase.from('manga_list').insert({
         mal_id: manga.mal_id, title: manga.title, current_chapter: 0, status,
@@ -160,7 +160,7 @@ export default function SearchPage() {
       if (error?.code === '23505') showToast(`"${manga.title}" is already in your list`)
       else if (error) showToast('Failed to add manga')
       else {
-        setAdded(prev => new Set([...prev, manga.mal_id]))
+        setAdded(prev => new Set([...prev, manga.mal_id ?? -1]))
         showToast(`Added "${manga.title}"${anim ? ' — 🎬 anime found!' : ''}`)
       }
     } finally { setAdding(null) }
@@ -484,7 +484,7 @@ export default function SearchPage() {
                   )}
                 </div>
                 <div className="shrink-0">
-                  {added.has(manga.mal_id) ? (
+                  {manga.mal_id !== null && added.has(manga.mal_id) ? (
                     <span className="text-emerald-400 text-sm font-medium">✓ Added</span>
                   ) : (
                     <div className="flex flex-col gap-1.5">

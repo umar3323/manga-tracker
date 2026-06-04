@@ -79,17 +79,19 @@ export async function POST(req: NextRequest) {
       if (catRes.ok) catalog = (await catRes.json()).catalog ?? []
     } catch { /* fall through — scoring on empty catalog returns empty recs */ }
 
-    // Also pull SJ titles to give a small boost to Shonen Jump series
+    // Pull publisher feeds for confidence boosts (SJ +5, MangaPlus +5)
     let sjTitles = new Set<string>()
-    try {
-      const sjRes = await fetch(`${origin}/api/shonenjump`, { signal: AbortSignal.timeout(8000) })
-      if (sjRes.ok) {
-        const sjJson = await sjRes.json()
-        sjTitles = new Set(
-          (sjJson.chapters ?? []).map((c: { title: string }) => c.title.toLowerCase())
-        )
-      }
-    } catch { /* non-critical */ }
+    let mpTitles = new Set<string>()
+    await Promise.allSettled([
+      fetch(`${origin}/api/shonenjump`, { signal: AbortSignal.timeout(8000) })
+        .then(r => r.json()).then(j => {
+          sjTitles = new Set((j.chapters ?? []).map((c: { title: string }) => c.title.toLowerCase()))
+        }),
+      fetch(`${origin}/api/mangaplus`, { signal: AbortSignal.timeout(8000) })
+        .then(r => r.json()).then(j => {
+          mpTitles = new Set((j.chapters ?? []).map((c: { title: string }) => c.title.toLowerCase()))
+        }),
+    ])
 
     // Filter out manga already in user's library
     const filtered = catalog.filter(c => {
@@ -110,11 +112,18 @@ export async function POST(req: NextRequest) {
       const tagBonus = cGenres.reduce((s, g) => s + (tagWeights[g] ?? 0), 0)
       const tagBonusNorm = Math.min(1, tagBonus / 5)
 
-      // SJ bonus — small boost for currently serialising SJ series
-      const sjBonus = sjTitles.has(c.title.toLowerCase()) ? 5 : 0
+      // Publisher boosts — active serialization signals
+      const titleLow = c.title.toLowerCase()
+      const sjBonus = sjTitles.has(titleLow) ? 5 : 0
+      const mpBonus = mpTitles.has(titleLow) ? 5 : 0
+
+      // MangaUpdates activity boost: +2 if series is weekly/biweekly (from catalog source tag)
+      // We use the country/source heuristic: non-complete + MAL score > 7 = likely active
+      const muBonus = (!c.status || c.status === 'publishing') &&
+        (c.score ?? 0) > 7 ? 2 : 0
 
       const baseScore = (c.score ?? 7)
-      const base = ((baseScore / 10) * 25) + (jaccardScore * 40) + (tagBonusNorm * 15) + 17 + sjBonus
+      const base = ((baseScore / 10) * 25) + (jaccardScore * 40) + (tagBonusNorm * 15) + 17 + sjBonus + mpBonus + muBonus
       const confidence = Math.min(95, Math.max(55, Math.round(base)))
 
       const matchedGenres = overlap.slice(0, 2)
@@ -132,7 +141,7 @@ export async function POST(req: NextRequest) {
       } else if (matchedGenres.length > 0) {
         reason = `Matches your taste for ${matchedGenres.join(' and ')}${topTag ? ` with strong ${topTag} elements` : ''}${baseScore >= 8.5 ? ` — score ${baseScore}` : ''}.`
       } else {
-        reason = `Highly rated ${topTag ? `${topTag} ` : ''}manga${sjBonus ? ' currently in Shonen Jump' : ''} that readers with similar lists enjoy.`
+        reason = `Highly rated ${topTag ? `${topTag} ` : ''}manga${sjBonus ? ' currently in Shonen Jump' : mpBonus ? ' on MangaPlus' : ''} that readers with similar lists enjoy.`
       }
 
       return { title: c.title, mal_id: c.mal_id, confidence, reason, overlap: overlap.length }

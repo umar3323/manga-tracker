@@ -9,15 +9,19 @@ export interface JikanAuthor {
 }
 
 export interface JikanSearchResult {
-  mal_id: number
+  mal_id: number | null      // null for non-MAL entries (ComicK hid-keyed, Webtoons, etc.)
   title: string
   synopsis: string | null
   cover_url: string | null
-  genres: string[]
+  genres: string[]           // required — used by swipe-queue 60% filter
   total_chapters: number | null
   score: number | null
   status: string | null
   authors: JikanAuthor[]
+  // Extended fields for multi-source catalog
+  hid?: string               // ComicK hash ID (primary key when mal_id is null)
+  source?: string            // originating source: 'jikan' | 'mangadex' | 'comick' | 'kitsu' | 'anilist' | 'webtoons'
+  country?: 'jp' | 'kr' | 'cn' | 'other'
 }
 
 export interface JikanAnimeAdaptation {
@@ -137,7 +141,7 @@ export async function getTopMangaMultiPage(
       const json = await res.json()
       for (const item of json.data ?? []) {
         const m = mapMangaResult(item)
-        if (!seen.has(m.mal_id)) { seen.add(m.mal_id); results.push(m) }
+        if (m.mal_id && !seen.has(m.mal_id)) { seen.add(m.mal_id); results.push(m) }
       }
     } catch { break }
   }
@@ -264,7 +268,7 @@ export async function getTopMangaByGenres(
     const json = await res.json()
     return (json.data ?? [])
       .map(mapMangaResult)
-      .filter((m: JikanSearchResult) => !excludeMalIds.includes(m.mal_id))
+      .filter((m: JikanSearchResult) => m.mal_id !== null && !excludeMalIds.includes(m.mal_id))
       .slice(0, limit)
   } catch {
     return []
@@ -321,7 +325,7 @@ export async function getNewSeriesManga(limit = 20, excludeMalIds: number[] = []
     const json = await res.json()
     return (json.data ?? [])
       .map(mapMangaResult)
-      .filter((m: JikanSearchResult) => !excludeMalIds.includes(m.mal_id))
+      .filter((m: JikanSearchResult) => m.mal_id !== null && !excludeMalIds.includes(m.mal_id))
       .slice(0, limit)
   } catch { return [] }
 }
@@ -338,7 +342,7 @@ export async function getUpdatedManga(limit = 20, excludeMalIds: number[] = [], 
     const json = await res.json()
     return (json.data ?? [])
       .map(mapMangaResult)
-      .filter((m: JikanSearchResult) => !excludeMalIds.includes(m.mal_id))
+      .filter((m: JikanSearchResult) => m.mal_id !== null && !excludeMalIds.includes(m.mal_id))
       .slice(0, limit)
   } catch { return [] }
 }

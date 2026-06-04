@@ -1,46 +1,44 @@
 /**
  * Kitsu API client — kitsu.io/api/edge (JSON:API spec)
- * Public read access, no key required.
+ * Public reads, no auth required.
+ * Required headers: Accept: application/vnd.api+json
+ * CORS: no browser support — server-side only.
+ * Rate limit: none published; use 300ms gaps for mapping requests.
  *
- * Used for:
- *  1. Additional community score signal in catalog (averageRating)
- *  2. MAL ID bridge: given a Kitsu manga ID, resolve to MAL ID via mappings
- *  3. Trending manhwa/manhua with Kitsu cover art
- *
- * NOTE: Kitsu's bulk manga list doesn't include MAL IDs inline — a second
- * /mappings request is needed per series. For catalog use we only call
- * mappings for the top N entries to stay within reasonable request counts.
+ * Roles in YOMU:
+ *  1. `getTopManhwa()` — manhwa catalog pool with Kitsu community scores
+ *  2. `searchKitsu(title)` + `getKitsuMalId(id)` — ID bridge for non-MAL entries
+ *     (ComicK entries missing links.mal, Webtoons series)
  */
 
 import type { JikanSearchResult } from './jikan'
 
-const KITSU_BASE = 'https://kitsu.io/api/edge'
+const BASE = 'https://kitsu.io/api/edge'
+const HEADERS = {
+  Accept: 'application/vnd.api+json',
+  'Content-Type': 'application/vnd.api+json',
+}
 
-interface KitsuMangaAttrs {
+interface KitsuAttrs {
   canonicalTitle: string
   synopsis: string | null
-  coverImage: { small: string; medium: string; large: string } | null
-  posterImage: { small: string; medium: string; large: string } | null
-  averageRating: string | null   // "85.07" as string
+  posterImage: { small: string; medium: string } | null
+  coverImage:  { small: string; medium: string } | null
+  averageRating: string | null  // "85.07" as string (0–100)
   chapterCount: number | null
   status: string | null
-  subtype: string | null         // "manga" | "manhwa" | "manhua" | "oel" etc.
-  startDate: string | null
+  subtype: string | null        // 'manga' | 'manhwa' | 'manhua' | 'oel'
 }
 
-interface KitsuManga {
+export interface KitsuMangaEntry {
   id: string
-  attributes: KitsuMangaAttrs
+  attributes: KitsuAttrs
 }
 
-interface KitsuResponse {
-  data: KitsuManga[]
-}
-
-async function kitsufetch(path: string): Promise<KitsuResponse | null> {
+async function kitsuGet(path: string): Promise<{ data: KitsuMangaEntry[] } | null> {
   try {
-    const res = await fetch(`${KITSU_BASE}${path}`, {
-      headers: { Accept: 'application/vnd.api+json', 'Content-Type': 'application/vnd.api+json' },
+    const res = await fetch(`${BASE}${path}`, {
+      headers: HEADERS,
       signal: AbortSignal.timeout(10000),
     })
     if (!res.ok) return null
@@ -48,76 +46,78 @@ async function kitsufetch(path: string): Promise<KitsuResponse | null> {
   } catch { return null }
 }
 
-/** Resolve a Kitsu manga ID → MAL ID via the mappings endpoint */
-export async function getKitsuMalId(kitsuMangaId: string): Promise<number | null> {
+/** Resolve Kitsu manga ID → MAL ID via the mappings endpoint */
+export async function getKitsuMalId(kitsuId: string): Promise<number | null> {
   try {
     const res = await fetch(
-      `${KITSU_BASE}/mappings?filter[item_type]=Manga&filter[item_id]=${kitsuMangaId}&filter[externalSite]=myanimelist/manga`,
-      { headers: { Accept: 'application/vnd.api+json' }, signal: AbortSignal.timeout(6000) }
+      `${BASE}/mappings?filter[item_type]=Manga&filter[item_id]=${kitsuId}&filter[externalSite]=myanimelist/manga`,
+      { headers: HEADERS, signal: AbortSignal.timeout(6000) }
     )
     if (!res.ok) return null
     const json = await res.json()
-    const malIdStr: string | undefined = json.data?.[0]?.attributes?.externalId
-    return malIdStr ? parseInt(malIdStr, 10) : null
+    const externalId: string | undefined = json.data?.[0]?.attributes?.externalId
+    if (!externalId) return null
+    const n = parseInt(externalId, 10)
+    return isNaN(n) ? null : n
   } catch { return null }
 }
 
-function kitsuToResult(item: KitsuManga, malId: number | null): JikanSearchResult | null {
-  if (!malId) return null
-  const attr = item.attributes
-  const cover_url =
-    attr.posterImage?.small ??
-    attr.coverImage?.small ??
-    null
-  const score = attr.averageRating ? parseFloat(attr.averageRating) / 10 : null  // Kitsu uses 0-100
+/** Search Kitsu by title — returns best match with Kitsu ID (for downstream MAL resolution) */
+export async function searchKitsu(title: string): Promise<KitsuMangaEntry | null> {
+  const json = await kitsuGet(`/manga?filter[text]=${encodeURIComponent(title)}&page[limit]=5`)
+  if (!json?.data?.length) return null
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const needle = norm(title)
+  return json.data.find(m => norm(m.attributes.canonicalTitle) === needle) ?? json.data[0]
+}
+
+export function kitsuToJikanResult(item: KitsuMangaEntry, malId: number | null): JikanSearchResult {
+  const a = item.attributes
+  const cover_url = a.posterImage?.small ?? a.coverImage?.small ?? null
+  const score = a.averageRating ? parseFloat(a.averageRating) / 10 : null
+  const sub = a.subtype?.toLowerCase() ?? 'manga'
+  const country = sub === 'manhwa' ? 'kr' : sub === 'manhua' ? 'cn' : 'jp'
 
   return {
     mal_id: malId,
-    title: attr.canonicalTitle,
-    synopsis: attr.synopsis ?? null,
+    title: a.canonicalTitle,
+    synopsis: a.synopsis ?? null,
     cover_url,
-    genres: [],  // Kitsu genres need a separate categories request; omit for catalog
-    total_chapters: attr.chapterCount ?? null,
+    genres: [],  // Kitsu categories need a separate request; omit for catalog
+    total_chapters: a.chapterCount ?? null,
     score,
-    status: attr.status ?? null,
+    status: a.status ?? null,
     authors: [],
+    hid: `kitsu:${item.id}`,
+    source: 'kitsu',
+    country,
   }
 }
 
-/** Top manhwa by follower count, enriched with MAL IDs via mappings (top 20 only) */
-export async function getKitsuManhwa(): Promise<JikanSearchResult[]> {
-  const json = await kitsufetch('/manga?sort=-followersCount&filter[subtype]=manhwa&page[limit]=20')
+/** Top manhwa by follower count, enriched with MAL IDs via mappings */
+export async function getTopManhwa(): Promise<JikanSearchResult[]> {
+  const json = await kitsuGet('/manga?sort=-followersCount&filter[subtype]=manhwa&page[limit]=20')
   if (!json) return []
 
   const results: JikanSearchResult[] = []
-  const DELAY = 300 // ms between mapping requests
-
   for (let i = 0; i < json.data.length; i++) {
-    const item = json.data[i]
-    if (i > 0) await new Promise(r => setTimeout(r, DELAY))
-    const malId = await getKitsuMalId(item.id)
-    const result = kitsuToResult(item, malId)
-    if (result) results.push(result)
+    if (i > 0) await new Promise(r => setTimeout(r, 300))
+    const malId = await getKitsuMalId(json.data[i].id)
+    results.push(kitsuToJikanResult(json.data[i], malId))
   }
-
   return results
 }
 
-/** Top manga (all types) by follower count — uses Kitsu community rating as score signal */
+/** Top manga by follower count — Kitsu community score as tiebreaker */
 export async function getKitsuTopManga(): Promise<JikanSearchResult[]> {
-  const json = await kitsufetch('/manga?sort=-followersCount&filter[subtype]=manga&page[limit]=20')
+  const json = await kitsuGet('/manga?sort=-followersCount&filter[subtype]=manga&page[limit]=20')
   if (!json) return []
 
   const results: JikanSearchResult[] = []
-  const DELAY = 300
-
   for (let i = 0; i < json.data.length; i++) {
-    const item = json.data[i]
-    if (i > 0) await new Promise(r => setTimeout(r, DELAY))
-    const malId = await getKitsuMalId(item.id)
-    const result = kitsuToResult(item, malId)
-    if (result) results.push(result)
+    if (i > 0) await new Promise(r => setTimeout(r, 300))
+    const malId = await getKitsuMalId(json.data[i].id)
+    results.push(kitsuToJikanResult(json.data[i], malId))
   }
-
   return results
 }

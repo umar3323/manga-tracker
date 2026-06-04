@@ -13,6 +13,7 @@ import type { Recommendation } from '@/app/api/recommend/route'
 import type { AniListMangaData, AniListAnimeData } from '@/lib/anilist'
 import { RELATION_LABELS, formatCountdown } from '@/lib/anilist'
 import type { MUSeriesData } from '@/lib/mangaupdates'
+import type { ANNRelatedWork } from '@/lib/ann'
 import MangaFact from '@/components/MangaFact'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
@@ -139,6 +140,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
   const [duplicateDismissed, setDuplicateDismissed] = useState(false)
   const [merging, setMerging] = useState(false)
   const [muData, setMuData] = useState<MUSeriesData | null>(null)
+  const [annAnime, setAnnAnime] = useState<ANNRelatedWork[]>([])
 
   useEffect(() => {
     if (manga.mal_id) {
@@ -162,10 +164,21 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
       fetch(`/api/anilist?mal_id=${manga.anime_mal_id}&type=ANIME`)
         .then(r => r.json()).then(j => { if (j.data) setAlAnime(j.data) })
     }
-    // MangaUpdates: fetch adaptation depth + community recommendations
+    // MangaUpdates: fetch adaptation depth + community recommendations (non-blocking)
     if (manga.title) {
       fetch(`/api/mangaupdates?title=${encodeURIComponent(manga.title)}`)
         .then(r => r.json()).then(j => { if (j.data) setMuData(j.data) })
+        .catch(() => {/* non-critical */})
+    }
+    // ANN: fallback anime adaptation signal when AniList hasn't updated yet (non-blocking)
+    if (manga.title && !manga.has_anime) {
+      fetch(`/api/ann?title=${encodeURIComponent(manga.title)}`)
+        .then(r => r.json())
+        .then(j => {
+          if (j.related_anime?.length) {
+            setAnnAnime(j.related_anime)
+          }
+        })
         .catch(() => {/* non-critical */})
     }
   }, [manga.mal_id, manga.anime_mal_id, manga.has_anime, manga.title])
@@ -185,11 +198,20 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
     setDuplicateCandidate(candidate ?? null)
   }, [manga.id, manga.title, allManga])
 
+  // ANN fallback: if AniList found nothing but ANN has a related anime, surface it
+  useEffect(() => {
+    if (!suggestedAnime && annAnime.length > 0) {
+      const first = annAnime[0]
+      // ANN doesn't give MAL IDs directly — use 0 as sentinel; title is still surfaced
+      setSuggestedAnime({ idMal: 0, title: first.title })
+    }
+  }, [annAnime, suggestedAnime])
+
   const confirmAnimeSuggestion = async () => {
     if (!suggestedAnime) return
     await supabase.from('manga_list').update({
       has_anime: true,
-      anime_mal_id: suggestedAnime.idMal,
+      anime_mal_id: suggestedAnime.idMal || null,  // 0 sentinel → null in DB
       anime_title: suggestedAnime.title,
     }).eq('id', manga.id)
     setAnimeSuggestionConfirmed(true)
@@ -279,6 +301,32 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
             </div>
           )}
 
+          {/* MangaUpdates metadata badges */}
+          {muData && (muData.release_frequency !== 'unknown' || muData.scanlation_group) && (
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {muData.release_frequency && muData.release_frequency !== 'unknown' && (
+                <span className={`text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full border ${
+                  muData.release_frequency === 'weekly'   ? 'bg-emerald-900/30 text-emerald-400 border-emerald-800/50' :
+                  muData.release_frequency === 'biweekly' ? 'bg-cyan-900/30 text-cyan-400 border-cyan-800/50' :
+                  muData.release_frequency === 'monthly'  ? 'bg-blue-900/30 text-blue-400 border-blue-800/50' :
+                  muData.release_frequency === 'completed'? 'bg-zinc-800 text-zinc-400 border-zinc-700' :
+                  'bg-zinc-800 text-zinc-500 border-zinc-700'
+                }`}>
+                  {muData.release_frequency === 'weekly'    ? '🟢 Weekly' :
+                   muData.release_frequency === 'biweekly'  ? '🔵 Biweekly' :
+                   muData.release_frequency === 'monthly'   ? '📅 Monthly' :
+                   muData.release_frequency === 'completed' ? '✓ Complete' :
+                   '⏸ Irregular'}
+                </span>
+              )}
+              {muData.scanlation_group && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400">
+                  👥 {muData.scanlation_group}
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Duplicate detection banner */}
           {duplicateCandidate && !duplicateDismissed && (
             <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-3 mb-4">
@@ -302,9 +350,16 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
           {/* Anime adaptation suggestion banner — enriched with MangaUpdates depth */}
           {suggestedAnime && !animeSuggestionDismissed && !animeSuggestionConfirmed && (
             <div className="bg-violet-900/20 border border-violet-500/30 rounded-xl p-3 mb-4">
-              <p className="text-xs font-medium text-violet-300 mb-1">Anime adaptation found</p>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs font-medium text-violet-300">Anime adaptation found</p>
+                {/* ANN attribution — required when ANN is the source */}
+                {annAnime.length > 0 && !alManga?.relations.some(r => r.relationType === 'ADAPTATION') && (
+                  <a href="https://www.animenewsnetwork.com" target="_blank" rel="noopener noreferrer"
+                    className="text-[9px] text-zinc-600 hover:text-zinc-400 transition-colors">via ANN ↗</a>
+                )}
+              </div>
               <p className="text-xs text-zinc-400 mb-1">
-                AniList found &ldquo;{suggestedAnime.title}&rdquo;. Is this the anime for this manga?
+                &ldquo;{suggestedAnime.title}&rdquo; — is this the anime for this manga?
               </p>
               {muData?.anime.start && (
                 <div className="flex items-start gap-1.5 mb-2">
@@ -574,7 +629,7 @@ function AuthorModal({ author, onClose }: { author: Author; onClose: () => void 
       status: 'plan_to_read', cover_url: manga.cover_url,
       total_chapters: manga.total_chapters, authors: manga.authors ?? [],
     })
-    if (!error) setAdded(prev => new Set([...prev, manga.mal_id]))
+    if (!error) setAdded(prev => new Set([...prev, manga.mal_id ?? -1]))
     else if (error.code === '23505') setToast('Already in your list')
     setAdding(null)
   }
@@ -616,11 +671,11 @@ function AuthorModal({ author, onClose }: { author: Author; onClose: () => void 
                   {w.score && <span className="text-xs text-yellow-400">★ {w.score}</span>}
                 </div>
               </div>
-              <button onClick={() => addWork(w)} disabled={adding === w.mal_id || added.has(w.mal_id)}
+              <button onClick={() => addWork(w)} disabled={adding === w.mal_id || (w.mal_id !== null && added.has(w.mal_id))}
                 className={`shrink-0 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                  added.has(w.mal_id) ? 'bg-emerald-600/20 text-emerald-400' : 'bg-zinc-700 hover:bg-zinc-600 text-zinc-300 disabled:opacity-40'
+                  added.has(w.mal_id ?? -1) ? 'bg-emerald-600/20 text-emerald-400' : 'bg-zinc-700 hover:bg-zinc-600 text-zinc-300 disabled:opacity-40'
                 }`}>
-                {added.has(w.mal_id) ? '✓ Added' : adding === w.mal_id ? '…' : '+ Add'}
+                {added.has(w.mal_id ?? -1) ? '✓ Added' : adding === w.mal_id ? '…' : '+ Add'}
               </button>
             </div>
           ))}
