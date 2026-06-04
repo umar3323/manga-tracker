@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { ThumbsUp, ThumbsDown, Sparkles, BookOpen } from 'lucide-react'
 import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
 import { getStatus, type AnimeRow } from '@/lib/anime-data'
 import AnimeLinker from '@/components/AnimeLinker'
@@ -307,8 +308,8 @@ export default function StatsPage() {
                   </div>
                   {(likedAnime > 0 || dislikedAnime > 0) && (
                     <div className="mt-4 pt-4 border-t border-zinc-800 flex gap-4 text-xs text-zinc-500">
-                      <span>👍 {likedAnime} liked</span>
-                      <span>👎 {dislikedAnime} disliked</span>
+                      <span className="flex items-center gap-1"><ThumbsUp size={11} strokeWidth={1.5} className="icon-success" /> {likedAnime} liked</span>
+                      <span className="flex items-center gap-1"><ThumbsDown size={11} strokeWidth={1.5} style={{color:'var(--danger)'}} /> {dislikedAnime} disliked</span>
                     </div>
                   )}
                 </div>
@@ -368,7 +369,7 @@ export default function StatsPage() {
                 {liked.length > 0 && (
                   <div className="bg-zinc-900 rounded-xl p-5 mb-4">
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="text-base">👍</span>
+                      <ThumbsUp size={14} strokeWidth={1.5} className="icon-success" />
                       <h3 className="text-sm font-semibold text-emerald-400">{liked.length} liked</h3>
                     </div>
                     <div className="space-y-1 mb-3">
@@ -391,7 +392,7 @@ export default function StatsPage() {
                 {disliked.length > 0 && (
                   <div className="bg-zinc-900 rounded-xl p-5 mb-4">
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="text-base">👎</span>
+                      <ThumbsDown size={14} strokeWidth={1.5} style={{color:'var(--danger)'}} />
                       <h3 className="text-sm font-semibold text-red-400">{disliked.length} disliked</h3>
                     </div>
                     <div className="space-y-1 mb-3">
@@ -421,12 +422,12 @@ export default function StatsPage() {
                       <h3 className="text-sm font-semibold mb-3">Anime ratings</h3>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <p className="text-xs text-zinc-500 mb-2">👍 Liked ({likedA.length})</p>
+                          <p className="text-xs text-zinc-500 mb-2 flex items-center gap-1"><ThumbsUp size={10} strokeWidth={1.5} className="icon-success" /> Liked ({likedA.length})</p>
                           {likedA.slice(0, 5).map(t => <p key={t} className="text-xs text-zinc-300 truncate">• {t}</p>)}
                           {likedA.length > 5 && <p className="text-xs text-zinc-600">+{likedA.length - 5} more</p>}
                         </div>
                         <div>
-                          <p className="text-xs text-zinc-500 mb-2">👎 Disliked ({dislikedA.length})</p>
+                          <p className="text-xs text-zinc-500 mb-2 flex items-center gap-1"><ThumbsDown size={10} strokeWidth={1.5} style={{color:'var(--danger)'}} /> Disliked ({dislikedA.length})</p>
                           {dislikedA.slice(0, 5).map(t => <p key={t} className="text-xs text-zinc-300 truncate">• {t}</p>)}
                           {dislikedA.length > 5 && <p className="text-xs text-zinc-600">+{dislikedA.length - 5} more</p>}
                         </div>
@@ -479,7 +480,7 @@ export default function StatsPage() {
                   style={{ width: `${Math.min(goalPct, 100)}%`, backgroundColor: goalPct >= 100 ? 'var(--cyan)' : 'var(--vermillion)' }} />
               </div>
               {weekChapters >= goal && (
-                <p className="text-xs text-emerald-400 mt-1.5">🎉 Goal achieved this week!</p>
+                <p className="text-xs text-emerald-400 mt-1.5 flex items-center gap-1"><Sparkles size={11} strokeWidth={1.5} /> Goal achieved this week!</p>
               )}
             </div>
           </div>
@@ -562,11 +563,11 @@ export default function StatsPage() {
           // Reading personality
           const topGenre = topGenres[0]?.[0] ?? ''
           const personality: Record<string, string> = {
-            Action: '⚔️ Battle-hungry',    Fantasy: '🧙 World-builder',
-            Romance: '💝 Heart-seeker',     Horror: '👻 Thrill-chaser',
-            Comedy: '😄 Laughter-seeker',  Psychological: '🧠 Mind-explorer',
-            Shounen: '🔥 Determined soul', Seinen: '🎯 Thoughtful reader',
-            'Sci-Fi': '🚀 Future-gazer',   Drama: '🎭 Story-chaser',
+            Action: 'Battle-hungry',    Fantasy: 'World-builder',
+            Romance: 'Heart-seeker',    Horror: 'Thrill-chaser',
+            Comedy: 'Laughter-seeker',  Psychological: 'Mind-explorer',
+            Shounen: 'Determined soul', Seinen: 'Thoughtful reader',
+            'Sci-Fi': 'Future-gazer',   Drama: 'Story-chaser',
           }
 
           // Reading speed
@@ -579,9 +580,9 @@ export default function StatsPage() {
             <div className="bg-zinc-900 rounded-xl p-5 mb-6">
               <h2 className="text-sm font-semibold mb-1">Your reading DNA</h2>
               <div className="flex items-center gap-3 mb-4">
-                <span className="text-2xl">{personality[topGenre]?.split(' ')[0] ?? '📚'}</span>
+                <BookOpen size={22} strokeWidth={1.5} className="icon-primary shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-white">{personality[topGenre]?.split(' ').slice(1).join(' ') ?? 'Avid reader'}</p>
+                  <p className="text-sm font-medium text-white">{personality[topGenre] ?? 'Avid reader'}</p>
                   <p className="text-xs text-zinc-500">
                     {avgPerActiveDay > 0 ? `${avgPerActiveDay} chapters per active day` : 'Start logging chapters to see pace'}
                   </p>

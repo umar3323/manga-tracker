@@ -16,6 +16,10 @@ import type { MUSeriesData } from '@/lib/mangaupdates'
 import type { ANNRelatedWork } from '@/lib/ann'
 import MangaFact from '@/components/MangaFact'
 import { getStatus as getAnimeStatus, type AnimeRow } from '@/lib/anime-data'
+import {
+  Tv, Timer, Play, Clapperboard, BookOpen, PenLine, ThumbsUp, ThumbsDown,
+  Folder, MapPin, Flag, Zap, Sword, Cloud, Moon, Flame, Heart,
+} from 'lucide-react'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
 function EditableNumber({
@@ -400,7 +404,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge }: {
           {/* AniList: airing countdown for adapted anime */}
           {alAnime?.nextAiringEpisode && (
             <div className="flex items-center gap-2 bg-violet-900/20 border border-violet-500/30 rounded-xl px-3 py-2.5 mb-4">
-              <span className="text-violet-400 text-sm">📺</span>
+              <Tv size={13} strokeWidth={1.5} className="text-violet-400 shrink-0" />
               <div>
                 <span className="text-xs font-medium text-violet-300">
                   Ep. {alAnime.nextAiringEpisode.episode} airing in {formatCountdown(alAnime.nextAiringEpisode.timeUntilAiring)}
@@ -1475,13 +1479,13 @@ export default function Home() {
     return arcs.find(a => m.current_chapter >= a.chapter_start && m.current_chapter <= a.chapter_end) ?? null
   }
 
-  const MOODS: { id: string; label: string; test: (m: Manga) => boolean }[] = [
-    { id: 'quick',     label: '⚡ Quick',      test: m => !!m.total_chapters && m.total_chapters <= 100 },
-    { id: 'epic',      label: '⚔️ Epic',        test: m => !!m.total_chapters && m.total_chapters >= 300 },
-    { id: 'light',     label: '☁️ Light',       test: m => m.genres.some(g => ['Comedy','Slice of Life'].includes(g)) },
-    { id: 'dark',      label: '🌑 Dark',        test: m => m.genres.some(g => ['Horror','Psychological','Thriller'].includes(g)) },
-    { id: 'action',    label: '💥 Action',      test: m => m.genres.some(g => ['Action','Martial Arts'].includes(g)) },
-    { id: 'heartfelt', label: '💙 Heartfelt',   test: m => m.genres.some(g => ['Romance','Drama'].includes(g)) },
+  const MOODS: { id: string; label: string; icon: React.ReactNode; test: (m: Manga) => boolean }[] = [
+    { id: 'quick',     label: 'Quick',     icon: <Zap    size={11} strokeWidth={1.5} />, test: m => !!m.total_chapters && m.total_chapters <= 100 },
+    { id: 'epic',      label: 'Epic',      icon: <Sword  size={11} strokeWidth={1.5} />, test: m => !!m.total_chapters && m.total_chapters >= 300 },
+    { id: 'light',     label: 'Light',     icon: <Cloud  size={11} strokeWidth={1.5} />, test: m => m.genres.some(g => ['Comedy','Slice of Life'].includes(g)) },
+    { id: 'dark',      label: 'Dark',      icon: <Moon   size={11} strokeWidth={1.5} />, test: m => m.genres.some(g => ['Horror','Psychological','Thriller'].includes(g)) },
+    { id: 'action',    label: 'Action',    icon: <Flame  size={11} strokeWidth={1.5} />, test: m => m.genres.some(g => ['Action','Martial Arts'].includes(g)) },
+    { id: 'heartfelt', label: 'Heartfelt', icon: <Heart  size={11} strokeWidth={1.5} />, test: m => m.genres.some(g => ['Romance','Drama'].includes(g)) },
   ]
 
   const filtered = manga
@@ -1652,6 +1656,50 @@ export default function Home() {
           </div>
         )}
 
+        {/* ── Continue strip ── */}
+        {(() => {
+          const CONTINUE_KEY = 'yomu_last_read'
+          // Derive the last-touched reading entry from loaded data
+          const lastRead = manga
+            .filter(m => m.status === 'reading' && m.last_read_at)
+            .sort((a, b) => new Date(b.last_read_at!).getTime() - new Date(a.last_read_at!).getTime())[0]
+
+          if (!lastRead) return null
+
+          // Persist for instant next-load
+          try { localStorage.setItem(CONTINUE_KEY, JSON.stringify({ id: lastRead.id, title: lastRead.title, chapter: lastRead.current_chapter, cover: lastRead.cover_url })) } catch {}
+
+          const mdexUrl = lastRead.mal_id
+            ? `https://mangadex.org/search?q=${encodeURIComponent(lastRead.title)}`
+            : null
+
+          return (
+            <div className="mb-4 flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 hover:border-zinc-700 transition-colors">
+              {lastRead.cover_url && (
+                <img src={lastRead.cover_url} alt="" className="w-8 h-11 object-cover rounded shrink-0" />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] text-zinc-600 uppercase tracking-widest font-semibold mb-0.5">Continue reading</p>
+                <p className="text-sm font-semibold text-zinc-100 truncate">{lastRead.title}</p>
+                <p className="text-xs text-zinc-500 mt-0.5">Chapter {lastRead.current_chapter}{lastRead.total_chapters ? ` of ${lastRead.total_chapters}` : ''}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {mdexUrl && (
+                  <a href={mdexUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{ backgroundColor: 'var(--vermillion)', color: '#fff' }}>
+                    <Play size={11} strokeWidth={2} /> Read
+                  </a>
+                )}
+                <button onClick={() => setSelectedManga(lastRead)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors">
+                  Details
+                </button>
+              </div>
+            </div>
+          )
+        })()}
+
         {/* Trending section — reads excluded genres from localStorage (set on Search page) */}
         <TrendingSection
           onSelect={rec => setSelectedRec(rec)}
@@ -1678,16 +1726,16 @@ export default function Home() {
           const totalMovies  = animeList.filter(e =>  e.is_movie).length
           const activeCount  = animeList.filter(e => getAnimeStatus(e) === 'active').length
           const stats = [
-            { value: totalSeries,                    label: 'Anime series',   icon: '📺' },
-            { value: `${totalHours.toFixed(0)}h`,    label: 'Hours watched',  icon: '⏱' },
-            { value: activeCount,                    label: 'Active',         icon: '▶' },
-            { value: totalMovies,                    label: 'Movies',         icon: '🎬' },
-          ]
+            { value: totalSeries,                    label: 'Anime series',   icon: <Tv size={16} strokeWidth={1.5} className="icon-primary" /> },
+            { value: `${totalHours.toFixed(0)}h`,    label: 'Hours watched',  icon: <Timer size={16} strokeWidth={1.5} className="icon-secondary" /> },
+            { value: activeCount,                    label: 'Active',         icon: <Play size={16} strokeWidth={1.5} className="icon-primary" /> },
+            { value: totalMovies,                    label: 'Movies',         icon: <Clapperboard size={16} strokeWidth={1.5} className="icon-muted" /> },
+          ] as { value: string | number; label: string; icon: React.ReactNode }[]
           return (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
               {stats.map(s => (
                 <div key={s.label} className="bg-zinc-900 rounded-xl p-3 flex items-center gap-3">
-                  <span className="text-base shrink-0">{s.icon}</span>
+                  <span className="shrink-0">{s.icon}</span>
                   <div>
                     <div className="text-lg font-bold leading-tight" style={{ color: 'var(--cyan)' }}>{s.value}</div>
                     <div className="text-xs text-zinc-500 mt-0.5">{s.label}</div>
@@ -1712,7 +1760,7 @@ export default function Home() {
             <div className="mb-5 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm">📚</span>
+                  <BookOpen size={16} strokeWidth={1.5} className="icon-muted shrink-0" />
                   <span className="text-sm font-medium">
                     {totalUnread.toLocaleString()} unread chapters
                   </span>
@@ -1735,12 +1783,12 @@ export default function Home() {
         <div className="flex gap-1.5 flex-wrap mb-4">
           {MOODS.map(mo => (
             <button key={mo.id} onClick={() => setMood(mood === mo.id ? null : mo.id)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
                 mood === mo.id
                   ? 'bg-violet-600/30 border-violet-500/50 text-violet-300'
                   : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'
               }`}>
-              {mo.label}
+              {mo.icon}{mo.label}
             </button>
           ))}
           {mood && <button onClick={() => setMood(null)} className="text-xs text-zinc-600 hover:text-zinc-400 px-2">✕ clear</button>}
@@ -1843,17 +1891,17 @@ export default function Home() {
                       </select>
                       <span className="text-xs text-zinc-600" aria-label={`Last read ${timeAgo(m.last_read_at)}`}>{timeAgo(m.last_read_at)}</span>
                       {m.status === 'reading' && finishEstimate(m) && (
-                        <span className="text-xs text-zinc-600" title="Estimated finish at your current reading pace">
-                          🏁 {finishEstimate(m)}
+                        <span className="text-xs text-zinc-600 flex items-center gap-1" title="Estimated finish at your current reading pace">
+                          <Flag size={10} strokeWidth={1.5} /> {finishEstimate(m)}
                         </span>
                       )}
                       <button
                         onClick={() => toggleNotes(m.id)}
                         aria-label={expandedNotes.has(m.id) ? 'Hide notes' : 'Show notes'}
                         aria-expanded={expandedNotes.has(m.id)}
-                        className={`text-xs transition-colors ${expandedNotes.has(m.id) || m.notes ? 'text-violet-400' : 'text-zinc-700 hover:text-zinc-400'}`}
+                        className={`transition-colors ${expandedNotes.has(m.id) || m.notes ? 'text-violet-400' : 'text-zinc-700 hover:text-zinc-400'}`}
                       >
-                        📝
+                        <PenLine size={13} strokeWidth={1.5} />
                       </button>
                     </div>
 
@@ -1878,8 +1926,8 @@ export default function Home() {
                       return (
                         <div className="flex items-center gap-2 mt-1">
                           {arc && (
-                            <span className="text-xs text-zinc-600 truncate" title={`${arc.tag} arc`}>
-                              📍 {arc.label}
+                            <span className="text-xs text-zinc-600 truncate flex items-center gap-1" title={`${arc.tag} arc`}>
+                              <MapPin size={10} strokeWidth={1.5} /> {arc.label}
                             </span>
                           )}
                           {rereadCount > 0 && (
@@ -1891,7 +1939,7 @@ export default function Home() {
 
                     {m.has_anime && (
                       <div className="flex items-center gap-2 mt-1.5">
-                        <span className="text-xs text-violet-400">🎬</span>
+                        <Clapperboard size={12} strokeWidth={1.5} className="text-violet-400 shrink-0" />
                         <span className="text-xs text-zinc-600 truncate">{m.anime_title ?? 'Anime'}</span>
                         {m.total_episodes && m.episodes_watched < m.total_episodes && (
                           <span className="text-xs px-1.5 py-0.5 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded-full whitespace-nowrap shrink-0">
@@ -1959,22 +2007,24 @@ export default function Home() {
                             onClick={() => activeSession?.mangaId === m.id ? setActiveSession(null) : startSession(m)}
                             aria-label={activeSession?.mangaId === m.id ? 'Stop session' : `Start reading session for ${m.title}`}
                             title={activeSession?.mangaId === m.id ? 'Stop session' : 'Start reading session'}
-                            className={`ml-1 text-sm leading-none transition-colors ${
+                            className={`ml-1 transition-colors ${
                               activeSession?.mangaId === m.id
                                 ? 'text-violet-400 animate-pulse'
                                 : 'text-zinc-700 hover:text-violet-400'
                             }`}
                           >
-                            {activeSession?.mangaId === m.id ? '⏱' : '▶'}
+                            {activeSession?.mangaId === m.id
+                              ? <Timer size={14} strokeWidth={1.5} />
+                              : <Play size={14} strokeWidth={1.5} />}
                           </button>
                         )}
                         <button
                           onClick={() => setShelfPickerManga(m)}
                           aria-label={`Add ${m.title} to shelf`}
                           title="Add to shelf"
-                          className="ml-1 text-zinc-700 hover:text-violet-400 transition-colors text-sm leading-none"
+                          className="ml-1 text-zinc-700 hover:text-violet-400 transition-colors"
                         >
-                          📂
+                          <Folder size={14} strokeWidth={1.5} />
                         </button>
                                         {/* Thumbs rating */}
                         <div className="flex gap-0.5 ml-1">
@@ -1986,8 +2036,8 @@ export default function Home() {
                             }}
                             aria-label="Thumbs up"
                             title={m.user_rating === 'up' ? 'Remove rating' : 'Like'}
-                            className={`text-base leading-none transition-colors ${m.user_rating === 'up' ? 'text-emerald-400' : 'text-zinc-700 hover:text-emerald-400'}`}
-                          >👍</button>
+                            className={`p-0.5 rounded transition-colors ${m.user_rating === 'up' ? 'text-emerald-400' : 'text-zinc-700 hover:text-emerald-400'}`}
+                          ><ThumbsUp size={13} strokeWidth={1.5} /></button>
                           <button
                             onClick={async () => {
                               const next = m.user_rating === 'down' ? null : 'down'
@@ -1996,8 +2046,8 @@ export default function Home() {
                             }}
                             aria-label="Thumbs down"
                             title={m.user_rating === 'down' ? 'Remove rating' : 'Dislike'}
-                            className={`text-base leading-none transition-colors ${m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-700 hover:text-red-400'}`}
-                          >👎</button>
+                            className={`p-0.5 rounded transition-colors ${m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-700 hover:text-red-400'}`}
+                          ><ThumbsDown size={13} strokeWidth={1.5} /></button>
                         </div>
                         <button
                           onClick={() => confirmDelete(m.id)}
@@ -2014,7 +2064,7 @@ export default function Home() {
                 {/* Watching episode prompt */}
                 {watchPrompt?.id === m.id && (
                   <div className="border-t border-zinc-800 px-3 py-3 bg-violet-900/10">
-                    <p className="text-xs text-violet-300 font-medium mb-2">📺 How many episodes have you watched?</p>
+                    <p className="text-xs text-violet-300 font-medium mb-2 flex items-center gap-1.5"><Tv size={12} strokeWidth={1.5} /> How many episodes have you watched?</p>
                     <div className="flex gap-2 items-center">
                       <input
                         type="number" min={0}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Image from 'next/image'
+import { Tv, Timer, Play, Clapperboard, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { getStatus, type AnimeRow, type AnimeStatus } from '@/lib/anime-data'
 
@@ -277,14 +278,14 @@ export default function AnimePage() {
 
         {/* Stats cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10">
-          {[
-            { label: 'Series tracked', value: totalSeries,                 icon: '📺' },
-            { label: 'Total hours',    value: `${totalHours.toFixed(0)}h`, icon: '⏱' },
-            { label: 'Active',         value: activeCount,                 icon: '▶' },
-            { label: 'Movies',         value: totalMovies,                 icon: '🎬' },
-          ].map(s => (
+          {([
+            { label: 'Series tracked', value: totalSeries,                 icon: <Tv size={18} strokeWidth={1.5} className="icon-primary" /> },
+            { label: 'Total hours',    value: `${totalHours.toFixed(0)}h`, icon: <Timer size={18} strokeWidth={1.5} className="icon-secondary" /> },
+            { label: 'Active',         value: activeCount,                 icon: <Play size={18} strokeWidth={1.5} className="icon-primary" /> },
+            { label: 'Movies',         value: totalMovies,                 icon: <Clapperboard size={18} strokeWidth={1.5} className="icon-muted" /> },
+          ] as { label: string; value: string | number; icon: React.ReactNode }[]).map(s => (
             <div key={s.label} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-              <div className="text-xl mb-1">{s.icon}</div>
+              <div className="mb-2">{s.icon}</div>
               <div className="text-2xl font-bold" style={{ color: 'var(--vermillion)' }}>{s.value}</div>
               <div className="text-xs text-zinc-500 mt-0.5">{s.label}</div>
             </div>
@@ -315,21 +316,21 @@ export default function AnimePage() {
                         <button
                           onClick={e => { e.stopPropagation(); updateRating(entry.id, rating === 'up' ? null : 'up') }}
                           title={rating === 'up' ? 'Remove like' : 'Like'}
-                          className={`w-6 h-6 rounded flex items-center justify-center text-xs leading-none transition-all ${
+                          className={`w-6 h-6 rounded flex items-center justify-center transition-all ${
                             rating === 'up'
-                              ? 'bg-emerald-500/30 text-emerald-400'
-                              : 'bg-black/40 text-zinc-400 opacity-0 group-hover:opacity-100'
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : 'bg-black/40 text-zinc-500 opacity-0 group-hover:opacity-100'
                           }`}
-                        >👍</button>
+                        ><ThumbsUp size={12} strokeWidth={1.5} /></button>
                         <button
                           onClick={e => { e.stopPropagation(); updateRating(entry.id, rating === 'down' ? null : 'down') }}
                           title={rating === 'down' ? 'Remove dislike' : 'Dislike'}
-                          className={`w-6 h-6 rounded flex items-center justify-center text-xs leading-none transition-all ${
+                          className={`w-6 h-6 rounded flex items-center justify-center transition-all ${
                             rating === 'down'
-                              ? 'bg-red-500/30 text-red-400'
-                              : 'bg-black/40 text-zinc-400 opacity-0 group-hover:opacity-100'
+                              ? 'bg-red-500/20 text-red-400'
+                              : 'bg-black/40 text-zinc-500 opacity-0 group-hover:opacity-100'
                           }`}
-                        >👎</button>
+                        ><ThumbsDown size={12} strokeWidth={1.5} /></button>
                       </div>
                     </div>
                     <div className="p-2">
@@ -425,17 +426,17 @@ export default function AnimePage() {
                   </span>
 
                   {/* Rating buttons */}
-                  <div className="hidden md:flex items-center gap-0.5">
+                  <div className="hidden md:flex items-center gap-1">
                     <button
                       onClick={() => updateRating(entry.id, rating === 'up' ? null : 'up')}
                       title={rating === 'up' ? 'Remove rating' : 'Like'}
-                      className={`text-sm leading-none transition-colors ${rating === 'up' ? 'opacity-100' : 'opacity-25 hover:opacity-70'}`}
-                    >👍</button>
+                      className={`p-1 rounded transition-colors ${rating === 'up' ? 'text-emerald-400 bg-emerald-500/10' : 'text-zinc-600 hover:text-emerald-400'}`}
+                    ><ThumbsUp size={13} strokeWidth={1.5} /></button>
                     <button
                       onClick={() => updateRating(entry.id, rating === 'down' ? null : 'down')}
                       title={rating === 'down' ? 'Remove rating' : 'Dislike'}
-                      className={`text-sm leading-none transition-colors ${rating === 'down' ? 'opacity-100' : 'opacity-25 hover:opacity-70'}`}
-                    >👎</button>
+                      className={`p-1 rounded transition-colors ${rating === 'down' ? 'text-red-400 bg-red-500/10' : 'text-zinc-600 hover:text-red-400'}`}
+                    ><ThumbsDown size={13} strokeWidth={1.5} /></button>
                   </div>
 
                   {/* Delete */}

@@ -219,6 +219,22 @@ body {
   .bg-white.text-black { background-color: var(--vermillion) !important; color: #fff !important; }
 }
 
+/* ── Lucide icon semantic colour roles ──────────────────────────────────────── */
+.icon-primary   { color: var(--vermillion); }
+.icon-secondary { color: var(--cyan); }
+.icon-muted     { color: var(--fg-3); }
+.icon-success   { color: var(--success); }
+
+/* Glow variants for hero / accent moments */
+.icon-glow-red {
+  color: var(--vermillion);
+  filter: drop-shadow(0 0 5px rgba(255, 45, 70, 0.45));
+}
+.icon-glow-cyan {
+  color: var(--cyan);
+  filter: drop-shadow(0 0 5px rgba(43, 230, 220, 0.35));
+}
+
 /* Screentone overlay helper */
 .screentone-overlay::after {
   content: '';
