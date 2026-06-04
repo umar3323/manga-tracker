@@ -165,6 +165,81 @@ export const RELATION_LABELS: Record<string, string> = {
   PARENT:      'Parent',
 }
 
+// ── Trending manga catalog ────────────────────────────────────────────────
+import type { JikanSearchResult } from './jikan'
+
+const TRENDING_MANGA_QUERY = `
+query ($page: Int, $perPage: Int) {
+  Page(page: $page, perPage: $perPage) {
+    media(type: MANGA, sort: TRENDING_DESC, isAdult: false) {
+      idMal title { romaji english }
+      description(asHtml: false)
+      status genres tags { name rank isMediaSpoiler }
+      coverImage { large medium }
+      averageScore chapters
+    }
+  }
+}`
+
+export interface AniListCatalogEntry {
+  idMal: number | null
+  title: string
+  synopsis: string | null
+  cover_url: string | null
+  genres: string[]
+  total_chapters: number | null
+  score: number | null
+  status: string | null
+}
+
+export async function fetchAniListTrendingManga(pages = 2): Promise<AniListCatalogEntry[]> {
+  const results: AniListCatalogEntry[] = []
+  for (let page = 1; page <= pages; page++) {
+    try {
+      const res = await fetch(ANILIST_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ query: TRENDING_MANGA_QUERY, variables: { page, perPage: 50 } }),
+        signal: AbortSignal.timeout(10000),
+      })
+      if (!res.ok) break
+      const json = await res.json()
+      const items = json.data?.Page?.media ?? []
+      for (const m of items) {
+        if (!m.idMal) continue
+        const title = m.title.english ?? m.title.romaji
+        if (!title) continue
+        results.push({
+          idMal: m.idMal,
+          title,
+          synopsis: m.description ?? null,
+          cover_url: m.coverImage?.large ?? m.coverImage?.medium ?? null,
+          genres: m.genres ?? [],
+          total_chapters: m.chapters ?? null,
+          score: m.averageScore ? m.averageScore / 10 : null,
+          status: m.status ?? null,
+        })
+      }
+    } catch { break }
+  }
+  return results
+}
+
+// Convert AniList entries to JikanSearchResult format for the unified catalog
+export function aniListToJikanResult(e: AniListCatalogEntry): JikanSearchResult {
+  return {
+    mal_id: e.idMal!,
+    title: e.title,
+    synopsis: e.synopsis,
+    cover_url: e.cover_url,
+    genres: e.genres,
+    total_chapters: e.total_chapters,
+    score: e.score,
+    status: e.status,
+    authors: [],
+  }
+}
+
 export function formatCountdown(timeUntilAiring: number): string {
   const d = Math.floor(timeUntilAiring / 86400)
   const h = Math.floor((timeUntilAiring % 86400) / 3600)

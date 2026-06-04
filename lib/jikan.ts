@@ -120,6 +120,30 @@ async function jikanGet(path: string): Promise<Response> {
   return fetch(`https://api.jikan.moe/v4${path}`)
 }
 
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+/** Fetch multiple pages of top manga, deduped, up to `pages` pages of 25 each. */
+export async function getTopMangaMultiPage(
+  pages = 3,
+  excludeMalIds: number[] = []
+): Promise<JikanSearchResult[]> {
+  const results: JikanSearchResult[] = []
+  const seen = new Set<number>(excludeMalIds)
+  for (let page = 1; page <= pages; page++) {
+    try {
+      if (page > 1) await delay(450) // Jikan rate limit
+      const res = await jikanGet(`/top/manga?limit=25&page=${page}`)
+      if (!res.ok) break
+      const json = await res.json()
+      for (const item of json.data ?? []) {
+        const m = mapMangaResult(item)
+        if (!seen.has(m.mal_id)) { seen.add(m.mal_id); results.push(m) }
+      }
+    } catch { break }
+  }
+  return results
+}
+
 export async function getTopManga(
   filter: 'publishing' | 'bypopularity' | 'favorite',
   limit = 12,

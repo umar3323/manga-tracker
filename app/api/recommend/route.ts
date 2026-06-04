@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import type { JikanSearchResult } from '@/lib/jikan'
 
 export interface Recommendation {
   title: string
@@ -17,17 +18,7 @@ interface MangaEntry {
   mal_id?: number
 }
 
-async function jikanGet(path: string) {
-  const res = await fetch(`https://api.jikan.moe/v4${path}`, {
-    signal: AbortSignal.timeout(8000),
-  })
-  if (!res.ok) return null
-  return res.json()
-}
-
-function delay(ms: number) { return new Promise(r => setTimeout(r, ms)) }
-
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const { manga, likedGenres = [] }: { manga: MangaEntry[]; likedGenres?: string[] } = await req.json()
 
@@ -54,16 +45,6 @@ export async function POST(req: Request) {
       .slice(0, 3)
       .map(([name]) => name)
 
-    // Jikan genre ID map for common genres
-    const GENRE_IDS: Record<string, number> = {
-      Action: 1, Adventure: 2, Comedy: 4, Drama: 8, Fantasy: 10,
-      Horror: 14, Mystery: 7, Romance: 22, 'Sci-Fi': 24,
-      'Slice of Life': 36, Sports: 30, Supernatural: 37, Thriller: 41,
-      Shounen: 27, Seinen: 42, Shoujo: 25,
-    }
-
-    const genreIds = topGenres.map(g => GENRE_IDS[g]).filter(Boolean)
-
     // Build AniList tag weight vector from cached data
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -88,35 +69,39 @@ export async function POST(req: Request) {
       }
     }
 
-    // Fetch candidates from Jikan — try genre-filtered first, fall back to top manga
-    let candidates: Record<string, unknown>[] = []
-    if (genreIds.length > 0) {
-      const j = await jikanGet(`/manga?genres=${genreIds.slice(0, 2).join(',')}&limit=25&order_by=score&sort=desc`)
-      candidates = j?.data ?? []
-    }
-    if (candidates.length < 10) {
-      await delay(400)
-      const j2 = await jikanGet('/top/manga?limit=25')
-      const extra: Record<string, unknown>[] = j2?.data ?? []
-      const existingIds = new Set(candidates.map(c => c.mal_id))
-      candidates = [...candidates, ...extra.filter(e => !existingIds.has(e.mal_id))]
-    }
+    const userGenreSet = new Set(Object.keys(genreScore).filter(g => genreScore[g] > 0))
 
-    // Filter out manga already in user's list
-    const filtered = candidates.filter(c => {
-      if (addedMalIds.has(c.mal_id as number)) return false
-      if (addedTitles.has(String(c.title ?? '').toLowerCase())) return false
+    // Fetch unified catalog (large pool from Jikan + MangaDex + AniList)
+    const origin = new URL(req.url).origin
+    let catalog: JikanSearchResult[] = []
+    try {
+      const catRes = await fetch(`${origin}/api/catalog`, { signal: AbortSignal.timeout(30000) })
+      if (catRes.ok) catalog = (await catRes.json()).catalog ?? []
+    } catch { /* fall through — scoring on empty catalog returns empty recs */ }
+
+    // Also pull SJ titles to give a small boost to Shonen Jump series
+    let sjTitles = new Set<string>()
+    try {
+      const sjRes = await fetch(`${origin}/api/shonenjump`, { signal: AbortSignal.timeout(8000) })
+      if (sjRes.ok) {
+        const sjJson = await sjRes.json()
+        sjTitles = new Set(
+          (sjJson.chapters ?? []).map((c: { title: string }) => c.title.toLowerCase())
+        )
+      }
+    } catch { /* non-critical */ }
+
+    // Filter out manga already in user's library
+    const filtered = catalog.filter(c => {
+      if (!c.mal_id) return false
+      if (addedMalIds.has(c.mal_id)) return false
+      if (addedTitles.has(c.title.toLowerCase())) return false
       return true
     })
 
-    const userGenreSet = new Set(Object.keys(genreScore).filter(g => genreScore[g] > 0))
-
     // Score each candidate
     const scored = filtered.map(c => {
-      const cGenres = [
-        ...((c.genres as { name: string }[]) ?? []),
-        ...((c.themes as { name: string }[]) ?? []),
-      ].map(g => g.name)
+      const cGenres = c.genres ?? []
 
       const overlap = cGenres.filter(g => userGenreSet.has(g))
       const jaccardScore = overlap.length / Math.max(userGenreSet.size, cGenres.length, 1)
@@ -125,17 +110,17 @@ export async function POST(req: Request) {
       const tagBonus = cGenres.reduce((s, g) => s + (tagWeights[g] ?? 0), 0)
       const tagBonusNorm = Math.min(1, tagBonus / 5)
 
-      // Normalise: Jikan score (0-10) + genre overlap + AniList tag bonus → 55-92
-      const jikanScore = (c.score as number | null) ?? 7
-      const base = ((jikanScore / 10) * 25) + (jaccardScore * 40) + (tagBonusNorm * 15) + 17
-      const confidence = Math.min(92, Math.max(55, Math.round(base)))
+      // SJ bonus — small boost for currently serialising SJ series
+      const sjBonus = sjTitles.has(c.title.toLowerCase()) ? 5 : 0
 
-      // Build reason string
+      const baseScore = (c.score ?? 7)
+      const base = ((baseScore / 10) * 25) + (jaccardScore * 40) + (tagBonusNorm * 15) + 17 + sjBonus
+      const confidence = Math.min(95, Math.max(55, Math.round(base)))
+
       const matchedGenres = overlap.slice(0, 2)
       const similarTo = manga
         .filter(m => m.genres?.some(g => overlap.includes(g)))
-        .map(m => m.title)
-        .slice(0, 1)
+        .map(m => m.title).slice(0, 1)
 
       const topTag = Object.entries(tagWeights)
         .filter(([name]) => cGenres.includes(name))
@@ -143,21 +128,14 @@ export async function POST(req: Request) {
 
       let reason = ''
       if (matchedGenres.length > 0 && similarTo.length > 0) {
-        reason = `Shares ${matchedGenres.join(' and ')} with ${similarTo[0]}${topTag && !matchedGenres.includes(topTag) ? ` · strong ${topTag} themes` : ''}${jikanScore >= 8.5 ? ` — MAL ${jikanScore}` : ''}.`
+        reason = `Shares ${matchedGenres.join(' and ')} with ${similarTo[0]}${topTag && !matchedGenres.includes(topTag) ? ` · strong ${topTag} themes` : ''}${baseScore >= 8.5 ? ` — score ${baseScore}` : ''}.`
       } else if (matchedGenres.length > 0) {
-        reason = `Matches your taste for ${matchedGenres.join(' and ')}${topTag ? ` with strong ${topTag} elements` : ''}${jikanScore >= 8.5 ? ` — MAL ${jikanScore}` : ''}.`
+        reason = `Matches your taste for ${matchedGenres.join(' and ')}${topTag ? ` with strong ${topTag} elements` : ''}${baseScore >= 8.5 ? ` — score ${baseScore}` : ''}.`
       } else {
-        reason = `Top-rated ${topTag ? `${topTag} ` : ''}manga (MAL score ${jikanScore}) that readers with similar lists enjoy.`
+        reason = `Highly rated ${topTag ? `${topTag} ` : ''}manga${sjBonus ? ' currently in Shonen Jump' : ''} that readers with similar lists enjoy.`
       }
 
-      return {
-        title: String(c.title ?? ''),
-        confidence,
-        reason,
-        isAnime: false,
-        score: jikanScore,
-        overlap: overlap.length,
-      }
+      return { title: c.title, mal_id: c.mal_id, confidence, reason, overlap: overlap.length }
     })
 
     // Sort by confidence desc, take top 5
@@ -166,10 +144,10 @@ export async function POST(req: Request) {
       .slice(0, 5)
       .map(c => ({
         title: c.title,
-        mal_id: (filtered.find(f => String(f.title) === c.title)?.mal_id as number) ?? null,
+        mal_id: c.mal_id,
         confidence: c.confidence,
         reason: c.reason,
-        isAnime: c.isAnime,
+        isAnime: false,
       }))
 
     return NextResponse.json({ recommendations })
