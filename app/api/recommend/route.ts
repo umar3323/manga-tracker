@@ -16,20 +16,28 @@ interface MangaEntry {
   status: string
   genres?: string[]
   mal_id?: number
+  user_rating?: 'up' | 'down' | null
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { manga, likedGenres = [] }: { manga: MangaEntry[]; likedGenres?: string[] } = await req.json()
+    const {
+      manga,
+      likedGenres = [],
+      animeRatings = {},
+    }: { manga: MangaEntry[]; likedGenres?: string[]; animeRatings?: Record<string, 'up' | 'down'> } = await req.json()
 
     // Build genre preference profile from user's list + liked genres from swipes
     const genreScore: Record<string, number> = {}
     const addedMalIds = new Set<number>(manga.map(m => m.mal_id).filter(Boolean) as number[])
     const addedTitles = new Set(manga.map(m => m.title.toLowerCase()))
 
-    // Weight genres from the user's own list (reading/completed = higher weight)
+    // Weight genres from the user's own list
+    // thumbs up = big boost, thumbs down = penalty, reading/completed = higher base weight
     for (const m of manga) {
-      const weight = m.status === 'reading' ? 2 : m.status === 'completed' ? 1.5 : 1
+      const ratingMult = m.user_rating === 'up' ? 3 : m.user_rating === 'down' ? -1.5 : 1
+      const statusWeight = m.status === 'reading' ? 2 : m.status === 'completed' ? 1.5 : 1
+      const weight = ratingMult * statusWeight
       for (const g of m.genres ?? []) {
         genreScore[g] = (genreScore[g] ?? 0) + weight
       }
@@ -38,6 +46,15 @@ export async function POST(req: NextRequest) {
     for (const g of likedGenres) {
       genreScore[g] = (genreScore[g] ?? 0) + 1.5
     }
+    // Anime ratings — look up animeData genres via the animeRatings map
+    // We don't have genres for anime here, but we can boost/penalise based on title overlap
+    // Store rated anime titles for use in scoring below
+    const likedAnimeTitles = new Set(
+      Object.entries(animeRatings).filter(([, r]) => r === 'up').map(([t]) => t.toLowerCase())
+    )
+    const dislikedAnimeTitles = new Set(
+      Object.entries(animeRatings).filter(([, r]) => r === 'down').map(([t]) => t.toLowerCase())
+    )
 
     // Top 3 genres by score
     const topGenres = Object.entries(genreScore)
@@ -69,8 +86,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const userGenreSet = new Set(Object.keys(genreScore).filter(g => genreScore[g] > 0))
-
     // Fetch unified catalog (large pool from Jikan + MangaDex + AniList)
     const origin = new URL(req.url).origin
     let catalog: JikanSearchResult[] = []
@@ -101,12 +116,19 @@ export async function POST(req: NextRequest) {
       return true
     })
 
+    // Only consider genres with a positive score for matching
+    const userGenreSet = new Set(Object.keys(genreScore).filter(g => genreScore[g] > 0))
+
     // Score each candidate
     const scored = filtered.map(c => {
       const cGenres = c.genres ?? []
 
       const overlap = cGenres.filter(g => userGenreSet.has(g))
       const jaccardScore = overlap.length / Math.max(userGenreSet.size, cGenres.length, 1)
+
+      // Penalise genres the user has rated down
+      const dislikedOverlap = cGenres.filter(g => (genreScore[g] ?? 0) < -0.5).length
+      const dislikePenalty = dislikedOverlap * 8
 
       // AniList tag overlap bonus
       const tagBonus = cGenres.reduce((s, g) => s + (tagWeights[g] ?? 0), 0)
@@ -117,13 +139,16 @@ export async function POST(req: NextRequest) {
       const sjBonus = sjTitles.has(titleLow) ? 5 : 0
       const mpBonus = mpTitles.has(titleLow) ? 5 : 0
 
+      // Anime rating cross-signal: if this manga title matches a liked/disliked anime, adjust
+      const animeAffinityBonus = likedAnimeTitles.has(titleLow) ? 5 : dislikedAnimeTitles.has(titleLow) ? -10 : 0
+
       // MangaUpdates activity boost: +2 if series is weekly/biweekly (from catalog source tag)
       // We use the country/source heuristic: non-complete + MAL score > 7 = likely active
       const muBonus = (!c.status || c.status === 'publishing') &&
         (c.score ?? 0) > 7 ? 2 : 0
 
       const baseScore = (c.score ?? 7)
-      const base = ((baseScore / 10) * 25) + (jaccardScore * 40) + (tagBonusNorm * 15) + 17 + sjBonus + mpBonus + muBonus
+      const base = ((baseScore / 10) * 25) + (jaccardScore * 40) + (tagBonusNorm * 15) + 17 + sjBonus + mpBonus + muBonus + animeAffinityBonus - dislikePenalty
       const confidence = Math.min(95, Math.max(55, Math.round(base)))
 
       const matchedGenres = overlap.slice(0, 2)

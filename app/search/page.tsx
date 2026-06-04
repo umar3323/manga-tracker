@@ -47,6 +47,45 @@ export default function SearchPage() {
   const [maxChapters, setMaxChapters] = useState('')
   const [minScore, setMinScore] = useState('')
 
+  // ── Autocomplete suggestions ──────────────────────────────────────────────
+  const [suggestions, setSuggestions] = useState<JikanSearchResult[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [suggestLoading, setSuggestLoading] = useState(false)
+  const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchBarRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (suggestTimer.current) clearTimeout(suggestTimer.current)
+    if (!query.trim() || query.length < 2) { setSuggestions([]); setShowSuggestions(false); return }
+    suggestTimer.current = setTimeout(async () => {
+      setSuggestLoading(true)
+      const res = await searchMangaWithFilters({ query: query.trim(), orderBy: 'score', sort: 'desc' })
+      setSuggestions(res.slice(0, 8))
+      setShowSuggestions(true)
+      setSuggestLoading(false)
+    }, 350)
+    return () => { if (suggestTimer.current) clearTimeout(suggestTimer.current) }
+  }, [query])
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchBarRef.current && !searchBarRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const selectSuggestion = (s: JikanSearchResult) => {
+    setQuery(s.title)
+    setShowSuggestions(false)
+    setSuggestions([])
+    // Immediately show this result without a second API call
+    setResults([s])
+  }
+
   // ── Author search ─────────────────────────────────────────────────────────
   const [authorQuery, setAuthorQuery] = useState('')
   const [authorSuggestions, setAuthorSuggestions] = useState<{ id: number; name: string }[]>([])
@@ -255,14 +294,54 @@ export default function SearchPage() {
       <div className="max-w-3xl lg:max-w-5xl mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold mb-6">Search Manga</h1>
 
-        {/* Search bar */}
-        <div className="flex gap-2 mb-3">
-          <input value={query} onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && doSearch()}
-            placeholder="Title, or paste a MAL URL…" autoFocus
-            className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
-          />
-          <button onClick={doSearch} disabled={loading || (!query.trim() && !hasFilters)}
+        {/* Search bar with live autocomplete */}
+        <div className="flex gap-2 mb-3" ref={searchBarRef}>
+          <div className="relative flex-1">
+            <input
+              value={query}
+              onChange={e => { setQuery(e.target.value); setShowSuggestions(true) }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { setShowSuggestions(false); doSearch() }
+                if (e.key === 'Escape') setShowSuggestions(false)
+              }}
+              onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true) }}
+              placeholder="Search by title, or paste a MAL URL…"
+              autoFocus
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
+            />
+            {/* Suggestions dropdown */}
+            {showSuggestions && (query.length >= 2) && (
+              <div className="absolute z-30 top-full mt-1 left-0 right-0 bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
+                {suggestLoading && (
+                  <div className="px-4 py-3 text-xs text-zinc-500">Searching…</div>
+                )}
+                {!suggestLoading && suggestions.length === 0 && (
+                  <div className="px-4 py-3 text-xs text-zinc-500">No matches — try a different spelling</div>
+                )}
+                {!suggestLoading && suggestions.map(s => (
+                  <button
+                    key={s.mal_id}
+                    onMouseDown={e => { e.preventDefault(); selectSuggestion(s) }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-left border-b border-zinc-800 last:border-0"
+                  >
+                    {s.cover_url && (
+                      <img src={s.cover_url} alt="" className="w-7 h-10 object-cover rounded shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-zinc-200 truncate">{s.title}</p>
+                      <p className="text-[10px] text-zinc-500 mt-0.5">
+                        {s.authors.length > 0 ? `by ${s.authors[0].name}` : ''}
+                        {s.score ? ` · ★ ${s.score}` : ''}
+                        {s.total_chapters ? ` · ${s.total_chapters} ch` : ''}
+                      </p>
+                    </div>
+                    <span className="text-[10px] text-zinc-600 shrink-0">Select →</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button onClick={() => { setShowSuggestions(false); doSearch() }} disabled={loading || (!query.trim() && !hasFilters)}
             className="px-6 py-3 bg-white text-black rounded-xl text-sm font-medium hover:bg-zinc-200 disabled:opacity-40 transition-colors">
             {loading ? '…' : 'Search'}
           </button>

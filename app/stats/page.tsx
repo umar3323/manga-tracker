@@ -2,6 +2,9 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
+import { animeData, getStatus } from '@/lib/anime-data'
+import AnimeLinker from '@/components/AnimeLinker'
+import DuplicateDetector from '@/components/DuplicateDetector'
 
 const STATUS_LABELS: Record<MangaStatus, string> = {
   reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
@@ -233,13 +236,100 @@ export default function StatsPage() {
           <StatCard value={completedCount} label="Completed" />
         </div>
 
-        {/* Anime stats */}
-        {totalEpisodes > 0 && (
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            <StatCard value={totalEpisodes} label="Episodes watched" />
-            <StatCard value={manga.filter(m => m.has_anime).length} label="With anime" />
-          </div>
-        )}
+        {/* ── Anime stats ── */}
+        {(() => {
+          const totalAnimeSeries  = animeData.filter(e => !e.isMovie).length
+          const totalAnimeMovies  = animeData.filter(e =>  e.isMovie).length
+          const totalAnimeHours   = animeData.reduce((s, e) => s + e.totalWatchHours, 0)
+          const activeAnime       = animeData.filter(e => getStatus(e) === 'active').length
+          const likedAnime        = animeData.filter(e => e.netflixRating === 'up').length
+          const dislikedAnime     = animeData.filter(e => e.netflixRating === 'down').length
+
+          // Most-watched by hours
+          const topAnime = [...animeData]
+            .filter(e => e.totalWatchHours > 0)
+            .sort((a, b) => b.totalWatchHours - a.totalWatchHours)
+            .slice(0, 5)
+
+          // Status breakdown for anime
+          const animeCounts = {
+            active: animeData.filter(e => getStatus(e) === 'active').length,
+            paused: animeData.filter(e => getStatus(e) === 'paused').length,
+            older:  animeData.filter(e => getStatus(e) === 'older').length,
+            movie:  animeData.filter(e => getStatus(e) === 'movie').length,
+          }
+          const maxAnimeSt = Math.max(...Object.values(animeCounts), 1)
+
+          const ANIME_STATUS_COLORS: Record<string, string> = {
+            active: '#2FCF7A', paused: '#FFB02E', older: '#6F6E7C', movie: '#a78bfa',
+          }
+          const ANIME_STATUS_LABELS: Record<string, string> = {
+            active: 'Active', paused: 'Paused', older: 'Older', movie: 'Movies',
+          }
+
+          return (
+            <div className="mb-6">
+              <h2 className="text-lg font-bold mb-3">Anime</h2>
+
+              {/* Hero cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <StatCard value={totalAnimeSeries} label="Series tracked" />
+                <StatCard value={`${totalAnimeHours.toFixed(0)}h`} label="Hours watched" />
+                <StatCard value={activeAnime} label="Currently active" sub="last 90 days" />
+                <StatCard value={totalAnimeMovies} label="Movies" />
+              </div>
+
+              <div className="lg:grid lg:grid-cols-2 lg:gap-4">
+                {/* Status breakdown */}
+                <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+                  <h3 className="text-sm font-semibold mb-4">Status breakdown</h3>
+                  <div className="space-y-3">
+                    {Object.entries(animeCounts).map(([s, n]) => n > 0 && (
+                      <div key={s} className="flex items-center gap-3">
+                        <span className="text-xs text-zinc-400 w-16 shrink-0">{ANIME_STATUS_LABELS[s]}</span>
+                        <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all"
+                            style={{ backgroundColor: ANIME_STATUS_COLORS[s], width: `${(n / maxAnimeSt) * 100}%` }} />
+                        </div>
+                        <span className="text-xs text-zinc-500 w-6 text-right shrink-0">{n}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {(likedAnime > 0 || dislikedAnime > 0) && (
+                    <div className="mt-4 pt-4 border-t border-zinc-800 flex gap-4 text-xs text-zinc-500">
+                      <span>👍 {likedAnime} liked</span>
+                      <span>👎 {dislikedAnime} disliked</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Most-watched */}
+                {topAnime.length > 0 && (
+                  <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+                    <h3 className="text-sm font-semibold mb-4">Most time spent</h3>
+                    <div className="space-y-3">
+                      {topAnime.map((e, i) => (
+                        <div key={e.title} className="flex items-center gap-3">
+                          <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
+                          <span className="text-xs text-zinc-300 flex-1 truncate">{e.title}</span>
+                          <div className="w-20 h-2 bg-zinc-800 rounded-full overflow-hidden shrink-0">
+                            <div className="h-full rounded-full" style={{
+                              width: `${(e.totalWatchHours / topAnime[0].totalWatchHours) * 100}%`,
+                              backgroundColor: 'var(--cyan)',
+                            }} />
+                          </div>
+                          <span className="text-xs text-zinc-500 w-10 text-right shrink-0">{e.totalWatchHours}h</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+
+        <hr className="border-zinc-800 mb-6" />
 
         {/* Reading calendar heatmap */}
         <ReadingHeatmap log={log} />
@@ -519,6 +609,12 @@ export default function StatsPage() {
             </div>
           )
         })()}
+
+        {/* Duplicate detector */}
+        <DuplicateDetector manga={manga} onDeleted={id => setManga(prev => prev.filter(m => m.id !== id))} />
+
+        {/* Anime–Manga linker */}
+        <AnimeLinker manga={manga} />
 
         {/* All-time totals */}
         <div className="bg-zinc-900 rounded-xl p-5">

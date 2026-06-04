@@ -4,6 +4,19 @@ import { useState, useEffect, useMemo } from 'react'
 import Image from 'next/image'
 import { animeData, getStatus, type AnimeStatus } from '@/lib/anime-data'
 
+// ── Anime ratings — stored in localStorage ────────────────────────────────────
+const RATINGS_KEY = 'yomu_anime_ratings'
+function loadRatings(): Record<string, 'up' | 'down'> {
+  if (typeof window === 'undefined') return {}
+  try { return JSON.parse(localStorage.getItem(RATINGS_KEY) ?? '{}') } catch { return {} }
+}
+function saveRating(title: string, rating: 'up' | 'down' | null) {
+  const current = loadRatings()
+  if (rating === null) delete current[title]
+  else current[title] = rating
+  try { localStorage.setItem(RATINGS_KEY, JSON.stringify(current)) } catch {}
+}
+
 // ── Cover art — localStorage cache, staggered Jikan fetches ──────────────────
 const COVER_CACHE_KEY = 'yomu_anime_covers'
 function loadCache(): Record<string, string> {
@@ -62,9 +75,29 @@ const STATUS_STYLE: Record<AnimeStatus, { label: string; bg: string; text: strin
   movie:  { label: 'Movie',  bg: 'bg-violet-900/30',   text: 'text-violet-400'  },
 }
 
-function RatingIcon({ r }: { r: 'up' | 'down' | null }) {
-  if (!r) return null
-  return <span title={r === 'up' ? 'Liked' : 'Disliked'}>{r === 'up' ? '👍' : '👎'}</span>
+function RatingButtons({
+  title,
+  rating,
+  onChange,
+}: {
+  title: string
+  rating: 'up' | 'down' | null
+  onChange: (t: string, r: 'up' | 'down' | null) => void
+}) {
+  return (
+    <div className="flex gap-0.5">
+      <button
+        onClick={e => { e.stopPropagation(); const next = rating === 'up' ? null : 'up'; saveRating(title, next); onChange(title, next) }}
+        title={rating === 'up' ? 'Remove rating' : 'Like'}
+        className={`text-sm leading-none transition-colors ${rating === 'up' ? 'opacity-100' : 'opacity-30 hover:opacity-80'}`}
+      >👍</button>
+      <button
+        onClick={e => { e.stopPropagation(); const next = rating === 'down' ? null : 'down'; saveRating(title, next); onChange(title, next) }}
+        title={rating === 'down' ? 'Remove rating' : 'Dislike'}
+        className={`text-sm leading-none transition-colors ${rating === 'down' ? 'opacity-100' : 'opacity-30 hover:opacity-80'}`}
+      >👎</button>
+    </div>
+  )
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -80,6 +113,18 @@ export default function AnimePage() {
   const [filter, setFilter]   = useState<FilterSt>('all')
   const [sortKey, setSortKey] = useState<SortKey>('lastWatched')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [ratings, setRatings] = useState<Record<string, 'up' | 'down'>>({})
+
+  useEffect(() => { setRatings(loadRatings()) }, [])
+
+  const handleRatingChange = (title: string, r: 'up' | 'down' | null) => {
+    setRatings(prev => {
+      const next = { ...prev }
+      if (r === null) delete next[title]
+      else next[title] = r
+      return next
+    })
+  }
 
   const activeEntries = useMemo(() =>
     animeData.filter(e => getStatus(e) === 'active')
@@ -148,7 +193,7 @@ export default function AnimePage() {
                     </div>
                     {entry.netflixRating && (
                       <div className="absolute top-1.5 right-1.5 text-xs leading-none">
-                        <RatingIcon r={entry.netflixRating} />
+                        <RatingButtons title={entry.title} rating={ratings[entry.title] ?? entry.netflixRating} onChange={handleRatingChange} />
                       </div>
                     )}
                   </div>
@@ -235,7 +280,7 @@ export default function AnimePage() {
                     {s.label}
                   </span>
                   <div className="hidden md:flex justify-center text-sm">
-                    <RatingIcon r={entry.netflixRating} />
+                    <RatingButtons title={entry.title} rating={ratings[entry.title] ?? entry.netflixRating} onChange={handleRatingChange} />
                   </div>
                 </div>
               )

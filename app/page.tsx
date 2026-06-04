@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import Image from 'next/image'
 import { supabase, type Manga, type MangaStatus, type Author } from '@/lib/supabase'
-import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, getMangaById, getAnimeAdaptations, type JikanSearchResult } from '@/lib/jikan'
+import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, getMangaById, getAnimeAdaptations, searchMangaWithFilters, type JikanSearchResult } from '@/lib/jikan'
 import TrendingSection from '@/components/TrendingSection'
 import ArcEditor from '@/components/ArcEditor'
 import SessionTimer, { type ActiveSession } from '@/components/SessionTimer'
@@ -15,6 +15,7 @@ import { RELATION_LABELS, formatCountdown } from '@/lib/anilist'
 import type { MUSeriesData } from '@/lib/mangaupdates'
 import type { ANNRelatedWork } from '@/lib/ann'
 import MangaFact from '@/components/MangaFact'
+import { animeData, getStatus as getAnimeStatus } from '@/lib/anime-data'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
 function EditableNumber({
@@ -1038,6 +1039,12 @@ export default function Home() {
   const [newTitle, setNewTitle] = useState('')
   const [adding, setAdding] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
+  const [addSuggestions, setAddSuggestions] = useState<JikanSearchResult[]>([])
+  const [showAddSuggestions, setShowAddSuggestions] = useState(false)
+  const [addSuggestLoading, setAddSuggestLoading] = useState(false)
+  const [selectedJikan, setSelectedJikan] = useState<JikanSearchResult | null>(null)
+  const addSuggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const addBarRef = useRef<HTMLDivElement>(null)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
@@ -1328,29 +1335,57 @@ export default function Home() {
   }
 
   const addManga = async () => {
-    if (!newTitle.trim()) return
+    if (!selectedJikan && !newTitle.trim()) return
     setAdding(true)
     try {
+      let insertPayload: Record<string, unknown>
+      if (selectedJikan) {
+        // Full data from Jikan — fetch anime adaptations too
+        const adaptations = selectedJikan.mal_id ? await getAnimeAdaptations(selectedJikan.mal_id) : []
+        const anim = adaptations[0]
+        insertPayload = {
+          mal_id: selectedJikan.mal_id,
+          title: selectedJikan.title,
+          current_chapter: 0,
+          status: 'reading',
+          cover_url: selectedJikan.cover_url ?? null,
+          total_chapters: selectedJikan.total_chapters ?? null,
+          authors: selectedJikan.authors ?? [],
+          genres: selectedJikan.genres ?? [],
+          has_anime: !!anim,
+          anime_mal_id: anim?.mal_id ?? null,
+          anime_title: anim?.title ?? null,
+          total_episodes: anim?.episodes ?? null,
+        }
+      } else {
+        insertPayload = { title: newTitle.trim(), current_chapter: 0, status: 'reading' }
+      }
       const { data, error } = await supabase
         .from('manga_list')
-        .insert({ title: newTitle.trim(), current_chapter: 0, status: 'reading' })
+        .insert(insertPayload)
         .select()
         .single()
+      if (error?.code === '23505') { showToast(`"${insertPayload.title}" is already in your list`); setAdding(false); return }
       if (error) { showToast('Failed to add manga'); return }
       if (data) {
         const newEntry = data as Manga
         setManga(prev => [...prev, newEntry])
         setNewTitle('')
+        setSelectedJikan(null)
         setShowAdd(false)
-        fetchMangaInfo(newEntry.title).then(async info => {
-          if (info.coverUrl || info.totalChapters) {
-            const updates: Partial<Manga> = {}
-            if (info.coverUrl) updates.cover_url = info.coverUrl
-            if (info.totalChapters) updates.total_chapters = info.totalChapters
-            await supabase.from('manga_list').update(updates).eq('id', newEntry.id)
-            setManga(prev => prev.map(x => x.id === newEntry.id ? { ...x, ...updates } : x))
-          }
-        })
+        setAddSuggestions([])
+        setShowAddSuggestions(false)
+        if (!selectedJikan) {
+          fetchMangaInfo(newEntry.title).then(async info => {
+            if (info.coverUrl || info.totalChapters) {
+              const updates: Partial<Manga> = {}
+              if (info.coverUrl) updates.cover_url = info.coverUrl
+              if (info.totalChapters) updates.total_chapters = info.totalChapters
+              await supabase.from('manga_list').update(updates).eq('id', newEntry.id)
+              setManga(prev => prev.map(x => x.id === newEntry.id ? { ...x, ...updates } : x))
+            }
+          })
+        }
       }
     } finally {
       setAdding(false)
@@ -1363,14 +1398,20 @@ export default function Home() {
     setRecError('')
     setShowRecModal(true)   // open modal immediately so user sees "Asking Claude…"
     try {
-      // Include genres so the algorithm can match preferences
+      // Include genres + ratings so the algorithm can match and weight preferences
       const payload = manga.map(m => ({
         title: m.title,
         current_chapter: m.current_chapter,
         status: m.status,
         genres: m.genres ?? [],
         mal_id: m.mal_id,
+        user_rating: m.user_rating ?? null,
       }))
+
+      // Anime ratings from localStorage
+      const animeRatings: Record<string, 'up' | 'down'> = (() => {
+        try { return JSON.parse(localStorage.getItem('yomu_anime_ratings') ?? '{}') } catch { return {} }
+      })()
 
       // Also send right-swiped genre preferences from Discover history
       const { data: swipeData } = await supabase
@@ -1382,7 +1423,7 @@ export default function Home() {
       const res = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ manga: payload, likedGenres }),
+        body: JSON.stringify({ manga: payload, likedGenres, animeRatings }),
       })
       const data = await res.json()
       if (!res.ok) { setRecError(data.error ?? 'Something went wrong'); return }
@@ -1519,17 +1560,84 @@ export default function Home() {
           </div>
         )}
 
-        {/* Add form */}
+        {/* Add form with live autocomplete */}
         {showAdd && (
-          <div className="mb-5 flex gap-2">
-            <input autoFocus value={newTitle}
-              onChange={e => setNewTitle(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addManga(); if (e.key === 'Escape') { setShowAdd(false); setNewTitle('') } }}
-              placeholder="Manga title…" aria-label="New manga title"
-              className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
-            />
-            <button onClick={addManga} disabled={adding || !newTitle.trim()}
-              className="px-5 py-3 rounded-xl bg-white text-black text-sm font-medium disabled:opacity-40">
+          <div className="mb-5 flex gap-2" ref={addBarRef}>
+            <div className="relative flex-1">
+              {selectedJikan ? (
+                /* Confirmed selection chip */
+                <div className="flex items-center gap-3 bg-zinc-900 border border-emerald-600/50 rounded-xl px-4 py-3">
+                  {selectedJikan.cover_url && (
+                    <img src={selectedJikan.cover_url} alt="" className="w-6 h-9 object-cover rounded shrink-0" />
+                  )}
+                  <span className="text-sm text-zinc-200 flex-1 truncate">{selectedJikan.title}</span>
+                  <button onClick={() => { setSelectedJikan(null); setNewTitle('') }}
+                    className="text-zinc-500 hover:text-white text-lg shrink-0">×</button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    autoFocus
+                    value={newTitle}
+                    onChange={e => {
+                      const v = e.target.value
+                      setNewTitle(v)
+                      setSelectedJikan(null)
+                      setShowAddSuggestions(true)
+                      if (addSuggestTimer.current) clearTimeout(addSuggestTimer.current)
+                      if (!v.trim() || v.length < 2) { setAddSuggestions([]); setShowAddSuggestions(false); return }
+                      addSuggestTimer.current = setTimeout(async () => {
+                        setAddSuggestLoading(true)
+                        const res = await searchMangaWithFilters({ query: v.trim(), orderBy: 'score', sort: 'desc' })
+                        setAddSuggestions(res.slice(0, 8))
+                        setShowAddSuggestions(true)
+                        setAddSuggestLoading(false)
+                      }, 350)
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') { setShowAddSuggestions(false); addManga() }
+                      if (e.key === 'Escape') { setShowAdd(false); setNewTitle(''); setAddSuggestions([]); setSelectedJikan(null) }
+                    }}
+                    placeholder="Search for a manga title…"
+                    aria-label="New manga title"
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
+                  />
+                  {/* Dropdown */}
+                  {showAddSuggestions && newTitle.length >= 2 && (
+                    <div className="absolute z-30 top-full mt-1 left-0 right-0 bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
+                      {addSuggestLoading && (
+                        <div className="px-4 py-3 text-xs text-zinc-500">Searching…</div>
+                      )}
+                      {!addSuggestLoading && addSuggestions.length === 0 && (
+                        <div className="px-4 py-3 text-xs text-zinc-500">No matches — try a different spelling</div>
+                      )}
+                      {!addSuggestLoading && addSuggestions.map(s => (
+                        <button
+                          key={s.mal_id}
+                          onMouseDown={e => { e.preventDefault(); setSelectedJikan(s); setNewTitle(s.title); setShowAddSuggestions(false) }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-left border-b border-zinc-800 last:border-0"
+                        >
+                          {s.cover_url && (
+                            <img src={s.cover_url} alt="" className="w-7 h-10 object-cover rounded shrink-0" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm text-zinc-200 truncate">{s.title}</p>
+                            <p className="text-[10px] text-zinc-500 mt-0.5">
+                              {s.authors.length > 0 ? `by ${s.authors[0].name}` : ''}
+                              {s.score ? ` · ★ ${s.score}` : ''}
+                              {s.total_chapters ? ` · ${s.total_chapters} ch` : ''}
+                            </p>
+                          </div>
+                          <span className="text-[10px] text-zinc-600 shrink-0">Select →</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <button onClick={addManga} disabled={adding || (!selectedJikan && !newTitle.trim())}
+              className="px-5 py-3 rounded-xl bg-white text-black text-sm font-medium disabled:opacity-40 shrink-0">
               {adding ? '…' : 'Add'}
             </button>
           </div>
@@ -1544,7 +1652,7 @@ export default function Home() {
         />
 
         {/* Stats — 2 cols on mobile, responsive on desktop (hide watching if 0) */}
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-5">
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-2">
           {(Object.keys(STATUS_LABELS) as MangaStatus[]).filter(s => s !== 'watching' || (counts.watching ?? 0) > 0).map(s => (
             <button key={s} onClick={() => setFilter(filter === s ? 'all' : s)}
               className={`rounded-xl p-3 text-center transition-colors ${filter === s ? 'bg-white text-black' : 'bg-zinc-900 hover:bg-zinc-800'}`}>
@@ -1553,6 +1661,33 @@ export default function Home() {
             </button>
           ))}
         </div>
+
+        {/* Anime stats row */}
+        {(() => {
+          const totalHours   = animeData.reduce((s, e) => s + e.totalWatchHours, 0)
+          const totalSeries  = animeData.filter(e => !e.isMovie).length
+          const totalMovies  = animeData.filter(e =>  e.isMovie).length
+          const activeCount  = animeData.filter(e => getAnimeStatus(e) === 'active').length
+          const stats = [
+            { value: totalSeries,                    label: 'Anime series',   icon: '📺' },
+            { value: `${totalHours.toFixed(0)}h`,    label: 'Hours watched',  icon: '⏱' },
+            { value: activeCount,                    label: 'Active',         icon: '▶' },
+            { value: totalMovies,                    label: 'Movies',         icon: '🎬' },
+          ]
+          return (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
+              {stats.map(s => (
+                <div key={s.label} className="bg-zinc-900 rounded-xl p-3 flex items-center gap-3">
+                  <span className="text-base shrink-0">{s.icon}</span>
+                  <div>
+                    <div className="text-lg font-bold leading-tight" style={{ color: 'var(--cyan)' }}>{s.value}</div>
+                    <div className="text-xs text-zinc-500 mt-0.5">{s.label}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
 
         <MangaFact />
 
@@ -1832,6 +1967,29 @@ export default function Home() {
                         >
                           📂
                         </button>
+                                        {/* Thumbs rating */}
+                        <div className="flex gap-0.5 ml-1">
+                          <button
+                            onClick={async () => {
+                              const next = m.user_rating === 'up' ? null : 'up'
+                              await supabase.from('manga_list').update({ user_rating: next }).eq('id', m.id)
+                              setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: next } : x))
+                            }}
+                            aria-label="Thumbs up"
+                            title={m.user_rating === 'up' ? 'Remove rating' : 'Like'}
+                            className={`text-base leading-none transition-colors ${m.user_rating === 'up' ? 'text-emerald-400' : 'text-zinc-700 hover:text-emerald-400'}`}
+                          >👍</button>
+                          <button
+                            onClick={async () => {
+                              const next = m.user_rating === 'down' ? null : 'down'
+                              await supabase.from('manga_list').update({ user_rating: next }).eq('id', m.id)
+                              setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: next } : x))
+                            }}
+                            aria-label="Thumbs down"
+                            title={m.user_rating === 'down' ? 'Remove rating' : 'Dislike'}
+                            className={`text-base leading-none transition-colors ${m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-700 hover:text-red-400'}`}
+                          >👎</button>
+                        </div>
                         <button
                           onClick={() => confirmDelete(m.id)}
                           aria-label={`Delete ${m.title}`}
