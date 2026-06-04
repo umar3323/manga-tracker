@@ -6,6 +6,32 @@
 
 ---
 
+## Connected External Services & Websites
+
+Every third-party source wired into YOMU, what it's used for, and how it's accessed.
+
+| Service | URL | How accessed | Used for |
+|---|---|---|---|
+| **MyAnimeList (via Jikan)** | `https://api.jikan.moe/v4` | REST API (public, no key) | Manga search, metadata, scores, author lookup, anime adaptations |
+| **MangaDex** | `https://api.mangadex.org` | REST API (public, no key) | Catalog: 300 manga per refresh (popular, trending, new) + latest chapter lookup |
+| **AniList** | `https://graphql.anilist.co` | GraphQL API (public, no key) | Tags, relations, streaming countdown, trending manga catalog, community recommendations |
+| **Shonen Jump / Viz** | `https://www.viz.com/shonenjump` | Server-side HTML scrape (1h cache) | Live chapter feed in Discover → Jump tab; SJ series boost in recommendations |
+| **Goodreads** | `https://www.goodreads.com` | Server-side HTML scrape (2h / 30min cache) | Trending manga catalog, Western popularity signal, parallel search results |
+| **Supabase** | Project URL in `NEXT_PUBLIC_SUPABASE_URL` | Supabase JS SDK + SSR client | Database (all user data), auth, realtime, anilist_cache table |
+| **Google Sheets** | Sheet ID in `GOOGLE_SHEET_ID` | REST API via service account JWT | Feature request form submissions |
+| **Vercel** | Auto-deploy on push to `main` | GitHub integration | Hosting, serverless API routes, cron jobs |
+
+### Rate limits to be aware of
+| Service | Limit | How YOMU handles it |
+|---|---|---|
+| Jikan | 3 req/s, 60 req/min | 450ms gaps between paginated calls; single-request fallbacks |
+| AniList | 90 req/min | 24h cache in `anilist_cache` table; no client-side direct calls |
+| MangaDex | 5 req/s, 300 req/min | Parallel fetch at cold start only; 2h in-memory cache |
+| Goodreads | No published limit (scraping) | 2h / 30min cache; single fetch per cache period |
+| Viz | No published limit (scraping) | 1h in-memory cache |
+
+---
+
 ## Summary
 
 Third session since initial build. Added seven distinct features across the session: a layout redesign (sidebar hero, icon rail, floating mobile nav), streaming availability in the detail panel, a Shonen Jump live feed, a greatly expanded manga catalog (400–600 titles via MangaDex + AniList + multi-page Jikan), Goodreads integration in search and recommendations, a "Did You Know?" manga facts widget, and duplicate detection + anime suggestion banners in the detail modal. Everything is deployed.
