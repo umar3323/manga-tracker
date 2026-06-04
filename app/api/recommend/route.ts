@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     // Boost genres from right-swipes, penalise from left-swipes
     for (const g of likedGenres)    genreScore[g] = (genreScore[g] ?? 0) + 1.5
     for (const g of dislikedGenres) genreScore[g] = (genreScore[g] ?? 0) - 1.0
-    // Anime ratings — look up animeData genres via the animeRatings map
+    // Anime ratings — passed from client (user_rating ?? netflix_rating per entry)
     // We don't have genres for anime here, but we can boost/penalise based on title overlap
     // Store rated anime titles for use in scoring below
     const likedAnimeTitles = new Set(

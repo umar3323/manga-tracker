@@ -355,12 +355,10 @@ export default function StatsPage() {
           const likedGenres    = genreCount(liked)
           const dislikedGenres = genreCount(disliked)
 
-          // Anime ratings from localStorage
-          const animeRatings: Record<string, 'up' | 'down'> = (() => {
-            try { return JSON.parse(localStorage.getItem('yomu_anime_ratings') ?? '{}') } catch { return {} }
-          })()
-          const likedAnime    = Object.entries(animeRatings).filter(([, r]) => r === 'up').map(([t]) => t)
-          const dislikedAnime = Object.entries(animeRatings).filter(([, r]) => r === 'down').map(([t]) => t)
+          // Anime ratings from Supabase (user_rating overrides netflix_rating)
+          const effectiveAnimeRating = (a: AnimeRow) => a.user_rating ?? a.netflix_rating
+          const likedAnime    = animeList.filter(a => effectiveAnimeRating(a) === 'up').map(a => a.title)
+          const dislikedAnime = animeList.filter(a => effectiveAnimeRating(a) === 'down').map(a => a.title)
 
           return (
             <div className="mb-6">
