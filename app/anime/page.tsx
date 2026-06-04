@@ -304,17 +304,33 @@ export default function AnimePage() {
                 const rating = entry.user_rating ?? entry.netflix_rating
                 return (
                   <div key={entry.id}
-                    className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden hover:border-zinc-600 transition-colors">
+                    className="group bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden hover:border-zinc-600 transition-colors">
                     <div className="relative aspect-[2/3] bg-zinc-800">
                       <Cover anime={entry} />
                       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent px-2 py-2">
                         <p className="text-[10px] font-mono text-zinc-200 leading-tight">{entry.current_ep}</p>
                       </div>
-                      {rating && (
-                        <div className="absolute top-1.5 right-1.5 text-xs leading-none">
-                          {rating === 'up' ? '👍' : '👎'}
-                        </div>
-                      )}
+                      {/* Interactive rating buttons — top-right corner */}
+                      <div className="absolute top-1 right-1 flex flex-col gap-0.5">
+                        <button
+                          onClick={e => { e.stopPropagation(); updateRating(entry.id, rating === 'up' ? null : 'up') }}
+                          title={rating === 'up' ? 'Remove like' : 'Like'}
+                          className={`w-6 h-6 rounded flex items-center justify-center text-xs leading-none transition-all ${
+                            rating === 'up'
+                              ? 'bg-emerald-500/30 text-emerald-400'
+                              : 'bg-black/40 text-zinc-400 opacity-0 group-hover:opacity-100'
+                          }`}
+                        >👍</button>
+                        <button
+                          onClick={e => { e.stopPropagation(); updateRating(entry.id, rating === 'down' ? null : 'down') }}
+                          title={rating === 'down' ? 'Remove dislike' : 'Dislike'}
+                          className={`w-6 h-6 rounded flex items-center justify-center text-xs leading-none transition-all ${
+                            rating === 'down'
+                              ? 'bg-red-500/30 text-red-400'
+                              : 'bg-black/40 text-zinc-400 opacity-0 group-hover:opacity-100'
+                          }`}
+                        >👎</button>
+                      </div>
                     </div>
                     <div className="p-2">
                       <p className="text-xs font-medium text-zinc-200 line-clamp-2 leading-snug">{entry.title}</p>
