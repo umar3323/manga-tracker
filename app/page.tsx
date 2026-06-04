@@ -12,6 +12,7 @@ import type { Arc } from '@/components/ArcEditor'
 import type { Recommendation } from '@/app/api/recommend/route'
 import type { AniListMangaData, AniListAnimeData } from '@/lib/anilist'
 import { RELATION_LABELS, formatCountdown } from '@/lib/anilist'
+import MangaFact from '@/components/MangaFact'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
 function EditableNumber({
@@ -130,17 +131,79 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
 }) {
   const [alManga, setAlManga] = useState<AniListMangaData | null>(null)
   const [alAnime, setAlAnime] = useState<AniListAnimeData | null>(null)
+  const [suggestedAnime, setSuggestedAnime] = useState<{ idMal: number; title: string } | null>(null)
+  const [animeSuggestionDismissed, setAnimeSuggestionDismissed] = useState(false)
+  const [animeSuggestionConfirmed, setAnimeSuggestionConfirmed] = useState(false)
+  const [duplicateCandidate, setDuplicateCandidate] = useState<Manga | null>(null)
+  const [duplicateDismissed, setDuplicateDismissed] = useState(false)
+  const [merging, setMerging] = useState(false)
 
   useEffect(() => {
     if (manga.mal_id) {
       fetch(`/api/anilist?mal_id=${manga.mal_id}&type=MANGA`)
-        .then(r => r.json()).then(j => { if (j.data) setAlManga(j.data) })
+        .then(r => r.json()).then(j => {
+          if (j.data) {
+            setAlManga(j.data)
+            // Check if AniList knows of an anime adaptation we haven't recorded
+            if (!manga.has_anime) {
+              const adaptRel = (j.data as AniListMangaData).relations.find(
+                r => r.relationType === 'ADAPTATION' && r.node.type === 'ANIME' && r.node.idMal
+              )
+              if (adaptRel) {
+                setSuggestedAnime({ idMal: adaptRel.node.idMal!, title: adaptRel.node.title.romaji })
+              }
+            }
+          }
+        })
     }
     if (manga.anime_mal_id) {
       fetch(`/api/anilist?mal_id=${manga.anime_mal_id}&type=ANIME`)
         .then(r => r.json()).then(j => { if (j.data) setAlAnime(j.data) })
     }
-  }, [manga.mal_id, manga.anime_mal_id])
+  }, [manga.mal_id, manga.anime_mal_id, manga.has_anime])
+
+  // Duplicate detection: title token overlap against existing manga
+  useEffect(() => {
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()
+    const tokens = (s: string) => new Set(normalize(s).split(/\s+/).filter(Boolean))
+    const myTokens = tokens(manga.title)
+    const candidate = allManga.find(m => {
+      if (m.id === manga.id) return false
+      const theirTokens = tokens(m.title)
+      const overlap = [...myTokens].filter(t => theirTokens.has(t)).length
+      const jaccard = overlap / (myTokens.size + theirTokens.size - overlap)
+      return jaccard >= 0.7
+    })
+    setDuplicateCandidate(candidate ?? null)
+  }, [manga.id, manga.title, allManga])
+
+  const confirmAnimeSuggestion = async () => {
+    if (!suggestedAnime) return
+    await supabase.from('manga_list').update({
+      has_anime: true,
+      anime_mal_id: suggestedAnime.idMal,
+      anime_title: suggestedAnime.title,
+    }).eq('id', manga.id)
+    setAnimeSuggestionConfirmed(true)
+  }
+
+  const mergeDuplicate = async () => {
+    if (!duplicateCandidate) return
+    setMerging(true)
+    // Keep the one with more reading progress; use the other's data to fill gaps
+    const keeper = manga.current_chapter >= duplicateCandidate.current_chapter ? manga : duplicateCandidate
+    const removed = keeper.id === manga.id ? duplicateCandidate : manga
+    await supabase.from('manga_list').update({
+      current_chapter: Math.max(manga.current_chapter, duplicateCandidate.current_chapter),
+      total_chapters: manga.total_chapters ?? duplicateCandidate.total_chapters,
+      genres: manga.genres?.length ? manga.genres : duplicateCandidate.genres,
+      authors: manga.authors?.length ? manga.authors : duplicateCandidate.authors,
+      notes: manga.notes ?? duplicateCandidate.notes,
+    }).eq('id', keeper.id)
+    await supabase.from('manga_list').delete().eq('id', removed.id)
+    setMerging(false)
+    onClose()
+  }
 
   const STATUS_LABELS: Record<MangaStatus, string> = {
     reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
@@ -205,6 +268,52 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
           {manga.notes && (
             <div className="bg-zinc-800 rounded-lg p-3 mb-4">
               <p className="text-xs text-zinc-400 leading-relaxed">{manga.notes}</p>
+            </div>
+          )}
+
+          {/* Duplicate detection banner */}
+          {duplicateCandidate && !duplicateDismissed && (
+            <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-3 mb-4">
+              <p className="text-xs font-medium text-amber-300 mb-1">Possible duplicate detected</p>
+              <p className="text-xs text-zinc-400 mb-2">
+                &ldquo;{duplicateCandidate.title}&rdquo; looks very similar to this entry. Merge them?
+              </p>
+              <div className="flex gap-2">
+                <button onClick={mergeDuplicate} disabled={merging}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors">
+                  {merging ? 'Merging…' : 'Merge (keep best progress)'}
+                </button>
+                <button onClick={() => setDuplicateDismissed(true)}
+                  className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs rounded-lg transition-colors">
+                  Not a duplicate
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Anime adaptation suggestion banner */}
+          {suggestedAnime && !animeSuggestionDismissed && !animeSuggestionConfirmed && (
+            <div className="bg-violet-900/20 border border-violet-500/30 rounded-xl p-3 mb-4">
+              <p className="text-xs font-medium text-violet-300 mb-1">Anime adaptation found</p>
+              <p className="text-xs text-zinc-400 mb-2">
+                AniList found &ldquo;{suggestedAnime.title}&rdquo;. Is this the anime for this manga?
+              </p>
+              <div className="flex gap-2">
+                <button onClick={confirmAnimeSuggestion}
+                  className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium rounded-lg transition-colors">
+                  Yes, link it
+                </button>
+                <button onClick={() => setAnimeSuggestionDismissed(true)}
+                  className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs rounded-lg transition-colors">
+                  Not mine
+                </button>
+              </div>
+            </div>
+          )}
+          {animeSuggestionConfirmed && (
+            <div className="flex items-center gap-2 bg-violet-900/20 border border-violet-500/30 rounded-xl px-3 py-2.5 mb-4">
+              <span className="text-violet-400 text-sm">✓</span>
+              <span className="text-xs text-violet-300">Anime adaptation linked — reload to see full info</span>
             </div>
           )}
 
@@ -1281,6 +1390,8 @@ export default function Home() {
             </button>
           ))}
         </div>
+
+        <MangaFact />
 
         {/* Backlog pressure score */}
         {(() => {

@@ -287,6 +287,38 @@ export async function getAuthorWorks(personId: number): Promise<JikanSearchResul
   }
 }
 
+export async function getNewSeriesManga(limit = 20, excludeMalIds: number[] = []): Promise<JikanSearchResult[]> {
+  try {
+    const year = new Date().getFullYear()
+    const res = await jikanGet(
+      `/manga?start_date=${year - 1}-01-01&order_by=members&sort=desc&limit=25&status=publishing`
+    )
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.data ?? [])
+      .map(mapMangaResult)
+      .filter((m: JikanSearchResult) => !excludeMalIds.includes(m.mal_id))
+      .slice(0, limit)
+  } catch { return [] }
+}
+
+export async function getUpdatedManga(limit = 20, excludeMalIds: number[] = [], excludeGenreIds: number[] = []): Promise<JikanSearchResult[]> {
+  try {
+    // Recently updated ongoing manga, optionally excluding genres
+    const p = new URLSearchParams({
+      status: 'publishing', order_by: 'members', sort: 'desc', limit: '25',
+    })
+    if (excludeGenreIds.length) p.set('genres_exclude', excludeGenreIds.join(','))
+    const res = await jikanGet(`/manga?${p.toString()}`)
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.data ?? [])
+      .map(mapMangaResult)
+      .filter((m: JikanSearchResult) => !excludeMalIds.includes(m.mal_id))
+      .slice(0, limit)
+  } catch { return [] }
+}
+
 export async function getAuthorInfo(personId: number): Promise<{ name: string; about: string | null } | null> {
   try {
     const res = await jikanGet(`/people/${personId}/full`)
