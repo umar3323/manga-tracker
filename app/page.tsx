@@ -1831,8 +1831,8 @@ export default function Home() {
         ) : (
           <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
             {filtered.map(m => (
-              <div key={m.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                <div className="flex gap-3 p-3">
+              <div key={m.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden flex flex-col h-full">
+                <div className="flex gap-3 p-3 flex-1">
                   {/* Cover */}
                   <div className="shrink-0 w-12 h-16 rounded-md overflow-hidden bg-zinc-800">
                     {m.cover_url ? (
@@ -1850,7 +1850,7 @@ export default function Home() {
                   </div>
 
                   {/* Info */}
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 flex flex-col">
                     <div className="flex items-center gap-2 min-w-0">
                       <button onClick={() => setSelectedManga(m)}
                         className="font-medium text-sm leading-snug truncate text-left hover:text-violet-300 transition-colors flex-1 min-w-0">
@@ -1965,7 +1965,7 @@ export default function Home() {
                   </div>
 
                   {/* Chapter stepper + delete */}
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-start gap-1.5 shrink-0 pt-0.5">
                     {pendingDelete === m.id ? (
                       <div className="flex items-center gap-1.5 text-xs">
                         <span className="text-zinc-400">Delete?</span>
