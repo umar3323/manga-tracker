@@ -474,9 +474,16 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
                 {alManga.relations
                   .filter(r => RELATION_LABELS[r.relationType])
                   .slice(0, 8)
-                  .map((rel, i) => (
-                    <div key={i} className="shrink-0 w-24">
-                      <div className="relative w-24 h-32 rounded-xl overflow-hidden bg-zinc-800 mb-1.5">
+                  .map((rel, i) => {
+                    const malUrl = rel.node.idMal
+                      ? `https://myanimelist.net/${rel.node.type === 'ANIME' ? 'anime' : 'manga'}/${rel.node.idMal}`
+                      : null
+                    return (
+                    <a key={i} href={malUrl ?? '#'} target={malUrl ? '_blank' : undefined}
+                      rel="noopener noreferrer"
+                      className="shrink-0 w-24 group"
+                      style={{ textDecoration: 'none', cursor: malUrl ? 'pointer' : 'default' }}>
+                      <div className="relative w-24 h-32 rounded-xl overflow-hidden bg-zinc-800 mb-1.5 group-hover:opacity-80 transition-opacity">
                         {rel.node.coverImage?.medium && (
                           <Image src={rel.node.coverImage.medium} alt={rel.node.title.romaji}
                             fill className="object-cover" unoptimized />
@@ -491,8 +498,9 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
                         </div>
                       </div>
                       <p className="text-[10px] text-zinc-500 leading-tight line-clamp-2">{rel.node.title.romaji}</p>
-                    </div>
-                  ))}
+                    </a>
+                    )
+                  })}
               </div>
             </div>
           )}
@@ -502,19 +510,25 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
             <div className="mb-4">
               <p className="text-xs font-medium text-zinc-500 mb-2">Community also likes</p>
               <div className="space-y-1.5">
-                {alManga.recommendations.filter(r => r.rating > 0 && r.mediaRecommendation?.idMal).slice(0, 4).map((rec, i) => (
-                  <div key={i} className="flex items-center gap-2.5 bg-zinc-800 rounded-xl px-3 py-2">
-                    {rec.mediaRecommendation?.coverImage?.medium && (
-                      <Image src={rec.mediaRecommendation.coverImage.medium} alt={rec.mediaRecommendation.title.romaji}
+                {alManga.recommendations.filter(r => r.rating > 0 && r.mediaRecommendation?.idMal).slice(0, 4).map((rec, i) => {
+                  const m = rec.mediaRecommendation!
+                  const href = `https://myanimelist.net/${m.type === 'ANIME' ? 'anime' : 'manga'}/${m.idMal}`
+                  return (
+                  <a key={i} href={href} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2.5 bg-zinc-800 rounded-xl px-3 py-2 hover:opacity-80 transition-opacity"
+                    style={{ textDecoration: 'none' }}>
+                    {m.coverImage?.medium && (
+                      <Image src={m.coverImage.medium} alt={m.title.romaji}
                         width={28} height={36} className="w-7 h-9 object-cover rounded shrink-0" unoptimized />
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium truncate">{rec.mediaRecommendation?.title.romaji}</p>
-                      <p className="text-xs text-zinc-600">{rec.mediaRecommendation?.type?.toLowerCase()}</p>
+                      <p className="text-xs font-medium truncate">{m.title.romaji}</p>
+                      <p className="text-xs text-zinc-600">{m.type?.toLowerCase()}</p>
                     </div>
                     <span className="text-xs text-zinc-500 shrink-0">👍 {rec.rating}</span>
-                  </div>
-                ))}
+                  </a>
+                  )
+                })}
               </div>
             </div>
           )}
