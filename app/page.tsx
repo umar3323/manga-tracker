@@ -12,6 +12,7 @@ import type { Arc } from '@/components/ArcEditor'
 import type { Recommendation } from '@/app/api/recommend/route'
 import type { AniListMangaData, AniListAnimeData } from '@/lib/anilist'
 import { RELATION_LABELS, formatCountdown } from '@/lib/anilist'
+import type { MUSeriesData } from '@/lib/mangaupdates'
 import MangaFact from '@/components/MangaFact'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
@@ -137,6 +138,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
   const [duplicateCandidate, setDuplicateCandidate] = useState<Manga | null>(null)
   const [duplicateDismissed, setDuplicateDismissed] = useState(false)
   const [merging, setMerging] = useState(false)
+  const [muData, setMuData] = useState<MUSeriesData | null>(null)
 
   useEffect(() => {
     if (manga.mal_id) {
@@ -160,7 +162,13 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
       fetch(`/api/anilist?mal_id=${manga.anime_mal_id}&type=ANIME`)
         .then(r => r.json()).then(j => { if (j.data) setAlAnime(j.data) })
     }
-  }, [manga.mal_id, manga.anime_mal_id, manga.has_anime])
+    // MangaUpdates: fetch adaptation depth + community recommendations
+    if (manga.title) {
+      fetch(`/api/mangaupdates?title=${encodeURIComponent(manga.title)}`)
+        .then(r => r.json()).then(j => { if (j.data) setMuData(j.data) })
+        .catch(() => {/* non-critical */})
+    }
+  }, [manga.mal_id, manga.anime_mal_id, manga.has_anime, manga.title])
 
   // Duplicate detection: title token overlap against existing manga
   useEffect(() => {
@@ -291,13 +299,24 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
             </div>
           )}
 
-          {/* Anime adaptation suggestion banner */}
+          {/* Anime adaptation suggestion banner — enriched with MangaUpdates depth */}
           {suggestedAnime && !animeSuggestionDismissed && !animeSuggestionConfirmed && (
             <div className="bg-violet-900/20 border border-violet-500/30 rounded-xl p-3 mb-4">
               <p className="text-xs font-medium text-violet-300 mb-1">Anime adaptation found</p>
-              <p className="text-xs text-zinc-400 mb-2">
+              <p className="text-xs text-zinc-400 mb-1">
                 AniList found &ldquo;{suggestedAnime.title}&rdquo;. Is this the anime for this manga?
               </p>
+              {muData?.anime.start && (
+                <div className="flex items-start gap-1.5 mb-2">
+                  <span className="text-violet-500 text-[10px] mt-0.5">◈</span>
+                  <p className="text-[10px] text-violet-400 leading-relaxed">
+                    <span className="font-semibold">Covers:</span> {muData.anime.start}
+                    {muData.anime.end && muData.anime.end !== muData.anime.start && (
+                      <span className="text-zinc-500"> → {muData.anime.end}</span>
+                    )}
+                  </p>
+                </div>
+              )}
               <div className="flex gap-2">
                 <button onClick={confirmAnimeSuggestion}
                   className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium rounded-lg transition-colors">
@@ -480,6 +499,33 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
               </div>
             )
           })()}
+
+          {/* MangaUpdates community recommendations */}
+          {muData && muData.recommendations.length > 0 && (
+            <div className="mb-4">
+              <p className="text-xs font-medium text-zinc-500 mb-2">
+                MangaUpdates recommends
+                {muData.rating && <span className="text-zinc-600 ml-1 font-mono">· {muData.rating.toFixed(1)}/10</span>}
+              </p>
+              <div className="space-y-1.5">
+                {muData.recommendations.slice(0, 4).map(rec => (
+                  <a key={rec.series_id} href={rec.series_url} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2.5 bg-zinc-800 rounded-xl px-3 py-2 hover:bg-zinc-700 transition-colors">
+                    {rec.cover_url && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={rec.cover_url} alt="" referrerPolicy="no-referrer"
+                        className="w-7 h-9 object-cover rounded shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{rec.series_name}</p>
+                      <p className="text-[10px] text-zinc-600">MangaUpdates</p>
+                    </div>
+                    <span className="text-zinc-600 text-xs shrink-0">↗</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
 
           <RereadSection mangaId={manga.id} />
 

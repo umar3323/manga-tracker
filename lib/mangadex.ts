@@ -89,6 +89,16 @@ export async function getMangaDexNewReleases(): Promise<JikanSearchResult[]> {
   return mdFetchList(`order[followedCount]=desc&createdAtSince=${since.toISOString().split('T')[0]}`)
 }
 
+/** Korean manhwa — previously silently dropped because they often lack MAL IDs on MAL-only sources */
+export async function getMangaDexManhwa(): Promise<JikanSearchResult[]> {
+  return mdFetchList('order[followedCount]=desc&countryOfOrigin=kr')
+}
+
+/** Chinese manhua */
+export async function getMangaDexManhua(): Promise<JikanSearchResult[]> {
+  return mdFetchList('order[followedCount]=desc&countryOfOrigin=cn')
+}
+
 
 
 export async function getLatestChapterFromMangaDex(malId: number): Promise<number | null> {
