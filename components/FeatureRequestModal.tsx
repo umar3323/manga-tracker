@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Lightbulb } from 'lucide-react'
 
 const CATEGORIES = ['Feature', 'Bug report', 'Improvement', 'Content', 'Other']
 
@@ -227,7 +228,7 @@ export function FeatureRequestButton() {
           el.style.boxShadow = 'var(--shadow-2)'
         }}
       >
-        <span style={{ fontSize: 16, lineHeight: 1 }}>💡</span>
+        <Lightbulb size={15} strokeWidth={1.5} />
         <span className="hidden md:inline">Request a feature</span>
       </button>
       {open && <FeatureRequestModal onClose={() => setOpen(false)} />}
