@@ -10,13 +10,16 @@ import {
   type JikanSearchResult,
 } from '@/lib/jikan'
 
-type DiscoverTab = 'swipe' | 'similar' | 'new' | 'updated'
+import type { SJChapter } from '@/app/api/shonenjump/route'
+
+type DiscoverTab = 'swipe' | 'similar' | 'new' | 'updated' | 'jump'
 
 const DISC_TABS: { id: DiscoverTab; label: string; emoji: string; desc: string }[] = [
   { id: 'swipe',   label: 'Swipe',    emoji: '🔀', desc: 'Rate manga to train your taste' },
   { id: 'similar', label: 'Similar',  emoji: '🎯', desc: 'Based on what you read' },
   { id: 'new',     label: 'New',      emoji: '✨', desc: 'Series started this year' },
   { id: 'updated', label: 'Updated',  emoji: '🔔', desc: 'Ongoing with new chapters' },
+  { id: 'jump',    label: 'Jump',     emoji: '⚡', desc: 'Latest from Shonen Jump' },
 ]
 
 function DiscoveryGrid({
@@ -65,6 +68,117 @@ function DiscoveryGrid({
           </div>
         </button>
       ))}
+    </div>
+  )
+}
+
+/** Shonen Jump live chapter feed */
+function ShonenJumpFeed({ trackedTitles }: { trackedTitles: Set<string> }) {
+  const [chapters, setChapters] = useState<SJChapter[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<'all' | 'tracked'>('all')
+
+  useEffect(() => {
+    fetch('/api/shonenjump')
+      .then(r => r.json())
+      .then(j => { setChapters(j.chapters ?? []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [])
+
+  // Fuzzy match: normalise title to compare against user's tracked list
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const isTracked = (ch: SJChapter) => {
+    const n = norm(ch.title)
+    return [...trackedTitles].some(t => norm(t).includes(n) || n.includes(norm(t)))
+  }
+
+  const visible = filter === 'tracked' ? chapters.filter(isTracked) : chapters
+
+  if (loading) return (
+    <div className="space-y-2">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="h-16 bg-zinc-900 rounded-xl animate-pulse" />
+      ))}
+    </div>
+  )
+
+  if (!chapters.length) return (
+    <p className="text-zinc-500 text-sm text-center py-12">Could not load Shonen Jump data.</p>
+  )
+
+  return (
+    <div>
+      {/* Header + filter */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">⚡</span>
+          <div>
+            <p className="text-sm font-bold text-zinc-100">Shonen Jump</p>
+            <p className="text-[10px] text-zinc-500">via viz.com · {chapters.length} series</p>
+          </div>
+        </div>
+        <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
+          {(['all', 'tracked'] as const).map(f => (
+            <button key={f} onClick={() => setFilter(f)}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                filter === f ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
+              }`}>
+              {f === 'all' ? 'All' : 'Tracking'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {visible.length === 0 && filter === 'tracked' && (
+        <p className="text-zinc-500 text-sm text-center py-8">None of your tracked manga are on Shonen Jump.</p>
+      )}
+
+      <div className="space-y-1.5">
+        {visible.map(ch => {
+          const tracked = isTracked(ch)
+          return (
+            <div key={ch.seriesSlug}
+              className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 group hover:border-zinc-600 transition-colors">
+              {/* Tracked indicator */}
+              <div className={`w-1.5 h-8 rounded-full shrink-0 ${tracked ? 'bg-emerald-500' : 'bg-zinc-700'}`} />
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-zinc-100 truncate">{ch.title}</p>
+                  {ch.isFree && (
+                    <span className="shrink-0 text-[9px] font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-400 border border-emerald-800/50">
+                      FREE
+                    </span>
+                  )}
+                  {tracked && (
+                    <span className="shrink-0 text-[9px] font-bold tracking-wider px-1.5 py-0.5 rounded bg-blue-900/40 text-blue-400 border border-blue-800/50">
+                      TRACKING
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-zinc-500 mt-0.5">Chapter {ch.chapter}</p>
+              </div>
+
+              <div className="flex gap-1.5 shrink-0">
+                <a href={ch.vizUrl} target="_blank" rel="noopener noreferrer"
+                  className="px-2.5 py-1.5 bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold rounded-lg transition-colors">
+                  Read ↗
+                </a>
+                <a href={ch.seriesUrl} target="_blank" rel="noopener noreferrer"
+                  className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] font-medium rounded-lg transition-colors">
+                  Series
+                </a>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="text-center text-[10px] text-zinc-700 mt-4">
+        Data sourced from{' '}
+        <a href="https://www.viz.com/shonenjump" target="_blank" rel="noopener noreferrer" className="hover:text-zinc-500 transition-colors underline">viz.com/shonenjump</a>
+        {' '}· refreshes hourly
+      </p>
     </div>
   )
 }
@@ -188,6 +302,15 @@ interface SwipeCard extends JikanSearchResult {
 export default function DiscoverPage() {
   const [activeTab, setActiveTab] = useState<DiscoverTab>('swipe')
   const [selectedCard, setSelectedCard] = useState<JikanSearchResult | null>(null)
+  const [trackedTitles, setTrackedTitles] = useState<Set<string>>(new Set())
+
+  // Load tracked titles for SJ cross-reference
+  useEffect(() => {
+    supabase.from('manga_list').select('title')
+      .then(({ data }) => {
+        if (data) setTrackedTitles(new Set(data.map((m: { title: string }) => m.title)))
+      })
+  }, [])
 
   // Grid tab data
   const [gridData, setGridData] = useState<Partial<Record<DiscoverTab, JikanSearchResult[]>>>({})
@@ -195,7 +318,7 @@ export default function DiscoverPage() {
   const fetchedGridTabs = useRef<Set<DiscoverTab>>(new Set())
 
   const fetchGridTab = useCallback(async (tab: DiscoverTab) => {
-    if (tab === 'swipe' || fetchedGridTabs.current.has(tab)) return
+    if (tab === 'swipe' || tab === 'jump' || fetchedGridTabs.current.has(tab)) return
     fetchedGridTabs.current.add(tab)
     setGridLoading(prev => ({ ...prev, [tab]: true }))
 
@@ -437,8 +560,13 @@ export default function DiscoverPage() {
           ))}
         </div>
 
+        {/* Shonen Jump tab */}
+        {activeTab === 'jump' && (
+          <ShonenJumpFeed trackedTitles={trackedTitles} />
+        )}
+
         {/* Grid tabs */}
-        {activeTab !== 'swipe' && (
+        {activeTab !== 'swipe' && activeTab !== 'jump' && (
           <DiscoveryGrid
             items={gridData[activeTab] ?? []}
             loading={gridLoading[activeTab] ?? false}
