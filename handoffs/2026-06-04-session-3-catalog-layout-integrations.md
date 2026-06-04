@@ -13,8 +13,11 @@ Every third-party source wired into YOMU, what it's used for, and how it's acces
 | Service | URL | How accessed | Used for |
 |---|---|---|---|
 | **MyAnimeList (via Jikan)** | `https://api.jikan.moe/v4` | REST API (public, no key) | Manga search, metadata, scores, author lookup, anime adaptations |
-| **MangaDex** | `https://api.mangadex.org` | REST API (public, no key) | Catalog: 300 manga per refresh (popular, trending, new) + latest chapter lookup |
+| **MangaDex** | `https://api.mangadex.org` | REST API (public, no key) | Catalog: popular, trending, new releases, **manhwa** (`countryOfOrigin=kr`), **manhua** (`countryOfOrigin=cn`) + latest chapter lookup |
 | **AniList** | `https://graphql.anilist.co` | GraphQL API (public, no key) | Tags, relations, streaming countdown, trending manga catalog, community recommendations |
+| **ComicK** | `https://api.comick.fun` | REST API (public, no key) | Trending + manhwa + manhua catalog; solves the MAL silent-drop gap for non-MAL series |
+| **Kitsu** | `https://kitsu.io/api/edge` | JSON:API (public, no key) | Manhwa catalog, secondary community score signal, MAL ID bridge via `/mappings` endpoint |
+| **MangaUpdates** | `https://api.mangaupdates.com/v1` | REST API (public, no key) | Per-series detail: anime adaptation depth (chapters covered), community recommendations, bayesian rating |
 | **Shonen Jump / Viz** | `https://www.viz.com/shonenjump` | Server-side HTML scrape (1h cache) | Live chapter feed in Discover → Jump tab; SJ series boost in recommendations |
 | **Goodreads** | `https://www.goodreads.com` | Server-side HTML scrape (2h / 30min cache) | Trending manga catalog, Western popularity signal, parallel search results |
 | **Supabase** | Project URL in `NEXT_PUBLIC_SUPABASE_URL` | Supabase JS SDK + SSR client | Database (all user data), auth, realtime, anilist_cache table |
@@ -27,14 +30,34 @@ Every third-party source wired into YOMU, what it's used for, and how it's acces
 | Jikan | 3 req/s, 60 req/min | 450ms gaps between paginated calls; single-request fallbacks |
 | AniList | 90 req/min | 24h cache in `anilist_cache` table; no client-side direct calls |
 | MangaDex | 5 req/s, 300 req/min | Parallel fetch at cold start only; 2h in-memory cache |
+| ComicK | Undocumented (permissive) | 2h catalog cache; degrades to [] if unreachable |
+| Kitsu | No published limit | 300ms gaps between mapping requests; 20 entries per catalog refresh |
+| MangaUpdates | ~1 req/s recommended | 2 requests per series lookup; 6h per-title cache in `/api/mangaupdates` |
 | Goodreads | No published limit (scraping) | 2h / 30min cache; single fetch per cache period |
 | Viz | No published limit (scraping) | 1h in-memory cache |
+
+### Catalog sources at a glance
+The unified `/api/catalog` now fetches **13 parallel sources** and merges ~600–800 titles per 2h cache window:
+
+| Source | Entries | Type |
+|---|---|---|
+| Jikan top manga (4 pages) | ~100 | Manga |
+| MangaDex popular / trending / new | ~300 | Manga |
+| MangaDex manhwa | ~100 | Manhwa 🇰🇷 |
+| MangaDex manhua | ~100 | Manhua 🇨🇳 |
+| AniList trending (2 pages) | ~100 | Manga |
+| ComicK trending | up to 100 | Manga + manhwa + manhua |
+| ComicK manhwa | up to 100 | Manhwa |
+| ComicK manhua | up to 100 | Manhua |
+| Kitsu manhwa (20 + mapping) | up to 20 | Manhwa |
+| Kitsu top manga (20 + mapping) | up to 20 | Manga |
+| Goodreads genres page | ~40 | Manga (Western popularity) |
 
 ---
 
 ## Summary
 
-Third session since initial build. Added seven distinct features across the session: a layout redesign (sidebar hero, icon rail, floating mobile nav), streaming availability in the detail panel, a Shonen Jump live feed, a greatly expanded manga catalog (400–600 titles via MangaDex + AniList + multi-page Jikan), Goodreads integration in search and recommendations, a "Did You Know?" manga facts widget, and duplicate detection + anime suggestion banners in the detail modal. Everything is deployed.
+Third session since initial build. Added ten distinct features: a layout redesign (sidebar hero, icon rail, floating mobile nav), streaming availability in the detail panel, a Shonen Jump live feed, a greatly expanded manga catalog (now 600–800 titles from 13 parallel sources via MangaDex + AniList + Jikan + ComicK + Kitsu + Goodreads), ComicK/Kitsu/MangaUpdates integration (fixes the manhwa/manhua silent-drop gap and adds adaptation depth to the anime suggestion banner), Goodreads search integration, a "Did You Know?" manga facts widget, and duplicate detection + anime suggestion banners in the detail modal. Everything is deployed.
 
 ---
 
@@ -107,6 +130,36 @@ Third session since initial build. Added seven distinct features across the sess
 - Deduplication: GR results whose MAL ID matches a Jikan result are hidden.
 - `addFromGoodreads()`: uses existing MAL ID if enriched; otherwise falls back to live Jikan title search before inserting. Detects anime adaptation as normal.
 - "Goodreads ↗" link opens the book page.
+
+### ComicK (`lib/comick.ts`) — new
+- `getComicKTrending()`, `getComicKManhwa()`, `getComicKManhua()` — api.comick.fun, no auth
+- Only entries with `links.mal` are added to catalog (MAL cross-reference required)
+- Degrades to `[]` if ComicK is unreachable (IP-based blocks on some networks — works fine from Vercel)
+
+### Kitsu (`lib/kitsu.ts`) — new
+- `getKitsuManhwa()`, `getKitsuTopManga()` — kitsu.io/api/edge JSON:API, no auth
+- `getKitsuMalId(kitsuId)` — resolves Kitsu ID → MAL ID via `/mappings` endpoint; 300ms gaps
+- Kitsu averageRating (0–100) divided by 10 for score field
+
+### MangaUpdates (`lib/mangaupdates.ts`) — new
+- `searchMangaUpdates(title)` — 2-step: POST `/v1/series/search` then GET `/v1/series/{id}`
+- Returns: `anime.start`, `anime.end` (adaptation depth), `bayesian_rating`, `recommendations[]`, `latest_chapter`, `genres`
+
+### MangaUpdates API route (`app/api/mangaupdates/route.ts`) — new
+- `GET /api/mangaupdates?title=...` — proxies `searchMangaUpdates()`; 6h per-title in-memory cache
+
+### MangaDex manhwa/manhua (`lib/mangadex.ts`) — extended
+- `getMangaDexManhwa()` — `countryOfOrigin=kr`, 100 items; direct fix for the silent-drop bug
+- `getMangaDexManhua()` — `countryOfOrigin=cn`, 100 items
+
+### Catalog (`app/api/catalog/route.ts`) — updated
+- Now fetches 13 parallel sources (was 6); merge priority updated: Jikan → AniList → Kitsu → MangaDex → ComicK → Goodreads
+- Sources object now includes `comick` and `kitsu` counts
+
+### Detail modal (`app/page.tsx`) — updated
+- Fetches `/api/mangaupdates?title=` on mount for every manga
+- Anime suggestion banner now shows `muData.anime.start / anime.end` (e.g. "Covers: Vol 1, Ch 1 → Vol 27, Ch 108")
+- New "MangaUpdates recommends" section with up to 4 community similar-series links
 
 ### MangaFact widget (`components/MangaFact.tsx`) — new
 - 30 curated manga trivia facts, random on load, fade animation on ↻ click.
