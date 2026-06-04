@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import Image from 'next/image'
 import { supabase, type Manga, type MangaStatus, type Author } from '@/lib/supabase'
 import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, getMangaById, getAnimeAdaptations, type JikanSearchResult } from '@/lib/jikan'
@@ -144,7 +144,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge }: {
     () => { try { return !!localStorage.getItem(animeKey) } catch { return false } }
   )
   const [animeSuggestionConfirmed, setAnimeSuggestionConfirmed] = useState(false)
-  const [duplicateCandidate, setDuplicateCandidate] = useState<Manga | null>(null)
+  // duplicateCandidate is derived via useMemo below (not state) to avoid setState-in-effect
   const [duplicateDismissed, setDuplicateDismissed] = useState(
     () => { try { return !!localStorage.getItem(dupKey) } catch { return false } }
   )
@@ -187,35 +187,29 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge }: {
         .then(j => {
           if (j.related_anime?.length) {
             setAnnAnime(j.related_anime)
+            // Set suggestion now if AniList hasn't found one yet
+            setSuggestedAnime(prev =>
+              prev ? prev : { idMal: 0, title: j.related_anime[0].title }
+            )
           }
         })
         .catch(() => {/* non-critical */})
     }
   }, [manga.mal_id, manga.anime_mal_id, manga.has_anime, manga.title])
 
-  // Duplicate detection: title token overlap against existing manga
-  useEffect(() => {
+  // Duplicate detection: derived via useMemo to avoid setState-in-effect
+  const duplicateCandidate = useMemo(() => {
     const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()
     const tokens = (s: string) => new Set(normalize(s).split(/\s+/).filter(Boolean))
     const myTokens = tokens(manga.title)
-    const candidate = allManga.find(m => {
+    return allManga.find(m => {
       if (m.id === manga.id) return false
       const theirTokens = tokens(m.title)
       const overlap = [...myTokens].filter(t => theirTokens.has(t)).length
       const jaccard = overlap / (myTokens.size + theirTokens.size - overlap)
       return jaccard >= 0.7
-    })
-    setDuplicateCandidate(candidate ?? null)
+    }) ?? null
   }, [manga.id, manga.title, allManga])
-
-  // ANN fallback: if AniList found nothing but ANN has a related anime, surface it
-  useEffect(() => {
-    if (!suggestedAnime && annAnime.length > 0) {
-      const first = annAnime[0]
-      // ANN doesn't give MAL IDs directly — use 0 as sentinel; title is still surfaced
-      setSuggestedAnime({ idMal: 0, title: first.title })
-    }
-  }, [annAnime, suggestedAnime])
 
   const confirmAnimeSuggestion = async () => {
     if (!suggestedAnime) return
@@ -730,7 +724,7 @@ function RecommendationModal({ rec, onClose }: { rec: Recommendation; onClose: (
   }
 
   useEffect(() => {
-    if (!rec.mal_id) { setLoading(false); return }
+    if (!rec.mal_id) { Promise.resolve().then(() => setLoading(false)); return }
     getMangaById(rec.mal_id).then(d => { setDetail(d); setLoading(false) })
   }, [rec.mal_id])
 

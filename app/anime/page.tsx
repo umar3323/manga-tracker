@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import Image from 'next/image'
-import { animeData, getStatus, type AnimeEntry, type AnimeStatus } from '@/lib/anime-data'
+import { animeData, getStatus, type AnimeStatus } from '@/lib/anime-data'
 
 // ── Cover art — localStorage cache, staggered Jikan fetches ──────────────────
 const COVER_CACHE_KEY = 'yomu_anime_covers'
