@@ -7,6 +7,7 @@ import {
   searchMangaWithFilters, searchPeople, getAnimeAdaptations, getMangaById,
   MANGA_GENRES, type JikanSearchResult, type SearchFilters,
 } from '@/lib/jikan'
+import type { GoodreadsBook } from '@/app/api/goodreads/route'
 
 const STATUS_OPTIONS: { value: MangaStatus; label: string }[] = [
   { value: 'reading',      label: 'Currently Reading' },
@@ -32,6 +33,9 @@ export default function SearchPage() {
   const [added, setAdded] = useState<Set<number>>(new Set())
   const [toast, setToast] = useState('')
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [grResults, setGrResults] = useState<GoodreadsBook[]>([])
+  const [grLoading, setGrLoading] = useState(false)
+  const [addingGr, setAddingGr] = useState<string | null>(null)
 
   // ── Filter state ──────────────────────────────────────────────────────────
   const [showFilters, setShowFilters] = useState(false)
@@ -95,6 +99,7 @@ export default function SearchPage() {
     if (!query.trim() && !hasFilters) return
     setLoading(true)
     setResults([])
+    setGrResults([])
 
     // Detect MAL URL
     const malMatch = query.match(/myanimelist\.net\/manga\/(\d+)/i)
@@ -118,8 +123,25 @@ export default function SearchPage() {
       authorId: selectedAuthor?.id,
     }
 
-    const res = await searchMangaWithFilters(filters)
-    setResults(res)
+    // Run Jikan + Goodreads in parallel
+    const [jikanRes] = await Promise.all([
+      searchMangaWithFilters(filters),
+      // Kick off Goodreads search in background if there's a text query
+      query.trim() ? (async () => {
+        setGrLoading(true)
+        try {
+          const r = await fetch(`/api/goodreads?q=${encodeURIComponent(query.trim())}`)
+          if (r.ok) {
+            const j = await r.json()
+            // Filter out GR results whose MAL ID already appears in Jikan results
+            setGrResults(j.books ?? [])
+          }
+        } catch { /* non-critical */ }
+        finally { setGrLoading(false) }
+      })() : Promise.resolve(),
+    ])
+
+    setResults(jikanRes)
     setLoading(false)
   }, [query, includeGenreIds, excludeGenreIds, mangaStatus, orderBy, sortDir, minScore, minChapters, maxChapters, selectedAuthor, hasFilters])
 
@@ -142,6 +164,57 @@ export default function SearchPage() {
         showToast(`Added "${manga.title}"${anim ? ' — 🎬 anime found!' : ''}`)
       }
     } finally { setAdding(null) }
+  }
+
+  /** Add a Goodreads book — looks up Jikan first to get full MAL data */
+  const addFromGoodreads = async (book: GoodreadsBook, status: MangaStatus) => {
+    setAddingGr(book.goodreadsId)
+    try {
+      let malId = book.malId
+      let title = book.title
+      let cover = book.coverUrl
+      let totalCh: number | null = null
+      let authors: { id: number; name: string }[] = book.author ? [{ id: 0, name: book.author }] : []
+
+      // If we have a MAL ID already (from enrichment), fetch full data
+      if (malId) {
+        const full = await getMangaById(malId)
+        if (full) {
+          title = full.title; cover = full.cover_url ?? cover
+          totalCh = full.total_chapters; authors = full.authors
+        }
+      } else {
+        // Try a Jikan title search
+        const clean = title.replace(/,?\s+(vol|volume|tome)\.?\s*\d+.*/i, '').trim()
+        const res = await fetch(`/api/goodreads?q=${encodeURIComponent(clean)}`) // reuse enrichment
+        // Fall back: search Jikan directly
+        const jRes = await fetch(`https://api.jikan.moe/v4/manga?q=${encodeURIComponent(clean)}&limit=1`)
+        if (jRes.ok) {
+          const jJson = await jRes.json()
+          const hit = jJson.data?.[0]
+          if (hit) { malId = hit.mal_id; title = hit.title; cover = hit.images?.jpg?.image_url ?? cover; totalCh = hit.chapters }
+        }
+      }
+
+      const adaptations = malId ? await getAnimeAdaptations(malId) : []
+      const anim = adaptations[0]
+
+      const { error } = await supabase.from('manga_list').insert({
+        mal_id: malId ?? null, title, current_chapter: 0, status,
+        cover_url: cover, total_chapters: totalCh,
+        authors, genres: [],
+        has_anime: !!anim, anime_mal_id: anim?.mal_id ?? null,
+        anime_title: anim?.title ?? null, total_episodes: anim?.episodes ?? null,
+      })
+      if (error?.code === '23505') showToast(`"${title}" is already in your list`)
+      else if (error) showToast('Failed to add manga')
+      else {
+        setAdded(prev => new Set([...prev, malId ?? -Date.now()]))
+        showToast(`Added "${title}" from Goodreads`)
+        // Mark as added in grResults
+        setGrResults(prev => prev.map(b => b.goodreadsId === book.goodreadsId ? { ...b, malId: malId ?? b.malId } : b))
+      }
+    } finally { setAddingGr(null) }
   }
 
   const importMALFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -434,6 +507,90 @@ export default function SearchPage() {
             </div>
           ))}
         </div>
+
+        {/* Goodreads results */}
+        {(grLoading || grResults.length > 0) && (
+          <div className="mt-8">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">📗</span>
+                <div>
+                  <p className="text-sm font-bold">Also on Goodreads</p>
+                  <p className="text-[10px] text-zinc-500">via goodreads.com · {grResults.length} results</p>
+                </div>
+              </div>
+            </div>
+
+            {grLoading && (
+              <div className="space-y-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="h-20 bg-zinc-900 rounded-xl animate-pulse" />
+                ))}
+              </div>
+            )}
+
+            {!grLoading && (
+              <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-2 lg:space-y-0">
+                {grResults
+                  // De-duplicate against already-shown Jikan results
+                  .filter(b => !results.some(r => r.mal_id === b.malId))
+                  .map(book => {
+                    const isAdded = book.malId ? added.has(book.malId) : false
+                    const isAdding = addingGr === book.goodreadsId
+                    return (
+                      <div key={book.goodreadsId} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+                        <div className="flex gap-4 p-4">
+                          <div className="shrink-0 w-14 h-20 rounded-lg overflow-hidden bg-zinc-800">
+                            {book.coverUrl ? (
+                              // Goodreads covers need a referrer; use img (not next/image) for external CDN
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={book.coverUrl} alt={book.title}
+                                className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">?</div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold text-sm leading-snug line-clamp-2">{book.title}</div>
+                            {book.author && <div className="text-xs text-zinc-500 mt-0.5">by {book.author}</div>}
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {book.rating && (
+                                <span className="text-xs px-1.5 py-0.5 bg-zinc-800 text-yellow-400 rounded">★ {book.rating}</span>
+                              )}
+                              {book.ratingsCount && (
+                                <span className="text-xs px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded">{book.ratingsCount} ratings</span>
+                              )}
+                              <span className="text-xs px-1.5 py-0.5 bg-emerald-900/30 border border-emerald-800/40 text-emerald-500 rounded">Goodreads</span>
+                            </div>
+                          </div>
+                          <div className="shrink-0 flex flex-col gap-1">
+                            {isAdded ? (
+                              <span className="text-emerald-400 text-sm font-medium">✓ Added</span>
+                            ) : (
+                              <>
+                                <button onClick={() => addFromGoodreads(book, 'plan_to_read')} disabled={isAdding}
+                                  className="px-3 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 hover:text-white transition-colors disabled:opacity-40 whitespace-nowrap">
+                                  {isAdding ? '…' : '+ Plan to Read'}
+                                </button>
+                                <button onClick={() => addFromGoodreads(book, 'reading')} disabled={isAdding}
+                                  className="px-3 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 hover:text-white transition-colors disabled:opacity-40 whitespace-nowrap">
+                                  {isAdding ? '…' : '+ Reading'}
+                                </button>
+                                <a href={book.goodreadsUrl} target="_blank" rel="noopener noreferrer"
+                                  className="px-3 py-1 text-xs bg-zinc-900 border border-zinc-700 hover:border-zinc-500 rounded-lg text-zinc-500 hover:text-zinc-300 transition-colors text-center">
+                                  Goodreads ↗
+                                </a>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {toast && (

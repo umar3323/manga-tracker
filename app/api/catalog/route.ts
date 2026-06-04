@@ -12,10 +12,11 @@ import { NextResponse } from 'next/server'
 import { getTopMangaMultiPage, type JikanSearchResult } from '@/lib/jikan'
 import { getMangaDexPopular, getMangaDexTrending, getMangaDexNewReleases } from '@/lib/mangadex'
 import { fetchAniListTrendingManga, aniListToJikanResult } from '@/lib/anilist'
+import type { GoodreadsBook } from '@/app/api/goodreads/route'
 
 interface CatalogCache {
   catalog: JikanSearchResult[]
-  sources: { jikan: number; mangadex: number; anilist: number }
+  sources: { jikan: number; mangadex: number; anilist: number; goodreads: number }
   at: number
 }
 
@@ -28,12 +29,14 @@ export async function GET() {
   }
 
   // Fetch all sources in parallel — any failure degrades gracefully
-  const [jikanRaw, mdPopular, mdTrending, mdNew, alTrending] = await Promise.allSettled([
+  const [jikanRaw, mdPopular, mdTrending, mdNew, alTrending, grTrending] = await Promise.allSettled([
     getTopMangaMultiPage(4),      // pages 1–4 = up to 100 from MAL top manga
     getMangaDexPopular(),          // 100 most-followed on MangaDex
     getMangaDexTrending(),         // 100 highest-rated ongoing
     getMangaDexNewReleases(),      // 100 new series (last 2 years)
     fetchAniListTrendingManga(2),  // 100 trending on AniList (2 pages × 50)
+    fetch(`${process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'}/api/goodreads`)
+      .then(r => r.json()).then(j => j.books as GoodreadsBook[]),
   ])
 
   const jikanItems   = jikanRaw.status   === 'fulfilled' ? jikanRaw.value   : []
@@ -42,6 +45,22 @@ export async function GET() {
   const mdNewItems   = mdNew.status      === 'fulfilled' ? mdNew.value      : []
   const alItems      = alTrending.status === 'fulfilled'
     ? alTrending.value.map(aniListToJikanResult)
+    : []
+  // Convert Goodreads books that have a MAL ID into catalog entries
+  const grItems: JikanSearchResult[] = grTrending.status === 'fulfilled'
+    ? (grTrending.value ?? [])
+        .filter((b: GoodreadsBook) => b.malId)
+        .map((b: GoodreadsBook) => ({
+          mal_id: b.malId!,
+          title: b.title,
+          synopsis: null,
+          cover_url: b.coverUrl,
+          genres: [],
+          total_chapters: null,
+          score: b.rating,
+          status: null,
+          authors: b.author ? [{ id: 0, name: b.author }] : [],
+        }))
     : []
 
   // Merge and deduplicate by MAL ID
@@ -69,15 +88,17 @@ export async function GET() {
   merge(mdPopItems)
   merge(mdTrendItems)
   merge(mdNewItems)
+  merge(grItems) // Goodreads adds Western-market popularity signal + extra covers
 
   const catalog = [...byMalId.values()]
 
   const result: CatalogCache = {
     catalog,
     sources: {
-      jikan:    jikanItems.length,
-      mangadex: mdPopItems.length + mdTrendItems.length + mdNewItems.length,
-      anilist:  alItems.length,
+      jikan:     jikanItems.length,
+      mangadex:  mdPopItems.length + mdTrendItems.length + mdNewItems.length,
+      anilist:   alItems.length,
+      goodreads: grItems.length,
     },
     at: Date.now(),
   }
