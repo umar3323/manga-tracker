@@ -47,6 +47,22 @@ export default function SearchPage() {
   const [maxChapters, setMaxChapters] = useState('')
   const [minScore, setMinScore] = useState('')
 
+  // ── Recent searches ───────────────────────────────────────────────────────
+  const RECENT_KEY = 'yomu_recent_searches'
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return []
+    try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') } catch { return [] }
+  })
+  const [inputFocused, setInputFocused] = useState(false)
+  const saveRecentSearch = (q: string) => {
+    if (!q.trim()) return
+    setRecentSearches(prev => {
+      const next = [q, ...prev.filter(s => s !== q)].slice(0, 6)
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)) } catch {}
+      return next
+    })
+  }
+
   // ── Autocomplete suggestions ──────────────────────────────────────────────
   const [suggestions, setSuggestions] = useState<JikanSearchResult[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -82,7 +98,7 @@ export default function SearchPage() {
     setQuery(s.title)
     setShowSuggestions(false)
     setSuggestions([])
-    // Immediately show this result without a second API call
+    saveRecentSearch(s.title)
     setResults([s])
   }
 
@@ -136,6 +152,7 @@ export default function SearchPage() {
 
   const doSearch = useCallback(async () => {
     if (!query.trim() && !hasFilters) return
+    if (query.trim()) saveRecentSearch(query.trim())
     setLoading(true)
     setResults([])
     setGrResults([])
@@ -301,14 +318,35 @@ export default function SearchPage() {
               value={query}
               onChange={e => { setQuery(e.target.value); setShowSuggestions(true) }}
               onKeyDown={e => {
-                if (e.key === 'Enter') { setShowSuggestions(false); doSearch() }
-                if (e.key === 'Escape') setShowSuggestions(false)
+                if (e.key === 'Enter') { setShowSuggestions(false); setInputFocused(false); doSearch() }
+                if (e.key === 'Escape') { setShowSuggestions(false); setInputFocused(false) }
               }}
-              onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true) }}
+              onFocus={() => { setInputFocused(true); if (suggestions.length > 0) setShowSuggestions(true) }}
+              onBlur={() => setTimeout(() => setInputFocused(false), 150)}
               placeholder="Search by title, or paste a MAL URL…"
               autoFocus
               className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
             />
+            {/* Recent searches — shown when focused and no query */}
+            {inputFocused && !query && recentSearches.length > 0 && (
+              <div className="absolute z-30 top-full mt-1 left-0 right-0 bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
+                <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800">
+                  <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">Recent</span>
+                  <button
+                    onMouseDown={e => { e.preventDefault(); setRecentSearches([]); try { localStorage.removeItem(RECENT_KEY) } catch {} }}
+                    className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                  >Clear</button>
+                </div>
+                {recentSearches.map(s => (
+                  <button key={s}
+                    onMouseDown={e => { e.preventDefault(); setQuery(s); setInputFocused(false); setTimeout(doSearch, 0) }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-left text-sm text-zinc-300 border-b border-zinc-800 last:border-0"
+                  >
+                    <span className="text-zinc-600 text-xs">🕐</span> {s}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* Suggestions dropdown */}
             {showSuggestions && (query.length >= 2) && (
               <div className="absolute z-30 top-full mt-1 left-0 right-0 bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">

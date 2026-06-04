@@ -1,8 +1,22 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { supabase, type Manga } from '@/lib/supabase'
 import { animeData, type AnimeEntry } from '@/lib/anime-data'
+
+// ── Jikan anime search ────────────────────────────────────────────────────────
+interface JikanAnime { mal_id: number; title: string; images?: { jpg?: { image_url?: string } } }
+
+async function searchJikanAnime(q: string): Promise<JikanAnime[]> {
+  try {
+    const res = await fetch(
+      `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(q)}&limit=8&order_by=score&sort=desc`,
+      { signal: AbortSignal.timeout(6000) }
+    )
+    if (!res.ok) return []
+    return (await res.json()).data ?? []
+  } catch { return [] }
+}
 
 // ── Fuzzy matching ────────────────────────────────────────────────────────────
 function normalise(s: string) {
@@ -47,6 +61,9 @@ export default function AnimeLinker({ manga }: { manga: Manga[] }) {
   const [saved, setSaved] = useState<Set<string>>(new Set())
   const [manualLinks, setManualLinks] = useState<Record<string, string>>({}) // manga.id → anime title
   const [searchQuery, setSearchQuery] = useState<Record<string, string>>({})
+  const [jikanResults, setJikanResults] = useState<Record<string, JikanAnime[]>>({})
+  const [jikanLoading, setJikanLoading] = useState<Record<string, boolean>>({})
+  const searchTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const [toast, setToast] = useState('')
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
@@ -104,13 +121,17 @@ export default function AnimeLinker({ manga }: { manga: Manga[] }) {
   const visibleMatches = autoMatches.filter(m => !dismissed.has(m.manga.id) && !saved.has(m.manga.id))
   const alreadyLinked = manga.filter(m => m.has_anime)
 
-  // Anime titles for search dropdown
-  const animeTitles = animeData.map(a => a.title).sort()
-
-  const filteredAnime = (mangaId: string) => {
-    const q = normalise(searchQuery[mangaId] ?? '')
-    if (!q) return animeTitles.slice(0, 8)
-    return animeTitles.filter(t => normalise(t).includes(q)).slice(0, 8)
+  const handleManualSearch = (mangaId: string, q: string) => {
+    setSearchQuery(prev => ({ ...prev, [mangaId]: q }))
+    setManualLinks(prev => ({ ...prev, [mangaId]: '' })) // clear confirmed pick when typing
+    if (searchTimers.current[mangaId]) clearTimeout(searchTimers.current[mangaId])
+    if (!q.trim() || q.length < 2) { setJikanResults(prev => ({ ...prev, [mangaId]: [] })); return }
+    setJikanLoading(prev => ({ ...prev, [mangaId]: true }))
+    searchTimers.current[mangaId] = setTimeout(async () => {
+      const results = await searchJikanAnime(q)
+      setJikanResults(prev => ({ ...prev, [mangaId]: results }))
+      setJikanLoading(prev => ({ ...prev, [mangaId]: false }))
+    }, 400)
   }
 
   return (
@@ -232,34 +253,50 @@ export default function AnimeLinker({ manga }: { manga: Manga[] }) {
               {/* Manual linking section */}
               {unmatched.filter(m => !saved.has(m.id)).length > 0 && (
                 <div>
-                  <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-3">
+                  <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-1">
                     Manual link ({unmatched.filter(m => !saved.has(m.id)).length} unmatched)
                   </h4>
+                  <p className="text-[10px] text-zinc-600 mb-3">Searches all anime on MyAnimeList</p>
                   <div className="space-y-2">
                     {unmatched.filter(m => !saved.has(m.id)).map(m => (
                       <div key={m.id} className="bg-zinc-800 rounded-xl px-4 py-3">
                         <p className="text-xs font-medium text-zinc-200 mb-2">{m.title}</p>
                         <div className="flex gap-2">
                           <div className="relative flex-1">
-                            <input
-                              value={searchQuery[m.id] ?? ''}
-                              onChange={e => setSearchQuery(prev => ({ ...prev, [m.id]: e.target.value }))}
-                              placeholder="Search anime title…"
-                              className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-zinc-400"
-                            />
-                            {(searchQuery[m.id] || !manualLinks[m.id]) && filteredAnime(m.id).length > 0 && (
-                              <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-zinc-700 border border-zinc-600 rounded-lg overflow-hidden shadow-xl">
-                                {filteredAnime(m.id).map(title => (
-                                  <button key={title}
-                                    onClick={() => {
-                                      setManualLinks(prev => ({ ...prev, [m.id]: title }))
-                                      setSearchQuery(prev => ({ ...prev, [m.id]: '' }))
-                                    }}
-                                    className="w-full text-left text-xs px-3 py-2 hover:bg-zinc-600 text-zinc-200 transition-colors">
-                                    {title}
-                                  </button>
-                                ))}
+                            {manualLinks[m.id] ? (
+                              /* Confirmed pick chip */
+                              <div className="flex items-center gap-2 bg-zinc-700 border border-emerald-600/40 rounded-lg px-3 py-1.5">
+                                <span className="text-xs text-zinc-200 flex-1 truncate">{manualLinks[m.id]}</span>
+                                <button onClick={() => { setManualLinks(prev => ({ ...prev, [m.id]: '' })); setSearchQuery(prev => ({ ...prev, [m.id]: '' })) }}
+                                  className="text-zinc-500 hover:text-white text-sm">×</button>
                               </div>
+                            ) : (
+                              <>
+                                <input
+                                  value={searchQuery[m.id] ?? ''}
+                                  onChange={e => handleManualSearch(m.id, e.target.value)}
+                                  placeholder="Search any anime title…"
+                                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-zinc-400"
+                                />
+                                {/* Jikan dropdown */}
+                                {(jikanLoading[m.id] || (jikanResults[m.id]?.length ?? 0) > 0) && (
+                                  <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-zinc-800 border border-zinc-600 rounded-lg overflow-hidden shadow-xl">
+                                    {jikanLoading[m.id] && (
+                                      <div className="px-3 py-2 text-xs text-zinc-500">Searching…</div>
+                                    )}
+                                    {!jikanLoading[m.id] && (jikanResults[m.id] ?? []).map(a => (
+                                      <button key={a.mal_id}
+                                        onMouseDown={e => { e.preventDefault(); setManualLinks(prev => ({ ...prev, [m.id]: a.title })); setSearchQuery(prev => ({ ...prev, [m.id]: '' })); setJikanResults(prev => ({ ...prev, [m.id]: [] })) }}
+                                        className="w-full flex items-center gap-2 text-left text-xs px-3 py-2 hover:bg-zinc-700 text-zinc-200 transition-colors border-b border-zinc-700 last:border-0">
+                                        {a.images?.jpg?.image_url && (
+                                          <img src={a.images.jpg.image_url} alt="" className="w-6 h-8 object-cover rounded shrink-0" />
+                                        )}
+                                        <span className="truncate">{a.title}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
                           {manualLinks[m.id] && (

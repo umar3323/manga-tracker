@@ -24,8 +24,9 @@ export async function POST(req: NextRequest) {
     const {
       manga,
       likedGenres = [],
+      dislikedGenres = [],
       animeRatings = {},
-    }: { manga: MangaEntry[]; likedGenres?: string[]; animeRatings?: Record<string, 'up' | 'down'> } = await req.json()
+    }: { manga: MangaEntry[]; likedGenres?: string[]; dislikedGenres?: string[]; animeRatings?: Record<string, 'up' | 'down'> } = await req.json()
 
     // Build genre preference profile from user's list + liked genres from swipes
     const genreScore: Record<string, number> = {}
@@ -42,10 +43,9 @@ export async function POST(req: NextRequest) {
         genreScore[g] = (genreScore[g] ?? 0) + weight
       }
     }
-    // Boost genres from swipe history
-    for (const g of likedGenres) {
-      genreScore[g] = (genreScore[g] ?? 0) + 1.5
-    }
+    // Boost genres from right-swipes, penalise from left-swipes
+    for (const g of likedGenres)    genreScore[g] = (genreScore[g] ?? 0) + 1.5
+    for (const g of dislikedGenres) genreScore[g] = (genreScore[g] ?? 0) - 1.0
     // Anime ratings — look up animeData genres via the animeRatings map
     // We don't have genres for anime here, but we can boost/penalise based on title overlap
     // Store rated anime titles for use in scoring below

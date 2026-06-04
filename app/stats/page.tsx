@@ -16,7 +16,7 @@ const STATUS_COLORS: Record<MangaStatus, string> = {
 }
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
-const GOAL_KEY = 'manga_weekly_goal'
+const GOAL_KEY = 'manga_weekly_goal' // localStorage fallback key
 
 interface LogEntry { chapters_read: number; logged_at: string }
 interface SwipeEntry { genres: string[]; direction: string }
@@ -153,28 +153,35 @@ export default function StatsPage() {
 
   const load = useCallback(async () => {
     const oneYearAgo = new Date(Date.now() - 52 * 7 * 24 * 60 * 60 * 1000).toISOString()
-    const [{ data: ml }, { data: lg }, { data: sw }] = await Promise.all([
+    const [{ data: ml }, { data: lg }, { data: sw }, { data: settings }] = await Promise.all([
       supabase.from('manga_list').select('*'),
       supabase.from('reading_log').select('chapters_read, logged_at').gte('logged_at', oneYearAgo).order('logged_at', { ascending: false }).limit(5000),
       supabase.from('swipe_history').select('genres, direction').eq('direction', 'right').limit(300),
+      supabase.from('user_settings').select('key, value'),
     ])
     if (ml) setManga(ml as Manga[])
     if (lg) setLog(lg as LogEntry[])
     if (sw) setSwipes(sw as SwipeEntry[])
+    // Goal: prefer Supabase, fall back to localStorage
+    const remoteGoal = (settings as { key: string; value: string }[] | null)?.find(s => s.key === 'weekly_goal')?.value
+    if (remoteGoal) {
+      const n = parseInt(remoteGoal, 10)
+      if (!isNaN(n) && n > 0) setGoal(n)
+    } else {
+      const saved = localStorage.getItem(GOAL_KEY)
+      if (saved) setGoal(parseInt(saved, 10))
+    }
     setLoading(false)
   }, [])
 
-  useEffect(() => {
-    load()
-    const saved = localStorage.getItem(GOAL_KEY)
-    if (saved) setGoal(parseInt(saved, 10))
-  }, [load])
+  useEffect(() => { load() }, [load])
 
-  const saveGoal = () => {
+  const saveGoal = async () => {
     const n = parseInt(goalDraft, 10)
     if (!isNaN(n) && n > 0) {
       setGoal(n)
-      localStorage.setItem(GOAL_KEY, String(n))
+      localStorage.setItem(GOAL_KEY, String(n)) // keep in sync as offline fallback
+      await supabase.from('user_settings').upsert({ key: 'weekly_goal', value: String(n), updated_at: new Date().toISOString() })
     }
     setEditingGoal(false)
   }
@@ -330,6 +337,100 @@ export default function StatsPage() {
         })()}
 
         <hr className="border-zinc-800 mb-6" />
+
+        {/* ── Ratings breakdown ── */}
+        {(() => {
+          const liked    = manga.filter(m => m.user_rating === 'up')
+          const disliked = manga.filter(m => m.user_rating === 'down')
+          if (liked.length === 0 && disliked.length === 0) return null
+
+          const genreCount = (list: typeof manga) => {
+            const acc: Record<string, number> = {}
+            list.forEach(m => (m.genres ?? []).forEach(g => { acc[g] = (acc[g] ?? 0) + 1 }))
+            return Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 5)
+          }
+          const likedGenres    = genreCount(liked)
+          const dislikedGenres = genreCount(disliked)
+
+          // Anime ratings from localStorage
+          const animeRatings: Record<string, 'up' | 'down'> = (() => {
+            try { return JSON.parse(localStorage.getItem('yomu_anime_ratings') ?? '{}') } catch { return {} }
+          })()
+          const likedAnime    = Object.entries(animeRatings).filter(([, r]) => r === 'up').map(([t]) => t)
+          const dislikedAnime = Object.entries(animeRatings).filter(([, r]) => r === 'down').map(([t]) => t)
+
+          return (
+            <div className="mb-6">
+              <h2 className="text-lg font-bold mb-3">Your ratings</h2>
+              <div className="lg:grid lg:grid-cols-2 lg:gap-4">
+                {/* Liked */}
+                {liked.length > 0 && (
+                  <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-base">👍</span>
+                      <h3 className="text-sm font-semibold text-emerald-400">{liked.length} liked</h3>
+                    </div>
+                    <div className="space-y-1 mb-3">
+                      {liked.slice(0, 5).map(m => (
+                        <p key={m.id} className="text-xs text-zinc-300 truncate">• {m.title}</p>
+                      ))}
+                      {liked.length > 5 && <p className="text-xs text-zinc-600">+{liked.length - 5} more</p>}
+                    </div>
+                    {likedGenres.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-3 border-t border-zinc-800">
+                        {likedGenres.map(([g, n]) => (
+                          <span key={g} className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-900/30 border border-emerald-800/40 text-emerald-400">{g} ×{n}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Disliked */}
+                {disliked.length > 0 && (
+                  <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-base">👎</span>
+                      <h3 className="text-sm font-semibold text-red-400">{disliked.length} disliked</h3>
+                    </div>
+                    <div className="space-y-1 mb-3">
+                      {disliked.slice(0, 5).map(m => (
+                        <p key={m.id} className="text-xs text-zinc-300 truncate">• {m.title}</p>
+                      ))}
+                      {disliked.length > 5 && <p className="text-xs text-zinc-600">+{disliked.length - 5} more</p>}
+                    </div>
+                    {dislikedGenres.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-3 border-t border-zinc-800">
+                        {dislikedGenres.map(([g, n]) => (
+                          <span key={g} className="text-[10px] px-2 py-0.5 rounded-full bg-red-900/30 border border-red-800/40 text-red-400">{g} ×{n}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Anime ratings */}
+                {(likedAnime.length > 0 || dislikedAnime.length > 0) && (
+                  <div className="bg-zinc-900 rounded-xl p-5 mb-4 lg:col-span-2">
+                    <h3 className="text-sm font-semibold mb-3">Anime ratings</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-zinc-500 mb-2">👍 Liked ({likedAnime.length})</p>
+                        {likedAnime.slice(0, 5).map(t => <p key={t} className="text-xs text-zinc-300 truncate">• {t}</p>)}
+                        {likedAnime.length > 5 && <p className="text-xs text-zinc-600">+{likedAnime.length - 5} more</p>}
+                      </div>
+                      <div>
+                        <p className="text-xs text-zinc-500 mb-2">👎 Disliked ({dislikedAnime.length})</p>
+                        {dislikedAnime.slice(0, 5).map(t => <p key={t} className="text-xs text-zinc-300 truncate">• {t}</p>)}
+                        {dislikedAnime.length > 5 && <p className="text-xs text-zinc-600">+{dislikedAnime.length - 5} more</p>}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Reading calendar heatmap */}
         <ReadingHeatmap log={log} />

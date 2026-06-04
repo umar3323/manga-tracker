@@ -1413,17 +1413,17 @@ export default function Home() {
         try { return JSON.parse(localStorage.getItem('yomu_anime_ratings') ?? '{}') } catch { return {} }
       })()
 
-      // Also send right-swiped genre preferences from Discover history
-      const { data: swipeData } = await supabase
-        .from('swipe_history')
-        .select('genres')
-        .eq('direction', 'right')
-        .limit(200)
-      const likedGenres = [...new Set((swipeData ?? []).flatMap(s => s.genres))]
+      // Send both right-swipes (liked) and left-swipes (disliked) from Discover history
+      const [{ data: swipeData }, { data: dislikeData }] = await Promise.all([
+        supabase.from('swipe_history').select('genres').eq('direction', 'right').limit(200),
+        supabase.from('swipe_history').select('genres').eq('direction', 'left').limit(200),
+      ])
+      const likedGenres    = [...new Set((swipeData   ?? []).flatMap(s => s.genres))]
+      const dislikedGenres = [...new Set((dislikeData ?? []).flatMap(s => s.genres))]
       const res = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ manga: payload, likedGenres, animeRatings }),
+        body: JSON.stringify({ manga: payload, likedGenres, dislikedGenres, animeRatings }),
       })
       const data = await res.json()
       if (!res.ok) { setRecError(data.error ?? 'Something went wrong'); return }
