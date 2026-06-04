@@ -1,6 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import type { JikanSearchResult } from '@/lib/jikan'
+import { animeData } from '@/lib/anime-data'
+
+// Jikan genre ID mapping for anime search
+const GENRE_TO_JIKAN_ANIME_ID: Record<string, number> = {
+  Action: 1, Adventure: 2, Comedy: 4, Drama: 8, Fantasy: 10,
+  Horror: 14, Mystery: 7, Romance: 22, 'Sci-Fi': 24, 'Slice of Life': 36,
+  Sports: 30, Supernatural: 37, Psychological: 40, Thriller: 41,
+  Shounen: 27, Seinen: 42, Shoujo: 25,
+}
 
 export interface Recommendation {
   title: string
@@ -86,13 +95,39 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Fetch unified catalog (large pool from Jikan + MangaDex + AniList)
+    // Fetch unified catalog + anime candidates in parallel
     const origin = new URL(req.url).origin
     let catalog: JikanSearchResult[] = []
-    try {
-      const catRes = await fetch(`${origin}/api/catalog`, { signal: AbortSignal.timeout(30000) })
-      if (catRes.ok) catalog = (await catRes.json()).catalog ?? []
-    } catch { /* fall through — scoring on empty catalog returns empty recs */ }
+
+    // Top genres → Jikan anime genre IDs
+    const topGenreIds = Object.entries(genreScore)
+      .filter(([, s]) => s > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([g]) => GENRE_TO_JIKAN_ANIME_ID[g])
+      .filter(Boolean)
+
+    const watchedAnimeTitles = new Set(animeData.map(a => a.title.toLowerCase()))
+
+    interface JikanAnimeResult {
+      mal_id: number; title: string; score: number
+      genres: { name: string }[]; images?: { jpg?: { image_url?: string } }
+    }
+    let animePool: JikanAnimeResult[] = []
+
+    await Promise.allSettled([
+      // Manga catalog
+      fetch(`${origin}/api/catalog`, { signal: AbortSignal.timeout(30000) })
+        .then(r => r.json()).then(j => { catalog = j.catalog ?? [] })
+        .catch(() => {}),
+      // Anime candidates from Jikan
+      topGenreIds.length > 0
+        ? fetch(
+            `https://api.jikan.moe/v4/anime?genres=${topGenreIds.join(',')}&order_by=score&sort=desc&limit=20&min_score=7.5`,
+            { signal: AbortSignal.timeout(8000) }
+          ).then(r => r.json()).then(j => { animePool = j.data ?? [] }).catch(() => {})
+        : Promise.resolve(),
+    ])
 
     // Pull publisher feeds for confidence boosts (SJ +5, MangaPlus +5)
     let sjTitles = new Set<string>()
@@ -172,8 +207,8 @@ export async function POST(req: NextRequest) {
       return { title: c.title, mal_id: c.mal_id, confidence, reason, overlap: overlap.length }
     })
 
-    // Sort by confidence desc, take top 5
-    const recommendations: Recommendation[] = scored
+    // Sort by confidence desc, take top 5 manga
+    const mangaRecs: Recommendation[] = scored
       .sort((a, b) => b.confidence - a.confidence || b.overlap - a.overlap)
       .slice(0, 5)
       .map(c => ({
@@ -183,6 +218,31 @@ export async function POST(req: NextRequest) {
         reason: c.reason,
         isAnime: false,
       }))
+
+    // Score anime candidates and pick top 2
+    const animeRecs: Recommendation[] = animePool
+      .filter(a => !watchedAnimeTitles.has(a.title.toLowerCase()))
+      .filter(a => !dislikedAnimeTitles.has(a.title.toLowerCase()))
+      .map(a => {
+        const cGenres = a.genres.map((g: { name: string }) => g.name)
+        const overlap = cGenres.filter((g: string) => userGenreSet.has(g))
+        const score = a.score ?? 7
+        const confidence = Math.min(90, Math.round(
+          ((score / 10) * 30) + (overlap.length * 8) + 45
+        ))
+        const likedBonus = likedAnimeTitles.has(a.title.toLowerCase()) ? 5 : 0
+        const similarManga = manga
+          .filter(m => m.genres?.some(g => overlap.includes(g)) && m.user_rating !== 'down')
+          .map(m => m.title).slice(0, 1)
+        const reason = overlap.length > 0
+          ? `Top-rated anime matching your taste for ${overlap.slice(0, 2).join(' and ')}${similarManga.length ? ` — similar fans also read ${similarManga[0]}` : ''} (score ${score}).`
+          : `Highly rated anime (${score}) popular with readers who share your manga taste.`
+        return { title: a.title, mal_id: a.mal_id, confidence: confidence + likedBonus, reason, isAnime: true }
+      })
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 2)
+
+    const recommendations = [...mangaRecs, ...animeRecs]
 
     return NextResponse.json({ recommendations })
   } catch (err) {
