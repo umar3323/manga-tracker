@@ -332,6 +332,49 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
             </div>
           )}
 
+          {/* Streaming availability */}
+          {alAnime && (alAnime.streamingLinks ?? []).length > 0 && (() => {
+            const PLATFORM_STYLE: Record<string, { bg: string; text: string; label: string }> = {
+              'Crunchyroll':        { bg: 'bg-orange-900/30', text: 'text-orange-400',  label: 'Crunchyroll' },
+              'Netflix':            { bg: 'bg-red-900/30',    text: 'text-red-400',     label: 'Netflix' },
+              'Amazon Prime Video': { bg: 'bg-sky-900/30',    text: 'text-sky-400',     label: 'Prime Video' },
+              'Disney Plus':        { bg: 'bg-blue-900/30',   text: 'text-blue-400',    label: 'Disney+' },
+              'Funimation':         { bg: 'bg-purple-900/30', text: 'text-purple-400',  label: 'Funimation' },
+              'HIDIVE':             { bg: 'bg-teal-900/30',   text: 'text-teal-400',    label: 'HIDIVE' },
+              'Hulu':               { bg: 'bg-green-900/30',  text: 'text-green-400',   label: 'Hulu' },
+              'Apple TV':           { bg: 'bg-zinc-800',      text: 'text-zinc-300',    label: 'Apple TV+' },
+              'HBO Max':            { bg: 'bg-purple-900/30', text: 'text-purple-300',  label: 'Max' },
+            }
+            // Group by site so we can show alternate regions under the same platform
+            const grouped = (alAnime.streamingLinks ?? []).reduce<Record<string, { url: string; language: string | null }[]>>(
+              (acc, l) => { (acc[l.site] ??= []).push({ url: l.url, language: l.language }); return acc }, {}
+            )
+            return (
+              <div className="mb-4">
+                <p className="text-xs font-medium text-zinc-500 mb-2">Watch the anime on</p>
+                <div className="flex flex-col gap-2">
+                  {Object.entries(grouped).map(([site, links]) => {
+                    const style = PLATFORM_STYLE[site] ?? { bg: 'bg-zinc-800', text: 'text-zinc-300', label: site }
+                    const primary = links.find(l => !l.language) ?? links[0]
+                    const alternates = links.filter(l => l !== primary && l.language)
+                    return (
+                      <a key={site} href={primary.url} target="_blank" rel="noopener noreferrer"
+                        className={`flex items-center gap-2.5 ${style.bg} border border-white/5 rounded-xl px-3 py-2.5 group hover:brightness-110 transition-all`}>
+                        <span className={`text-sm font-semibold ${style.text} flex-1`}>{style.label}</span>
+                        {alternates.length > 0 && (
+                          <span className="text-[10px] text-zinc-500">
+                            also: {alternates.map(l => l.language).join(', ')}
+                          </span>
+                        )}
+                        <span className="text-zinc-600 text-xs group-hover:text-zinc-400 transition-colors">↗</span>
+                      </a>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
+
           {/* AniList: ranked tags */}
           {alManga && alManga.tags.filter(t => t.rank >= 60).length > 0 && (
             <div className="mb-4">

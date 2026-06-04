@@ -42,6 +42,12 @@ export interface AniListMangaData {
   popularity: number | null
 }
 
+export interface AniListStreamingLink {
+  site: string
+  url: string
+  language: string | null
+}
+
 export interface AniListAnimeData {
   id: number
   title: { romaji: string; english: string | null }
@@ -49,6 +55,7 @@ export interface AniListAnimeData {
   relations: AniListRelation[]
   tags: AniListTag[]
   meanScore: number | null
+  streamingLinks: AniListStreamingLink[]
 }
 
 const MANGA_QUERY = `
@@ -88,6 +95,7 @@ query ($idMal: Int) {
       }
     }
     tags { name rank isMediaSpoiler }
+    externalLinks { site url type language }
     meanScore
   }
 }`
@@ -137,6 +145,11 @@ export async function fetchAniListAnime(malId: number): Promise<AniListAnimeData
     })),
     tags: (data.tags ?? []).filter((t: AniListTag) => !t.isMediaSpoiler),
     meanScore: data.meanScore ?? null,
+    streamingLinks: (data.externalLinks ?? [])
+      .filter((l: { type: string }) => l.type === 'STREAMING')
+      .map((l: { site: string; url: string; language: string | null }) => ({
+        site: l.site, url: l.url, language: l.language ?? null,
+      })),
   }
 }
 

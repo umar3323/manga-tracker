@@ -36,7 +36,9 @@ export async function GET(req: NextRequest) {
 
   if (cached) {
     const age = Date.now() - new Date(cached.fetched_at).getTime()
-    if (age < CACHE_MAX_AGE_MS) {
+    // Treat ANIME cache as stale if it predates the streamingLinks field
+    const missingStreamingLinks = type === 'ANIME' && !Array.isArray((cached.payload as Record<string, unknown>)?.streamingLinks)
+    if (age < CACHE_MAX_AGE_MS && !missingStreamingLinks) {
       return NextResponse.json({ data: cached.payload, cached: true })
     }
   }
