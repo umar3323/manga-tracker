@@ -26,7 +26,7 @@ function DiscoveryGrid({
 }) {
   if (loading) {
     return (
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
         {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="bg-zinc-900 rounded-xl overflow-hidden animate-pulse">
             <div className="aspect-[2/3] bg-zinc-800" />
@@ -43,7 +43,7 @@ function DiscoveryGrid({
     return <p className="text-zinc-500 text-sm text-center py-12">{emptyMsg ?? 'Nothing found.'}</p>
   }
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
       {items.map(m => (
         <button key={m.mal_id} onClick={() => onSelect(m)}
           className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden text-left group hover:border-zinc-600 transition-colors">
@@ -402,7 +402,7 @@ export default function DiscoverPage() {
       onMouseUp={onMouseUp}
       onMouseLeave={onMouseUp}
     >
-      <div className="max-w-sm mx-auto px-4 py-6">
+      <div className="max-w-5xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -451,18 +451,21 @@ export default function DiscoverPage() {
           />
         )}
 
-        {activeTab === 'swipe' && loading && (
+        {activeTab === 'swipe' && (
+        <div className="max-w-sm mx-auto">
+
+        {loading && (
           <div className="flex items-center justify-center h-96 text-zinc-500 text-sm">Loading…</div>
         )}
 
-        {activeTab === 'swipe' && error && (
+        {error && (
           <div className="flex flex-col items-center justify-center h-96 gap-3">
             <p className="text-red-400 text-sm">{error}</p>
             <button onClick={loadQueue} className="px-4 py-2 bg-zinc-800 rounded-lg text-sm hover:bg-zinc-700">Retry</button>
           </div>
         )}
 
-        {activeTab === 'swipe' && !loading && !error && queue.length === 0 && (
+        {!loading && !error && queue.length === 0 && (
           <div className="flex flex-col items-center justify-center h-96 gap-4 text-center">
             <div className="text-4xl">🎉</div>
             <p className="text-zinc-300 font-medium">You&apos;ve seen everything!</p>
@@ -473,7 +476,7 @@ export default function DiscoverPage() {
           </div>
         )}
 
-        {activeTab === 'swipe' && !loading && !error && queue.length > 0 && (
+        {!loading && !error && queue.length > 0 && (
           <>
             {/* Card stack — adapts to viewport height on mobile */}
             <div className="relative mb-5" style={{ height: 'min(520px, calc(100dvh - 260px))' }}>
@@ -554,6 +557,9 @@ export default function DiscoverPage() {
               </button>
             </div>
           </>
+        )}
+
+        </div>
         )}
       </div>
 
