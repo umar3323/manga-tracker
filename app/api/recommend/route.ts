@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import type { JikanSearchResult } from '@/lib/jikan'
-import { animeData } from '@/lib/anime-data'
 
 // Jikan genre ID mapping for anime search
 const GENRE_TO_JIKAN_ANIME_ID: Record<string, number> = {
@@ -35,7 +34,14 @@ export async function POST(req: NextRequest) {
       likedGenres = [],
       dislikedGenres = [],
       animeRatings = {},
-    }: { manga: MangaEntry[]; likedGenres?: string[]; dislikedGenres?: string[]; animeRatings?: Record<string, 'up' | 'down'> } = await req.json()
+      watchedAnimeTitles = [],
+    }: {
+      manga: MangaEntry[]
+      likedGenres?: string[]
+      dislikedGenres?: string[]
+      animeRatings?: Record<string, 'up' | 'down'>
+      watchedAnimeTitles?: string[]
+    } = await req.json()
 
     // Build genre preference profile from user's list + liked genres from swipes
     const genreScore: Record<string, number> = {}
@@ -107,7 +113,7 @@ export async function POST(req: NextRequest) {
       .map(([g]) => GENRE_TO_JIKAN_ANIME_ID[g])
       .filter(Boolean)
 
-    const watchedAnimeTitles = new Set(animeData.map(a => a.title.toLowerCase()))
+    const watchedAnimeTitlesSet = new Set(watchedAnimeTitles.map((t: string) => t.toLowerCase()))
 
     interface JikanAnimeResult {
       mal_id: number; title: string; score: number
@@ -221,7 +227,7 @@ export async function POST(req: NextRequest) {
 
     // Score anime candidates and pick top 2
     const animeRecs: Recommendation[] = animePool
-      .filter(a => !watchedAnimeTitles.has(a.title.toLowerCase()))
+      .filter(a => !watchedAnimeTitlesSet.has(a.title.toLowerCase()))
       .filter(a => !dislikedAnimeTitles.has(a.title.toLowerCase()))
       .map(a => {
         const cGenres = a.genres.map((g: { name: string }) => g.name)

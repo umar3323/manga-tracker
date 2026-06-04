@@ -15,7 +15,7 @@ import { RELATION_LABELS, formatCountdown } from '@/lib/anilist'
 import type { MUSeriesData } from '@/lib/mangaupdates'
 import type { ANNRelatedWork } from '@/lib/ann'
 import MangaFact from '@/components/MangaFact'
-import { animeData, getStatus as getAnimeStatus } from '@/lib/anime-data'
+import { getStatus as getAnimeStatus, type AnimeRow } from '@/lib/anime-data'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
 function EditableNumber({
@@ -1079,10 +1079,16 @@ export default function Home() {
     setTimeout(() => setToast(''), 3000)
   }
 
+  const [animeList, setAnimeList] = useState<AnimeRow[]>([])
+
   const fetchManga = useCallback(async () => {
-    const { data, error } = await supabase.from('manga_list').select('*')
+    const [{ data, error }, { data: al }] = await Promise.all([
+      supabase.from('manga_list').select('*'),
+      supabase.from('anime_list').select('id,title,total_watch_hours,last_watched,is_movie'),
+    ])
     if (error) { showToast('Failed to load manga list'); return }
     if (data) setManga(data as Manga[])
+    if (al) setAnimeList(al as AnimeRow[])
     setLoading(false)
     // Fetch unseen chapter notifications
     const { data: notifs } = await supabase
@@ -1409,9 +1415,12 @@ export default function Home() {
       }))
 
       // Anime ratings from localStorage
-      const animeRatings: Record<string, 'up' | 'down'> = (() => {
-        try { return JSON.parse(localStorage.getItem('yomu_anime_ratings') ?? '{}') } catch { return {} }
-      })()
+      // Build anime ratings map from Supabase data (user_rating overrides netflix_rating)
+      const animeRatings: Record<string, 'up' | 'down'> = {}
+      for (const a of animeList) {
+        const r = a.user_rating ?? a.netflix_rating
+        if (r) animeRatings[a.title] = r
+      }
 
       // Send both right-swipes (liked) and left-swipes (disliked) from Discover history
       const [{ data: swipeData }, { data: dislikeData }] = await Promise.all([
@@ -1423,7 +1432,7 @@ export default function Home() {
       const res = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ manga: payload, likedGenres, dislikedGenres, animeRatings }),
+        body: JSON.stringify({ manga: payload, likedGenres, dislikedGenres, animeRatings, watchedAnimeTitles: animeList.map(a => a.title) }),
       })
       const data = await res.json()
       if (!res.ok) { setRecError(data.error ?? 'Something went wrong'); return }
@@ -1664,10 +1673,10 @@ export default function Home() {
 
         {/* Anime stats row */}
         {(() => {
-          const totalHours   = animeData.reduce((s, e) => s + e.totalWatchHours, 0)
-          const totalSeries  = animeData.filter(e => !e.isMovie).length
-          const totalMovies  = animeData.filter(e =>  e.isMovie).length
-          const activeCount  = animeData.filter(e => getAnimeStatus(e) === 'active').length
+          const totalHours   = animeList.reduce((s, e) => s + e.total_watch_hours, 0)
+          const totalSeries  = animeList.filter(e => !e.is_movie).length
+          const totalMovies  = animeList.filter(e =>  e.is_movie).length
+          const activeCount  = animeList.filter(e => getAnimeStatus(e) === 'active').length
           const stats = [
             { value: totalSeries,                    label: 'Anime series',   icon: '📺' },
             { value: `${totalHours.toFixed(0)}h`,    label: 'Hours watched',  icon: '⏱' },

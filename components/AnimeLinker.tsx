@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { supabase, type Manga } from '@/lib/supabase'
-import { animeData, type AnimeEntry } from '@/lib/anime-data'
+import type { AnimeRow } from '@/lib/anime-data'
 
 // ── Jikan anime search ────────────────────────────────────────────────────────
 interface JikanAnime { mal_id: number; title: string; images?: { jpg?: { image_url?: string } } }
@@ -42,17 +42,12 @@ function similarity(a: string, b: string): number {
 
 interface Match {
   manga: Manga
-  anime: AnimeEntry
+  animeTitle: string
   score: number
 }
 
-interface ManualLink {
-  manga: Manga
-  animeTitle: string
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function AnimeLinker({ manga }: { manga: Manga[] }) {
+export default function AnimeLinker({ manga, watchedAnime }: { manga: Manga[]; watchedAnime: AnimeRow[] }) {
   const [open, setOpen] = useState(false)
   const [checked, setChecked] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -74,17 +69,17 @@ export default function AnimeLinker({ manga }: { manga: Manga[] }) {
     const unlinked = manga.filter(m => !m.has_anime)
     const results: Match[] = []
     for (const m of unlinked) {
-      let best: { anime: AnimeEntry; score: number } | null = null
-      for (const a of animeData) {
+      let best: { animeTitle: string; score: number } | null = null
+      for (const a of watchedAnime) {
         const score = similarity(m.title, a.title)
         if (score >= 0.5 && (!best || score > best.score)) {
-          best = { anime: a, score }
+          best = { animeTitle: a.title, score }
         }
       }
-      if (best) results.push({ manga: m, anime: best.anime, score: best.score })
+      if (best) results.push({ manga: m, animeTitle: best.animeTitle, score: best.score })
     }
     return results.sort((a, b) => b.score - a.score)
-  }, [checked, manga])
+  }, [checked, manga, watchedAnime])
 
   // Manga without any match (for manual linking)
   const unmatched = useMemo<Manga[]>(() => {
@@ -194,7 +189,7 @@ export default function AnimeLinker({ manga }: { manga: Manga[] }) {
                     Suggested matches ({visibleMatches.length})
                   </h4>
                   <div className="space-y-2">
-                    {visibleMatches.map(({ manga: m, anime, score }) => (
+                    {visibleMatches.map(({ manga: m, animeTitle, score }) => (
                       <div key={m.id}
                         className="flex items-center gap-3 bg-zinc-800 rounded-xl px-4 py-3">
                         {/* Confidence badge */}
@@ -209,13 +204,13 @@ export default function AnimeLinker({ manga }: { manga: Manga[] }) {
                         {/* Titles */}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-zinc-200 truncate">{m.title}</p>
-                          <p className="text-[10px] text-zinc-500 truncate">→ {anime.title}</p>
+                          <p className="text-[10px] text-zinc-500 truncate">→ {animeTitle}</p>
                         </div>
 
                         {/* Actions */}
                         <div className="flex gap-2 shrink-0">
                           <button
-                            onClick={() => saveLink(m.id, anime.title)}
+                            onClick={() => saveLink(m.id, animeTitle)}
                             disabled={saving === m.id}
                             className="px-3 py-1 text-xs rounded-lg font-medium transition-colors"
                             style={{ backgroundColor: 'rgba(47,207,122,0.15)', color: '#2FCF7A' }}
@@ -241,12 +236,12 @@ export default function AnimeLinker({ manga }: { manga: Manga[] }) {
               )}
 
               {/* Saved matches (confirmed) */}
-              {autoMatches.filter(m => saved.has(m.manga.id)).map(({ manga: m, anime }) => (
+              {autoMatches.filter(m => saved.has(m.manga.id)).map(({ manga: m, animeTitle }) => (
                 <div key={m.id} className="flex items-center gap-2 text-xs text-emerald-500 bg-emerald-950/30 rounded-lg px-4 py-2">
                   <span>✓</span>
                   <span className="text-zinc-300">{m.title}</span>
                   <span className="text-zinc-600">→</span>
-                  <span>{anime.title}</span>
+                  <span>{animeTitle}</span>
                 </div>
               ))}
 

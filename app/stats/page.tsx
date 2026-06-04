@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
-import { animeData, getStatus } from '@/lib/anime-data'
+import { getStatus, type AnimeRow } from '@/lib/anime-data'
 import AnimeLinker from '@/components/AnimeLinker'
 import DuplicateDetector from '@/components/DuplicateDetector'
 
@@ -144,6 +144,7 @@ function ProgressRing({ pct, size = 80 }: { pct: number; size?: number }) {
 
 export default function StatsPage() {
   const [manga, setManga] = useState<Manga[]>([])
+  const [animeList, setAnimeList] = useState<AnimeRow[]>([])
   const [log, setLog] = useState<LogEntry[]>([])
   const [swipes, setSwipes] = useState<SwipeEntry[]>([])
   const [goal, setGoal] = useState(10)
@@ -153,15 +154,17 @@ export default function StatsPage() {
 
   const load = useCallback(async () => {
     const oneYearAgo = new Date(Date.now() - 52 * 7 * 24 * 60 * 60 * 1000).toISOString()
-    const [{ data: ml }, { data: lg }, { data: sw }, { data: settings }] = await Promise.all([
+    const [{ data: ml }, { data: lg }, { data: sw }, { data: settings }, { data: al }] = await Promise.all([
       supabase.from('manga_list').select('*'),
       supabase.from('reading_log').select('chapters_read, logged_at').gte('logged_at', oneYearAgo).order('logged_at', { ascending: false }).limit(5000),
       supabase.from('swipe_history').select('genres, direction').eq('direction', 'right').limit(300),
       supabase.from('user_settings').select('key, value'),
+      supabase.from('anime_list').select('*'),
     ])
     if (ml) setManga(ml as Manga[])
     if (lg) setLog(lg as LogEntry[])
     if (sw) setSwipes(sw as SwipeEntry[])
+    if (al) setAnimeList(al as AnimeRow[])
     // Goal: prefer Supabase, fall back to localStorage
     const remoteGoal = (settings as { key: string; value: string }[] | null)?.find(s => s.key === 'weekly_goal')?.value
     if (remoteGoal) {
@@ -245,25 +248,25 @@ export default function StatsPage() {
 
         {/* ── Anime stats ── */}
         {(() => {
-          const totalAnimeSeries  = animeData.filter(e => !e.isMovie).length
-          const totalAnimeMovies  = animeData.filter(e =>  e.isMovie).length
-          const totalAnimeHours   = animeData.reduce((s, e) => s + e.totalWatchHours, 0)
-          const activeAnime       = animeData.filter(e => getStatus(e) === 'active').length
-          const likedAnime        = animeData.filter(e => e.netflixRating === 'up').length
-          const dislikedAnime     = animeData.filter(e => e.netflixRating === 'down').length
+          const al = animeList
+          const totalAnimeSeries  = al.filter(e => !e.is_movie).length
+          const totalAnimeMovies  = al.filter(e =>  e.is_movie).length
+          const totalAnimeHours   = al.reduce((s, e) => s + e.total_watch_hours, 0)
+          const activeAnime       = al.filter(e => getStatus(e) === 'active').length
+          const effectiveRating   = (e: AnimeRow) => e.user_rating ?? e.netflix_rating
+          const likedAnime        = al.filter(e => effectiveRating(e) === 'up').length
+          const dislikedAnime     = al.filter(e => effectiveRating(e) === 'down').length
 
-          // Most-watched by hours
-          const topAnime = [...animeData]
-            .filter(e => e.totalWatchHours > 0)
-            .sort((a, b) => b.totalWatchHours - a.totalWatchHours)
+          const topAnime = [...al]
+            .filter(e => e.total_watch_hours > 0)
+            .sort((a, b) => b.total_watch_hours - a.total_watch_hours)
             .slice(0, 5)
 
-          // Status breakdown for anime
           const animeCounts = {
-            active: animeData.filter(e => getStatus(e) === 'active').length,
-            paused: animeData.filter(e => getStatus(e) === 'paused').length,
-            older:  animeData.filter(e => getStatus(e) === 'older').length,
-            movie:  animeData.filter(e => getStatus(e) === 'movie').length,
+            active: al.filter(e => getStatus(e) === 'active').length,
+            paused: al.filter(e => getStatus(e) === 'paused').length,
+            older:  al.filter(e => getStatus(e) === 'older').length,
+            movie:  al.filter(e => getStatus(e) === 'movie').length,
           }
           const maxAnimeSt = Math.max(...Object.values(animeCounts), 1)
 
@@ -316,16 +319,16 @@ export default function StatsPage() {
                     <h3 className="text-sm font-semibold mb-4">Most time spent</h3>
                     <div className="space-y-3">
                       {topAnime.map((e, i) => (
-                        <div key={e.title} className="flex items-center gap-3">
+                        <div key={e.id} className="flex items-center gap-3">
                           <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
                           <span className="text-xs text-zinc-300 flex-1 truncate">{e.title}</span>
                           <div className="w-20 h-2 bg-zinc-800 rounded-full overflow-hidden shrink-0">
                             <div className="h-full rounded-full" style={{
-                              width: `${(e.totalWatchHours / topAnime[0].totalWatchHours) * 100}%`,
+                              width: `${(e.total_watch_hours / topAnime[0].total_watch_hours) * 100}%`,
                               backgroundColor: 'var(--cyan)',
                             }} />
                           </div>
-                          <span className="text-xs text-zinc-500 w-10 text-right shrink-0">{e.totalWatchHours}h</span>
+                          <span className="text-xs text-zinc-500 w-10 text-right shrink-0">{e.total_watch_hours}h</span>
                         </div>
                       ))}
                     </div>
@@ -410,23 +413,29 @@ export default function StatsPage() {
                 )}
 
                 {/* Anime ratings */}
-                {(likedAnime.length > 0 || dislikedAnime.length > 0) && (
-                  <div className="bg-zinc-900 rounded-xl p-5 mb-4 lg:col-span-2">
-                    <h3 className="text-sm font-semibold mb-3">Anime ratings</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-xs text-zinc-500 mb-2">👍 Liked ({likedAnime.length})</p>
-                        {likedAnime.slice(0, 5).map(t => <p key={t} className="text-xs text-zinc-300 truncate">• {t}</p>)}
-                        {likedAnime.length > 5 && <p className="text-xs text-zinc-600">+{likedAnime.length - 5} more</p>}
-                      </div>
-                      <div>
-                        <p className="text-xs text-zinc-500 mb-2">👎 Disliked ({dislikedAnime.length})</p>
-                        {dislikedAnime.slice(0, 5).map(t => <p key={t} className="text-xs text-zinc-300 truncate">• {t}</p>)}
-                        {dislikedAnime.length > 5 && <p className="text-xs text-zinc-600">+{dislikedAnime.length - 5} more</p>}
+                {(() => {
+                  const effectiveRating = (a: AnimeRow) => a.user_rating ?? a.netflix_rating
+                  const likedA    = animeList.filter(a => effectiveRating(a) === 'up').map(a => a.title)
+                  const dislikedA = animeList.filter(a => effectiveRating(a) === 'down').map(a => a.title)
+                  if (!likedA.length && !dislikedA.length) return null
+                  return (
+                    <div className="bg-zinc-900 rounded-xl p-5 mb-4 lg:col-span-2">
+                      <h3 className="text-sm font-semibold mb-3">Anime ratings</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-xs text-zinc-500 mb-2">👍 Liked ({likedA.length})</p>
+                          {likedA.slice(0, 5).map(t => <p key={t} className="text-xs text-zinc-300 truncate">• {t}</p>)}
+                          {likedA.length > 5 && <p className="text-xs text-zinc-600">+{likedA.length - 5} more</p>}
+                        </div>
+                        <div>
+                          <p className="text-xs text-zinc-500 mb-2">👎 Disliked ({dislikedA.length})</p>
+                          {dislikedA.slice(0, 5).map(t => <p key={t} className="text-xs text-zinc-300 truncate">• {t}</p>)}
+                          {dislikedA.length > 5 && <p className="text-xs text-zinc-600">+{dislikedA.length - 5} more</p>}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
               </div>
             </div>
           )
@@ -715,7 +724,7 @@ export default function StatsPage() {
         <DuplicateDetector manga={manga} onDeleted={id => setManga(prev => prev.filter(m => m.id !== id))} />
 
         {/* Anime–Manga linker */}
-        <AnimeLinker manga={manga} />
+        <AnimeLinker manga={manga} watchedAnime={animeList} />
 
         {/* All-time totals */}
         <div className="bg-zinc-900 rounded-xl p-5">
