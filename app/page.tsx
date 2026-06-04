@@ -125,19 +125,29 @@ function MarkdownBold({ text }: { text: string }) {
 }
 
 /** Manga detail modal */
-function DetailModal({ manga, allManga, onClose, onStatusChange }: {
+function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge }: {
   manga: Manga
   allManga: Manga[]
   onClose: () => void
   onStatusChange: (id: string, status: MangaStatus) => void
+  /** Called with the ID of the entry that was deleted during a merge */
+  onMerge: (removedId: string) => void
 }) {
   const [alManga, setAlManga] = useState<AniListMangaData | null>(null)
   const [alAnime, setAlAnime] = useState<AniListAnimeData | null>(null)
   const [suggestedAnime, setSuggestedAnime] = useState<{ idMal: number; title: string } | null>(null)
-  const [animeSuggestionDismissed, setAnimeSuggestionDismissed] = useState(false)
+
+  // Dismiss flags persisted in localStorage so banners don't reappear on re-open
+  const dupKey   = `yomu_dismissed_dup_${manga.id}`
+  const animeKey = `yomu_dismissed_anime_${manga.mal_id ?? manga.id}`
+  const [animeSuggestionDismissed, setAnimeSuggestionDismissed] = useState(
+    () => { try { return !!localStorage.getItem(animeKey) } catch { return false } }
+  )
   const [animeSuggestionConfirmed, setAnimeSuggestionConfirmed] = useState(false)
   const [duplicateCandidate, setDuplicateCandidate] = useState<Manga | null>(null)
-  const [duplicateDismissed, setDuplicateDismissed] = useState(false)
+  const [duplicateDismissed, setDuplicateDismissed] = useState(
+    () => { try { return !!localStorage.getItem(dupKey) } catch { return false } }
+  )
   const [merging, setMerging] = useState(false)
   const [muData, setMuData] = useState<MUSeriesData | null>(null)
   const [annAnime, setAnnAnime] = useState<ANNRelatedWork[]>([])
@@ -232,6 +242,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
     }).eq('id', keeper.id)
     await supabase.from('manga_list').delete().eq('id', removed.id)
     setMerging(false)
+    onMerge(removed.id)  // parent removes the deleted entry from allManga state immediately
     onClose()
   }
 
@@ -339,7 +350,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
                   className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors">
                   {merging ? 'Merging…' : 'Merge (keep best progress)'}
                 </button>
-                <button onClick={() => setDuplicateDismissed(true)}
+                <button onClick={() => { try { localStorage.setItem(dupKey, '1') } catch {} setDuplicateDismissed(true) }}
                   className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs rounded-lg transition-colors">
                   Not a duplicate
                 </button>
@@ -377,7 +388,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange }: {
                   className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium rounded-lg transition-colors">
                   Yes, link it
                 </button>
-                <button onClick={() => setAnimeSuggestionDismissed(true)}
+                <button onClick={() => { try { localStorage.setItem(animeKey, '1') } catch {} setAnimeSuggestionDismissed(true) }}
                   className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs rounded-lg transition-colors">
                   Not mine
                 </button>
@@ -2026,6 +2037,9 @@ export default function Home() {
           onStatusChange={(id, status) => {
             updateStatus(id, status)
             setSelectedManga(prev => prev ? { ...prev, status } : null)
+          }}
+          onMerge={(removedId) => {
+            setManga(prev => prev.filter(m => m.id !== removedId))
           }}
         />
       )}
