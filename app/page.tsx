@@ -1691,7 +1691,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#0d0d0d] text-white">
-      <div className="max-w-3xl lg:max-w-5xl mx-auto px-4 py-6 md:py-10">
+      <div className="max-w-[1800px] mx-auto px-6 py-6 md:py-10">
 
         {/* Header — responsive */}
         <div className="flex items-center justify-between mb-6">
@@ -2101,18 +2101,18 @@ export default function Home() {
         ) : filtered.length === 0 ? (
           <div className="text-zinc-500 text-sm">Nothing here.</div>
         ) : (
-          <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))' }}>
             {filtered.map(m => (
               <div key={m.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden flex flex-col h-full">
-                <div className="flex gap-3 p-3 flex-1">
+                <div className="flex gap-3 py-3 px-3 flex-1">
                   {/* Cover */}
-                  <div className="shrink-0 w-12 h-16 rounded-md overflow-hidden bg-zinc-800">
+                  <div className="shrink-0 w-16 h-20 rounded-md overflow-hidden bg-zinc-800">
                     {m.cover_url ? (
                       <Image
                         src={m.cover_url}
                         alt={`Cover for ${m.title}`}
-                        width={48}
-                        height={64}
+                        width={64}
+                        height={80}
                         className="w-full h-full object-cover"
                         unoptimized
                       />
@@ -2121,184 +2121,214 @@ export default function Home() {
                     )}
                   </div>
 
-                  {/* Info */}
-                  <div className="flex-1 min-w-0 flex flex-col">
-                    <div className="flex items-center gap-2 min-w-0">
-                      {/* Publishing status dot */}
-                      {m.publishing_status && m.status === 'reading' && (
-                        <span
-                          title={m.publishing_status}
-                          className="shrink-0 w-2 h-2 rounded-full"
-                          style={{
-                            backgroundColor:
-                              m.publishing_status === 'Publishing' ? '#2FCF7A' :
-                              m.publishing_status === 'On Hiatus'  ? '#FFB02E' : '#52525b',
-                          }}
-                        />
-                      )}
-                      <button onClick={() => setSelectedManga(m)}
-                        className="font-medium text-sm leading-snug truncate text-left hover:text-violet-300 transition-colors flex-1 min-w-0">
-                        {m.title}
-                      </button>
-                      {/* Behind badge — new chapters available */}
-                      {m.total_chapters && m.current_chapter < m.total_chapters && m.status === 'reading' && (
-                        <span className="shrink-0 text-xs px-1.5 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full whitespace-nowrap">
-                          +{m.total_chapters - m.current_chapter} new
-                        </span>
+                  {/* Info — always renders all 6 sections */}
+                  <div className="flex-1 min-w-0 flex flex-col gap-2">
+
+                    {/* 1. Title + author */}
+                    <div>
+                      <div className="flex items-start gap-1.5 min-w-0">
+                        {m.publishing_status && m.status === 'reading' && (
+                          <span title={m.publishing_status} className="shrink-0 w-2 h-2 rounded-full mt-[5px]"
+                            style={{ backgroundColor: m.publishing_status === 'Publishing' ? '#2FCF7A' : m.publishing_status === 'On Hiatus' ? '#FFB02E' : '#52525b' }} />
+                        )}
+                        <button onClick={() => setSelectedManga(m)}
+                          className="font-semibold text-sm leading-snug text-left hover:text-violet-300 transition-colors flex-1 min-w-0 truncate">
+                          {m.title}
+                        </button>
+                        {m.total_chapters && m.current_chapter < m.total_chapters && m.status === 'reading' && (
+                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full whitespace-nowrap">
+                            +{m.total_chapters - m.current_chapter}
+                          </span>
+                        )}
+                      </div>
+                      {/* Author — always present */}
+                      {m.authors?.length > 0 ? (
+                        <div className="flex gap-1 flex-wrap mt-0.5">
+                          {m.authors.map((a: Author) => (
+                            <button key={a.id} onClick={() => setSelectedAuthor(a)}
+                              className="text-[11px] text-zinc-500 hover:text-violet-400 transition-colors">
+                              {a.name}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-zinc-700 mt-0.5 italic">Unknown author</p>
                       )}
                     </div>
 
-                    {/* Authors — clickable */}
-                    {m.authors?.length > 0 && (
-                      <div className="flex gap-1 flex-wrap mt-0.5 mb-1">
-                        {m.authors.map((a: Author) => (
-                          <button key={a.id} onClick={() => setSelectedAuthor(a)}
-                            className="text-xs text-zinc-500 hover:text-violet-400 transition-colors">
-                            {a.name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <select
-                        value={m.status}
-                        onChange={e => updateStatus(m.id, e.target.value as MangaStatus)}
+                    {/* 2. Status dropdown */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <select value={m.status} onChange={e => updateStatus(m.id, e.target.value as MangaStatus)}
                         aria-label={`Status for ${m.title}`}
-                        className={`text-xs px-2 py-0.5 rounded-full border bg-transparent cursor-pointer outline-none ${STATUS_COLORS[m.status]}`}
-                      >
-                        {(Object.keys(STATUS_LABELS) as MangaStatus[])
-                          .filter(s => s !== 'watching' || m.has_anime)
-                          .map(s => (
-                            <option key={s} value={s} className="bg-zinc-900 text-white">{STATUS_LABELS[s]}</option>
-                          ))}
+                        className={`text-xs px-2 py-0.5 rounded-full border bg-transparent cursor-pointer outline-none ${STATUS_COLORS[m.status]}`}>
+                        {(Object.keys(STATUS_LABELS) as MangaStatus[]).filter(s => s !== 'watching' || m.has_anime).map(s => (
+                          <option key={s} value={s} className="bg-zinc-900 text-white">{STATUS_LABELS[s]}</option>
+                        ))}
                       </select>
-                      <span className="text-xs text-zinc-600" aria-label={`Last read ${timeAgo(m.last_read_at)}`}>{timeAgo(m.last_read_at)}</span>
+                      <span className="text-[11px] text-zinc-600">{timeAgo(m.last_read_at)}</span>
                       {m.status === 'reading' && finishEstimate(m) && (
-                        <span className="text-xs text-zinc-600 flex items-center gap-1" title="Estimated finish at your current reading pace">
+                        <span className="text-[11px] text-zinc-600 flex items-center gap-1">
                           <Flag size={10} strokeWidth={1.5} /> {finishEstimate(m)}
                         </span>
                       )}
-                      <button
-                        onClick={() => toggleNotes(m.id)}
-                        aria-label={expandedNotes.has(m.id) ? 'Hide notes' : 'Show notes'}
-                        aria-expanded={expandedNotes.has(m.id)}
-                        className={`transition-colors ${expandedNotes.has(m.id) || m.notes ? 'text-violet-400' : 'text-zinc-700 hover:text-zinc-400'}`}
-                      >
-                        <PenLine size={13} strokeWidth={1.5} />
+                      <button onClick={() => toggleNotes(m.id)}
+                        className={`transition-colors ${expandedNotes.has(m.id) || m.notes ? 'text-violet-400' : 'text-zinc-700 hover:text-zinc-400'}`}>
+                        <PenLine size={12} strokeWidth={1.5} />
                       </button>
+                      <div className="ml-auto flex items-center gap-1.5">
+                        {m.status === 'reading' && (
+                          <button
+                            onClick={() => activeSession?.mangaId === m.id ? setActiveSession(null) : startSession(m)}
+                            aria-label={activeSession?.mangaId === m.id ? 'Stop session' : `Start reading session for ${m.title}`}
+                            title={activeSession?.mangaId === m.id ? 'Stop session' : 'Start reading session'}
+                            className={`transition-colors ${activeSession?.mangaId === m.id ? 'text-violet-400 animate-pulse' : 'text-zinc-700 hover:text-violet-400'}`}
+                          >
+                            {activeSession?.mangaId === m.id ? <Timer size={13} strokeWidth={1.5} /> : <Play size={13} strokeWidth={1.5} />}
+                          </button>
+                        )}
+                        <button onClick={() => setShelfPickerManga(m)} aria-label={`Add ${m.title} to shelf`} title="Add to shelf" className="text-zinc-700 hover:text-violet-400 transition-colors">
+                          <Folder size={13} strokeWidth={1.5} />
+                        </button>
+                        <a href={`/search?q=${encodeURIComponent(m.title)}`} aria-label={`Search for ${m.title}`} title="Search for more info" className="text-zinc-700 hover:text-cyan-400 transition-colors">
+                          <Search size={12} strokeWidth={1.5} />
+                        </a>
+                        <button onClick={() => refreshCardInfo(m)} disabled={refreshingId === m.id} aria-label={`Refresh info for ${m.title}`} title="Refresh synopsis & info from Jikan"
+                          className={`transition-colors ${refreshingId === m.id ? 'text-cyan-400 animate-spin' : 'text-zinc-700 hover:text-cyan-400'}`}>
+                          <RefreshCw size={12} strokeWidth={1.5} />
+                        </button>
+                        <button onClick={() => confirmDelete(m.id)} aria-label={`Delete ${m.title}`} className="text-zinc-700 hover:text-red-400 transition-colors text-lg leading-none">
+                          ×
+                        </button>
+                      </div>
                     </div>
 
-                    {m.total_chapters && (
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden" role="progressbar" aria-valuenow={m.current_chapter} aria-valuemax={m.total_chapters}>
-                          <div
-                            className="h-full bg-violet-500 rounded-full transition-all"
-                            style={{ width: `${Math.min(100, Math.round((m.current_chapter / m.total_chapters) * 100))}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-zinc-600 tabular-nums shrink-0">
-                          {m.current_chapter}/{m.total_chapters}
-                        </span>
-                      </div>
-                    )}
-                    {/* Arc-aware progress */}
+                    {/* 3. Description — always rendered, 3-line clamp, fixed min-height */}
+                    <p
+                      className={`text-[11px] leading-[1.5] ${m.synopsis ? 'text-zinc-500' : 'text-zinc-700 italic'} ${expandedSynopsis.has(m.id) ? '' : 'line-clamp-3'}`}
+                      style={{ minHeight: '3.375rem', cursor: m.synopsis ? 'pointer' : 'default' }}
+                      onClick={() => m.synopsis && toggleSynopsis(m.id)}
+                      title={m.synopsis ? (expandedSynopsis.has(m.id) ? 'Click to collapse' : 'Click to expand') : undefined}
+                    >
+                      {m.synopsis ?? 'No description available.'}
+                    </p>
+
+                    {/* Arc / re-read (inline, only if present) */}
                     {(() => {
-                      const arc = currentArc(m)
-                      const rereadCount = rereadCounts[m.id] ?? 0
+                      const arc = currentArc(m); const rereadCount = rereadCounts[m.id] ?? 0
                       if (!arc && !rereadCount) return null
                       return (
-                        <div className="flex items-center gap-2 mt-1">
-                          {arc && (
-                            <span className="text-xs text-zinc-600 truncate flex items-center gap-1" title={`${arc.tag} arc`}>
-                              <MapPin size={10} strokeWidth={1.5} /> {arc.label}
-                            </span>
-                          )}
-                          {rereadCount > 0 && (
-                            <span className="text-xs text-violet-500 shrink-0">×{rereadCount} re-read</span>
-                          )}
+                        <div className="flex items-center gap-2">
+                          {arc && <span className="text-[11px] text-zinc-600 truncate flex items-center gap-1"><MapPin size={10} strokeWidth={1.5} /> {arc.label}</span>}
+                          {rereadCount > 0 && <span className="text-[11px] text-violet-500 shrink-0">×{rereadCount} re-read</span>}
                         </div>
                       )
                     })()}
 
+                    {/* Anime episode tracker (only if has_anime) */}
                     {m.has_anime && (
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <Clapperboard size={12} strokeWidth={1.5} className="text-violet-400 shrink-0" />
-                        <span className="text-xs text-zinc-600 truncate">{m.anime_title ?? 'Anime'}</span>
+                      <div className="flex items-center gap-2">
+                        <Clapperboard size={11} strokeWidth={1.5} className="text-violet-400 shrink-0" />
+                        <span className="text-[11px] text-zinc-600 truncate">{m.anime_title ?? 'Anime'}</span>
                         {m.total_episodes && m.episodes_watched < m.total_episodes && (
-                          <span className="text-xs px-1.5 py-0.5 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded-full whitespace-nowrap shrink-0">
+                          <span className="text-[10px] px-1.5 py-0.5 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded-full whitespace-nowrap shrink-0">
                             +{m.total_episodes - m.episodes_watched} ep
                           </span>
                         )}
                         <div className="flex items-center gap-1 ml-auto shrink-0">
-                          <button onClick={() => updateEpisodes(m.id, -1, m.episodes_watched)} aria-label="Decrease episode" className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
-                          <span className="text-xs text-zinc-500 font-mono">ep</span>
-                          <EditableNumber
-                            value={m.episodes_watched}
-                            onSave={n => updateEpisodes(m.id, n - m.episodes_watched, m.episodes_watched)}
-                            label={`Episodes watched for ${m.title}`}
-                            className="w-8 text-xs py-0.5"
-                          />
-                          {m.total_episodes && (
-                            <span className="text-xs text-zinc-600 font-mono">/{m.total_episodes}</span>
-                          )}
-                          <button onClick={() => updateEpisodes(m.id, 1, m.episodes_watched)} aria-label="Increase episode" className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
+                          <button onClick={() => updateEpisodes(m.id, -1, m.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
+                          <EditableNumber value={m.episodes_watched} onSave={n => updateEpisodes(m.id, n - m.episodes_watched, m.episodes_watched)} label={`Episodes for ${m.title}`} className="w-8 text-xs py-0.5" />
+                          {m.total_episodes && <span className="text-[11px] text-zinc-600 font-mono">/{m.total_episodes}</span>}
+                          <button onClick={() => updateEpisodes(m.id, 1, m.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
                         </div>
                       </div>
                     )}
 
-                    {/* Genre tags */}
-                    {m.genres?.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {m.genres.slice(0, 4).map(g => (
-                          <span key={g} className="text-[10px] px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded-full">{g}</span>
-                        ))}
+                    {/* 4. Chapter tracker + progress bar — always rendered */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] text-zinc-500 tabular-nums">
+                          Ch.&nbsp;{m.current_chapter}&nbsp;/&nbsp;{m.total_chapters ?? '?'}
+                        </span>
+                        {m.total_chapters && (
+                          <span className="text-[10px] text-zinc-700 tabular-nums">
+                            {Math.min(100, Math.round((m.current_chapter / m.total_chapters) * 100))}%
+                          </span>
+                        )}
                       </div>
-                    )}
+                      <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden"
+                        role="progressbar" aria-valuenow={m.current_chapter} aria-valuemax={m.total_chapters ?? 0}>
+                        <div className="h-full bg-violet-500 rounded-full transition-all"
+                          style={{ width: m.total_chapters ? `${Math.min(100, Math.round((m.current_chapter / m.total_chapters) * 100))}%` : '0%' }} />
+                      </div>
+                    </div>
 
-                    {/* Synopsis */}
-                    {m.synopsis && (
-                      <div className="mt-1.5">
-                        <p className={`text-[11px] text-zinc-600 leading-relaxed ${expandedSynopsis.has(m.id) ? '' : 'line-clamp-2'}`}>
-                          {m.synopsis}
-                        </p>
+                    {/* 5. Genre tags — always rendered */}
+                    <div className="flex flex-wrap gap-1">
+                      {m.genres?.length > 0
+                        ? m.genres.slice(0, 5).map(g => (
+                            <span key={g} className="text-[10px] px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded-full">{g}</span>
+                          ))
+                        : (
+                            <span className="text-[10px] text-zinc-700 italic">No genres listed</span>
+                          )
+                      }
+                    </div>
+
+                    {/* 6. Rating row — always rendered */}
+                    <div className="flex items-center gap-2 pt-1.5 border-t border-zinc-800/70 mt-auto">
+                      <span className="text-[10px] text-zinc-700 uppercase tracking-widest">Rating</span>
+                      <div className="flex items-center gap-1.5 ml-auto">
                         <button
-                          onClick={() => toggleSynopsis(m.id)}
-                          className="text-[10px] text-zinc-700 hover:text-zinc-400 transition-colors mt-0.5 flex items-center gap-0.5"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            const prev_rating = m.user_rating
+                            const next = m.user_rating === 'up' ? null : 'up'
+                            setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: next } : x))
+                            const { error } = await supabase.from('manga_list').update({ user_rating: next }).eq('id', m.id)
+                            if (error) setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: prev_rating } : x))
+                          }}
+                          title={m.user_rating === 'up' ? 'Remove like' : 'Like'}
+                          className={`transition-colors ${m.user_rating === 'up' ? 'text-emerald-400' : 'text-zinc-700 hover:text-emerald-400'}`}
                         >
-                          {expandedSynopsis.has(m.id)
-                            ? <><ChevronUp size={10} strokeWidth={2} /> less</>
-                            : <><ChevronDown size={10} strokeWidth={2} /> more</>}
+                          <ThumbsUp size={13} strokeWidth={1.5} />
                         </button>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            const prev_rating = m.user_rating
+                            const next = m.user_rating === 'down' ? null : 'down'
+                            setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: next } : x))
+                            const { error } = await supabase.from('manga_list').update({ user_rating: next }).eq('id', m.id)
+                            if (error) setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: prev_rating } : x))
+                          }}
+                          title={m.user_rating === 'down' ? 'Remove dislike' : 'Dislike'}
+                          className={`transition-colors ${m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-700 hover:text-red-400'}`}
+                        >
+                          <ThumbsDown size={13} strokeWidth={1.5} />
+                        </button>
+                        <span className="text-[10px] text-zinc-700 ml-1">
+                          {m.user_rating === 'up' ? 'Liked' : m.user_rating === 'down' ? 'Disliked' : 'Not rated'}
+                        </span>
                       </div>
-                    )}
+                    </div>
+
                   </div>
 
-                  {/* Chapter stepper + delete */}
-                  <div className="flex items-start gap-1.5 shrink-0 pt-0.5">
+                  {/* Chapter stepper */}
+                  <div className="flex flex-col items-center gap-1 shrink-0 pt-0.5">
                     {pendingDelete === m.id ? (
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <span className="text-zinc-400">Delete?</span>
-                        <button
-                          onClick={() => deleteManga(m.id)}
-                          aria-label="Confirm delete"
-                          className="px-2 py-1 rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
-                        >Yes</button>
-                        <button
-                          onClick={cancelDelete}
-                          aria-label="Cancel delete"
-                          className="px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
-                        >No</button>
+                      <div className="flex flex-col items-center gap-1 text-xs">
+                        <span className="text-zinc-400 text-[10px]">Del?</span>
+                        <button onClick={() => deleteManga(m.id)} aria-label="Confirm delete" className="px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-500 text-white transition-colors text-[10px]">Yes</button>
+                        <button onClick={cancelDelete} aria-label="Cancel delete" className="px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-white transition-colors text-[10px]">No</button>
                       </div>
                     ) : (
                       <>
                         <button
-                          onClick={() => updateChapter(m.id, -1, m.current_chapter)}
-                          aria-label={`Decrease chapter for ${m.title}`}
+                          onClick={() => updateChapter(m.id, 1, m.current_chapter)}
+                          aria-label={`Increase chapter for ${m.title}`}
                           className="w-7 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-sm transition-colors"
-                        >
-                          −
-                        </button>
+                        >+</button>
                         <EditableNumber
                           value={m.current_chapter}
                           onSave={n => updateChapter(m.id, n - m.current_chapter, m.current_chapter)}
@@ -2306,89 +2336,10 @@ export default function Home() {
                           className="w-10 text-xs py-0.5"
                         />
                         <button
-                          onClick={() => updateChapter(m.id, 1, m.current_chapter)}
-                          aria-label={`Increase chapter for ${m.title}`}
+                          onClick={() => updateChapter(m.id, -1, m.current_chapter)}
+                          aria-label={`Decrease chapter for ${m.title}`}
                           className="w-7 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-sm transition-colors"
-                        >
-                          +
-                        </button>
-                        {m.status === 'reading' && (
-                          <button
-                            onClick={() => activeSession?.mangaId === m.id ? setActiveSession(null) : startSession(m)}
-                            aria-label={activeSession?.mangaId === m.id ? 'Stop session' : `Start reading session for ${m.title}`}
-                            title={activeSession?.mangaId === m.id ? 'Stop session' : 'Start reading session'}
-                            className={`ml-1 transition-colors ${
-                              activeSession?.mangaId === m.id
-                                ? 'text-violet-400 animate-pulse'
-                                : 'text-zinc-700 hover:text-violet-400'
-                            }`}
-                          >
-                            {activeSession?.mangaId === m.id
-                              ? <Timer size={14} strokeWidth={1.5} />
-                              : <Play size={14} strokeWidth={1.5} />}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => setShelfPickerManga(m)}
-                          aria-label={`Add ${m.title} to shelf`}
-                          title="Add to shelf"
-                          className="ml-1 text-zinc-700 hover:text-violet-400 transition-colors"
-                        >
-                          <Folder size={14} strokeWidth={1.5} />
-                        </button>
-                        <a
-                          href={`/search?q=${encodeURIComponent(m.title)}`}
-                          aria-label={`Search for ${m.title}`}
-                          title="Search for more info"
-                          className="ml-1 text-zinc-700 hover:text-cyan-400 transition-colors"
-                        >
-                          <Search size={13} strokeWidth={1.5} />
-                        </a>
-                        <button
-                          onClick={() => refreshCardInfo(m)}
-                          disabled={refreshingId === m.id}
-                          aria-label={`Refresh info for ${m.title}`}
-                          title="Refresh synopsis & info from Jikan"
-                          className={`ml-0.5 transition-colors ${refreshingId === m.id ? 'text-cyan-400 animate-spin' : 'text-zinc-700 hover:text-cyan-400'}`}
-                        >
-                          <RefreshCw size={12} strokeWidth={1.5} />
-                        </button>
-                                        {/* Thumbs rating */}
-                        <div className="flex gap-0.5 ml-1">
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation()
-                              const prev_rating = m.user_rating
-                              const next = m.user_rating === 'up' ? null : 'up'
-                              setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: next } : x))
-                              const { error } = await supabase.from('manga_list').update({ user_rating: next }).eq('id', m.id)
-                              if (error) setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: prev_rating } : x))
-                            }}
-                            aria-label="Thumbs up"
-                            title={m.user_rating === 'up' ? 'Remove like' : 'Like'}
-                            className={`p-0.5 rounded transition-colors ${m.user_rating === 'up' ? 'text-emerald-400' : 'text-zinc-700 hover:text-emerald-400'}`}
-                          ><ThumbsUp size={13} strokeWidth={1.5} /></button>
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation()
-                              const prev_rating = m.user_rating
-                              const next = m.user_rating === 'down' ? null : 'down'
-                              setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: next } : x))
-                              const { error } = await supabase.from('manga_list').update({ user_rating: next }).eq('id', m.id)
-                              if (error) setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: prev_rating } : x))
-                            }}
-                            aria-label="Thumbs down"
-                            title={m.user_rating === 'down' ? 'Remove dislike' : 'Dislike'}
-                            className={`p-0.5 rounded transition-colors ${m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-700 hover:text-red-400'}`}
-                          ><ThumbsDown size={13} strokeWidth={1.5} /></button>
-                        </div>
-                        <button
-                          onClick={() => confirmDelete(m.id)}
-                          aria-label={`Delete ${m.title}`}
-                          className="text-zinc-700 hover:text-red-400 transition-colors text-lg leading-none"
-                        >
-                          ×
-                        </button>
+                        >−</button>
                       </>
                     )}
                   </div>
