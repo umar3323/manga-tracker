@@ -53,6 +53,21 @@ export default function AnimeLinker({ manga, watchedAnime }: { manga: Manga[]; w
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    supabase.from('user_settings').select('value').eq('key', 'dismissed_anime_suggestions').single()
+      .then(({ data }) => {
+        if (data?.value) {
+          try { setDismissed(new Set(JSON.parse(data.value))) } catch {}
+        }
+      })
+  }, [])
+
+  const dismiss = async (mangaId: string) => {
+    const next = new Set([...dismissed, mangaId])
+    setDismissed(next)
+    await supabase.from('user_settings').upsert({ key: 'dismissed_anime_suggestions', value: JSON.stringify([...next]), updated_at: new Date().toISOString() })
+  }
   const [saved, setSaved] = useState<Set<string>>(new Set())
   const [manualLinks, setManualLinks] = useState<Record<string, string>>({}) // manga.id → anime title
   const [searchQuery, setSearchQuery] = useState<Record<string, string>>({})
@@ -218,7 +233,7 @@ export default function AnimeLinker({ manga, watchedAnime }: { manga: Manga[]; w
                             {saving === m.id ? '…' : 'Link'}
                           </button>
                           <button
-                            onClick={() => setDismissed(prev => new Set([...prev, m.id]))}
+                            onClick={() => dismiss(m.id)}
                             className="px-3 py-1 text-xs rounded-lg text-zinc-500 hover:text-zinc-300 bg-zinc-700 transition-colors"
                           >
                             Skip
@@ -321,7 +336,10 @@ export default function AnimeLinker({ manga, watchedAnime }: { manga: Manga[]; w
 
               {/* Re-run */}
               <button
-                onClick={() => { setChecked(false); setDismissed(new Set()); setSaved(new Set()) }}
+                onClick={async () => {
+                  setChecked(false); setDismissed(new Set()); setSaved(new Set())
+                  await supabase.from('user_settings').upsert({ key: 'dismissed_anime_suggestions', value: '[]', updated_at: new Date().toISOString() })
+                }}
                 className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
               >
                 Reset &amp; re-check

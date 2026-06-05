@@ -89,6 +89,12 @@ export async function POST() {
       const officialChapters: number | null = d.chapters ?? null
       const isCompleted = d.status === 'Finished'
 
+      // Publishing status dot
+      const pubStatus = d.status as string | undefined
+      if (pubStatus && ['Publishing', 'Finished', 'On Hiatus', 'Discontinued'].includes(pubStatus)) {
+        updates.publishing_status = pubStatus
+      }
+
       if (officialChapters && officialChapters !== m.total_chapters) {
         updates.total_chapters = officialChapters
         changes.push(`chapters: ${m.total_chapters ?? '?'} → ${officialChapters}`)

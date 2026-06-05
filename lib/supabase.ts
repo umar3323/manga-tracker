@@ -18,8 +18,10 @@ export interface Manga {
   cover_url: string | null
   total_chapters: number | null
   notes: string | null
+  synopsis: string | null
   last_read_at: string | null
   user_rating: 'up' | 'down' | null
+  publishing_status: 'Publishing' | 'Finished' | 'On Hiatus' | 'Discontinued' | null
   has_anime: boolean
   anime_mal_id: number | null
   anime_title: string | null

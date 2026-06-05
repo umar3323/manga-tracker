@@ -8,6 +8,7 @@ import {
   MANGA_GENRES, type JikanSearchResult, type SearchFilters,
 } from '@/lib/jikan'
 import type { GoodreadsBook } from '@/app/api/goodreads/route'
+import DiscoverPanel from '@/components/DiscoverPanel'
 
 const STATUS_OPTIONS: { value: MangaStatus; label: string }[] = [
   { value: 'reading',      label: 'Currently Reading' },
@@ -309,7 +310,7 @@ export default function SearchPage() {
   return (
     <main className="min-h-screen bg-[#0d0d0d] text-white">
       <div className="max-w-3xl lg:max-w-5xl mx-auto px-4 py-8">
-        <h1 className="text-2xl font-bold mb-6">Search Manga</h1>
+        <h1 className="text-2xl font-bold mb-6">Search & Discover</h1>
 
         {/* Search bar with live autocomplete */}
         <div className="flex gap-2 mb-3" ref={searchBarRef}>
@@ -566,6 +567,14 @@ export default function SearchPage() {
         {loading && <div className="text-zinc-500 text-sm py-4">Searching…</div>}
         {!loading && results.length === 0 && (query || hasFilters) && (
           <div className="text-zinc-500 text-sm py-4">No results found — try adjusting the filters.</div>
+        )}
+
+        {/* Discovery — shown when no search is active */}
+        {!loading && !query.trim() && !hasFilters && results.length === 0 && (
+          <div className="mt-2">
+            <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold mb-4">Discover</p>
+            <DiscoverPanel defaultTab="similar" />
+          </div>
         )}
 
         <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">

@@ -440,6 +440,74 @@ export default function StatsPage() {
           )
         })()}
 
+        {/* Reading velocity sparkline — 12 weeks */}
+        {(() => {
+          const now = new Date()
+          const weeks = Array.from({ length: 12 }, (_, i) => {
+            const weekEnd = new Date(now)
+            weekEnd.setDate(now.getDate() - i * 7)
+            const weekStart = new Date(weekEnd)
+            weekStart.setDate(weekEnd.getDate() - 6)
+            weekStart.setHours(0, 0, 0, 0)
+            weekEnd.setHours(23, 59, 59, 999)
+            const chapters = log
+              .filter(l => { const d = new Date(l.logged_at); return d >= weekStart && d <= weekEnd })
+              .reduce((s, l) => s + l.chapters_read, 0)
+            return { label: `${weekStart.getDate()}/${weekStart.getMonth() + 1}`, chapters }
+          }).reverse()
+
+          const maxW = Math.max(...weeks.map(w => w.chapters), 1)
+          if (weeks.every(w => w.chapters === 0)) return null
+
+          const W = 400, H = 60, pad = 4
+          const pts = weeks.map((w, i) => {
+            const x = pad + (i / (weeks.length - 1)) * (W - pad * 2)
+            const y = H - pad - (w.chapters / maxW) * (H - pad * 2)
+            return `${x},${y}`
+          }).join(' ')
+
+          return (
+            <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h2 className="text-sm font-semibold">Reading velocity</h2>
+                  <p className="text-xs text-zinc-500 mt-0.5">Chapters per week — last 12 weeks</p>
+                </div>
+                <span className="text-xs text-zinc-500">
+                  Peak: {maxW} ch
+                </span>
+              </div>
+              <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 60 }}>
+                {/* Fill */}
+                <defs>
+                  <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--vermillion)" stopOpacity="0.3" />
+                    <stop offset="100%" stopColor="var(--vermillion)" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                <polyline
+                  points={`${pad},${H - pad} ${pts} ${W - pad},${H - pad}`}
+                  fill="url(#sparkGrad)" stroke="none"
+                />
+                <polyline points={pts} fill="none" stroke="var(--vermillion)" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+                {/* Dots */}
+                {weeks.map((w, i) => {
+                  const x = pad + (i / (weeks.length - 1)) * (W - pad * 2)
+                  const y = H - pad - (w.chapters / maxW) * (H - pad * 2)
+                  return w.chapters > 0 ? (
+                    <circle key={i} cx={x} cy={y} r="2.5" fill="var(--vermillion)" />
+                  ) : null
+                })}
+              </svg>
+              {/* Week labels — first and last */}
+              <div className="flex justify-between mt-1">
+                <span className="text-[10px] text-zinc-600">{weeks[0].label}</span>
+                <span className="text-[10px] text-zinc-600">This week</span>
+              </div>
+            </div>
+          )
+        })()}
+
         {/* Reading calendar heatmap */}
         <ReadingHeatmap log={log} />
 

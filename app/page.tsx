@@ -5,6 +5,8 @@ import Image from 'next/image'
 import { supabase, type Manga, type MangaStatus, type Author } from '@/lib/supabase'
 import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, getMangaById, getAnimeAdaptations, searchMangaWithFilters, type JikanSearchResult } from '@/lib/jikan'
 import TrendingSection from '@/components/TrendingSection'
+import DiscoverySection from '@/components/DiscoverySection'
+import ReleaseCalendar from '@/components/ReleaseCalendar'
 import ArcEditor from '@/components/ArcEditor'
 import SessionTimer, { type ActiveSession } from '@/components/SessionTimer'
 import RereadSection from '@/components/RereadSection'
@@ -15,10 +17,12 @@ import { RELATION_LABELS, formatCountdown } from '@/lib/anilist'
 import type { MUSeriesData } from '@/lib/mangaupdates'
 import type { ANNRelatedWork } from '@/lib/ann'
 import MangaFact from '@/components/MangaFact'
+import CompletionModal from '@/components/CompletionModal'
 import { getStatus as getAnimeStatus, type AnimeRow } from '@/lib/anime-data'
 import {
   Tv, Timer, Play, Clapperboard, BookOpen, PenLine, ThumbsUp, ThumbsDown,
-  Folder, MapPin, Flag, Zap, Sword, Cloud, Moon, Flame, Heart,
+  Folder, MapPin, Flag, Zap, Sword, Cloud, Moon, Flame, Heart, Search,
+  ChevronDown, ChevronUp, RefreshCw, GitMerge, X,
 } from 'lucide-react'
 
 /** Click the number to type directly. Enter or blur saves; Escape cancels. */
@@ -129,14 +133,63 @@ function MarkdownBold({ text }: { text: string }) {
   )
 }
 
+/** Small merge button shown on related-work cards that are already in the user's list */
+function RelationMergeButton({ keep, remove, onMerge }: {
+  keep: Manga; remove: Manga; onMerge: (removedId: string) => void
+}) {
+  const [merging, setMerging] = useState(false)
+  const [done, setDone] = useState(false)
+
+  if (done) return <span className="text-[10px] text-emerald-500">✓ merged</span>
+
+  const handleMerge = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setMerging(true)
+    const updates: Record<string, unknown> = {
+      current_chapter:  Math.max(keep.current_chapter, remove.current_chapter),
+      cover_url:        keep.cover_url ?? remove.cover_url,
+      total_chapters:   keep.total_chapters ?? remove.total_chapters,
+      has_anime:        keep.has_anime || remove.has_anime,
+      anime_mal_id:     keep.anime_mal_id ?? remove.anime_mal_id,
+      anime_title:      keep.anime_title ?? remove.anime_title,
+      user_rating:      keep.user_rating ?? remove.user_rating,
+    }
+    if (remove.notes?.trim()) {
+      const base = keep.notes?.trim() ?? ''
+      const extra = remove.notes.trim()
+      if (!base.includes(extra)) updates.notes = base ? `${base}\n---\n${extra}` : extra
+    }
+    const [, del] = await Promise.all([
+      supabase.from('manga_list').update(updates).eq('id', keep.id),
+      supabase.from('manga_list').delete().eq('id', remove.id),
+    ])
+    setMerging(false)
+    if (!del.error) { setDone(true); onMerge(remove.id) }
+  }
+
+  return (
+    <button
+      onClick={handleMerge}
+      disabled={merging}
+      title={`Merge "${remove.title}" into this entry`}
+      className="text-[10px] px-1.5 py-0.5 rounded font-medium transition-colors disabled:opacity-40"
+      style={{ backgroundColor: 'rgba(43,230,220,0.12)', color: 'var(--cyan)' }}
+    >
+      {merging ? '…' : '⟷'}
+    </button>
+  )
+}
+
 /** Manga detail modal */
-function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge }: {
+function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onNavigate }: {
   manga: Manga
   allManga: Manga[]
   onClose: () => void
   onStatusChange: (id: string, status: MangaStatus) => void
   /** Called with the ID of the entry that was deleted during a merge */
   onMerge: (removedId: string) => void
+  /** Navigate to another manga in the list from a related-work card */
+  onNavigate: (m: Manga) => void
 }) {
   const [alManga, setAlManga] = useState<AniListMangaData | null>(null)
   const [alAnime, setAlAnime] = useState<AniListAnimeData | null>(null)
@@ -488,27 +541,66 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge }: {
                     const malUrl = rel.node.idMal
                       ? `https://myanimelist.net/${rel.node.type === 'ANIME' ? 'anime' : 'manga'}/${rel.node.idMal}`
                       : null
+                    const searchUrl = `/search?q=${encodeURIComponent(rel.node.title.romaji)}`
+                    // Check if this related work is already in the user's list
+                    const inList = allManga.find(m =>
+                      (rel.node.idMal && m.mal_id === rel.node.idMal) ||
+                      m.title.toLowerCase() === rel.node.title.romaji.toLowerCase()
+                    )
+                    const labelColor =
+                      rel.relationType === 'SEQUEL'     ? 'text-emerald-400' :
+                      rel.relationType === 'PREQUEL'    ? 'text-blue-400' :
+                      rel.relationType === 'ADAPTATION' ? 'text-violet-400' :
+                      'text-zinc-400'
+
                     return (
-                    <a key={i} href={malUrl ?? '#'} target={malUrl ? '_blank' : undefined}
-                      rel="noopener noreferrer"
-                      className="shrink-0 w-24 group"
-                      style={{ textDecoration: 'none', cursor: malUrl ? 'pointer' : 'default' }}>
-                      <div className="relative w-24 h-32 rounded-xl overflow-hidden bg-zinc-800 mb-1.5 group-hover:opacity-80 transition-opacity">
-                        {rel.node.coverImage?.medium && (
-                          <Image src={rel.node.coverImage.medium} alt={rel.node.title.romaji}
-                            fill className="object-cover" unoptimized />
-                        )}
-                        <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1.5 py-1">
-                          <span className={`text-[10px] font-medium ${
-                            rel.relationType === 'SEQUEL' ? 'text-emerald-400' :
-                            rel.relationType === 'PREQUEL' ? 'text-blue-400' :
-                            rel.relationType === 'ADAPTATION' ? 'text-violet-400' :
-                            'text-zinc-400'
-                          }`}>{RELATION_LABELS[rel.relationType]}</span>
+                      <div key={i} className="shrink-0 w-24 flex flex-col gap-1">
+                        {/* Card — opens internally */}
+                        <button
+                          onClick={() => {
+                            if (inList) { onNavigate(inList) }
+                            else { window.location.href = searchUrl }
+                          }}
+                          className="w-24 group text-left"
+                        >
+                          <div className="relative w-24 h-32 rounded-xl overflow-hidden bg-zinc-800 mb-1 group-hover:opacity-80 transition-opacity">
+                            {rel.node.coverImage?.medium && (
+                              <Image src={rel.node.coverImage.medium} alt={rel.node.title.romaji}
+                                fill className="object-cover" unoptimized />
+                            )}
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1.5 py-1">
+                              <span className={`text-[10px] font-medium ${labelColor}`}>
+                                {RELATION_LABELS[rel.relationType]}
+                              </span>
+                            </div>
+                            {inList && (
+                              <div className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-400"
+                                title="In your list" />
+                            )}
+                          </div>
+                          <p className="text-[10px] text-zinc-500 leading-tight line-clamp-2">{rel.node.title.romaji}</p>
+                        </button>
+
+                        {/* Action row */}
+                        <div className="flex items-center gap-1">
+                          {/* Merge button — only for manga type entries already in list */}
+                          {inList && rel.node.type === 'MANGA' && (
+                            <RelationMergeButton
+                              keep={manga}
+                              remove={inList}
+                              onMerge={onMerge}
+                            />
+                          )}
+                          {/* MAL external link */}
+                          {malUrl && (
+                            <a href={malUrl} target="_blank" rel="noopener noreferrer"
+                              title="View on MyAnimeList"
+                              className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors ml-auto"
+                              onClick={e => e.stopPropagation()}
+                            >↗</a>
+                          )}
                         </div>
                       </div>
-                      <p className="text-[10px] text-zinc-500 leading-tight line-clamp-2">{rel.node.title.romaji}</p>
-                    </a>
                     )
                   })}
               </div>
@@ -972,6 +1064,9 @@ function ShareModal({ token, enabled, onToggle, onClose }: {
               className="block text-xs text-violet-400 hover:text-violet-300">
               Preview ↗
             </a>
+            <p className="text-[10px] text-zinc-600 pt-1">
+              Compare two lists: <code className="text-zinc-500">/compare/[tokenA]/[tokenB]</code>
+            </p>
           </div>
         )}
         <button onClick={onClose} className="mt-4 w-full py-2 text-xs text-zinc-600 hover:text-zinc-400">Close</button>
@@ -1036,7 +1131,7 @@ function RecommendationText({ text }: { text: string }) {
 
 export default function Home() {
   const [manga, setManga] = useState<Manga[]>([])
-  const [filter, setFilter] = useState<MangaStatus | 'all'>('all')
+  const [filter, setFilter] = useState<MangaStatus | 'all' | 'duplicates'>('all')
   const [sort, setSort] = useState<SortKey>('last_read')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -1065,6 +1160,7 @@ export default function Home() {
   const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null)
   const [mood, setMood] = useState<string | null>(null)
   const [watchPrompt, setWatchPrompt] = useState<{ id: string; epInput: string } | null>(null)
+  const [completionManga, setCompletionManga] = useState<Manga | null>(null)
   const [pacePerDay, setPacePerDay] = useState(0)
   const [shareModal, setShareModal] = useState(false)
   const [shareToken, setShareToken] = useState<string | null>(null)
@@ -1072,6 +1168,11 @@ export default function Home() {
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null)
   const [arcsMap, setArcsMap] = useState<Record<string, Arc[]>>({})
   const [rereadCounts, setRereadCounts] = useState<Record<string, number>>({})
+  const [expandedSynopsis, setExpandedSynopsis] = useState<Set<string>>(new Set())
+  const [refreshingId, setRefreshingId] = useState<string | null>(null)
+  const [dismissedPairs, setDismissedPairs] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('yomu_dismissed_pairs') ?? '[]')) } catch { return new Set() }
+  })
 
   // Cover fetch tracking — prevents re-fetching on every render
   const fetchedIds = useRef<Set<string>>(new Set())
@@ -1142,17 +1243,18 @@ export default function Home() {
 
   // Fetch missing covers — tracks fetched IDs in ref to avoid re-fetching
   useEffect(() => {
-    const missing = manga.filter(m => !m.cover_url && !fetchedIds.current.has(m.id))
+    const missing = manga.filter(m => (!m.cover_url || !m.synopsis) && !fetchedIds.current.has(m.id))
     if (missing.length === 0) return
 
     const run = async () => {
       for (const m of missing) {
         fetchedIds.current.add(m.id)
         const info = await fetchMangaInfo(m.title)
-        if (info.coverUrl || info.totalChapters) {
+        if (info.coverUrl || info.totalChapters || info.synopsis) {
           const updates: Partial<Manga> = {}
           if (info.coverUrl) updates.cover_url = info.coverUrl
           if (info.totalChapters) updates.total_chapters = info.totalChapters
+          if (info.synopsis && !m.synopsis) updates.synopsis = info.synopsis
           await supabase.from('manga_list').update(updates).eq('id', m.id)
           setManga(prev => prev.map(x => x.id === m.id ? { ...x, ...updates } : x))
         }
@@ -1192,6 +1294,12 @@ export default function Home() {
     if (error) {
       showToast('Failed to update status')
       if (prev_status) setManga(prev => prev.map(m => m.id === id ? { ...m, status: prev_status } : m))
+      return
+    }
+    // Intercept "completed" — show ceremony modal
+    if (status === 'completed' && prev_status !== 'completed') {
+      const m = manga.find(m => m.id === id)
+      if (m) setCompletionManga({ ...m, status: 'completed' })
     }
   }
 
@@ -1460,6 +1568,93 @@ export default function Home() {
       return next
     })
 
+  const toggleSynopsis = (id: string) =>
+    setExpandedSynopsis(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+
+  const refreshCardInfo = async (m: Manga) => {
+    setRefreshingId(m.id)
+    try {
+      const info = await fetchMangaInfo(m.title)
+      const updates: Partial<Manga> = {}
+      if (info.coverUrl) updates.cover_url = info.coverUrl
+      if (info.totalChapters) updates.total_chapters = info.totalChapters
+      if (info.synopsis) updates.synopsis = info.synopsis
+      if (Object.keys(updates).length > 0) {
+        await supabase.from('manga_list').update(updates).eq('id', m.id)
+        setManga(prev => prev.map(x => x.id === m.id ? { ...x, ...updates } : x))
+        showToast('Info updated')
+      } else {
+        showToast('No new info found')
+      }
+    } catch {
+      showToast('Failed to fetch info')
+    } finally {
+      setRefreshingId(null)
+    }
+  }
+
+  // Duplicate detection across all manga
+  const duplicatePairs = useMemo(() => {
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()
+    const tokens = (s: string) => new Set(normalize(s).split(/\s+/).filter(Boolean))
+    const synTokens = (s: string | null) => s ? new Set(normalize(s).split(/\s+/).filter(Boolean)) : null
+    const jaccard = (a: Set<string>, b: Set<string>) => {
+      const overlap = [...a].filter(t => b.has(t)).length
+      return overlap / (a.size + b.size - overlap)
+    }
+    const pairs: { a: Manga; b: Manga; score: number; reason: string }[] = []
+    const seen = new Set<string>()
+    for (let i = 0; i < manga.length; i++) {
+      for (let j = i + 1; j < manga.length; j++) {
+        const a = manga[i], b = manga[j]
+        const key = [a.id, b.id].sort().join('|')
+        if (seen.has(key) || dismissedPairs.has(key)) continue
+        const titleScore = jaccard(tokens(a.title), tokens(b.title))
+        const aS = synTokens(a.synopsis), bS = synTokens(b.synopsis)
+        const synScore = (aS && bS && aS.size > 10 && bS.size > 10) ? jaccard(aS, bS) : 0
+        const best = Math.max(titleScore, synScore * 0.8)
+        if (best >= 0.55) {
+          seen.add(key)
+          pairs.push({
+            a, b, score: best,
+            reason: titleScore >= synScore * 0.8 ? 'Similar title' : 'Similar synopsis',
+          })
+        }
+      }
+    }
+    return pairs.sort((x, y) => y.score - x.score)
+  }, [manga, dismissedPairs])
+
+  const dismissPair = (a: Manga, b: Manga) => {
+    const key = [a.id, b.id].sort().join('|')
+    setDismissedPairs(prev => {
+      const next = new Set(prev)
+      next.add(key)
+      try { localStorage.setItem('yomu_dismissed_pairs', JSON.stringify([...next])) } catch {}
+      return next
+    })
+  }
+
+  const mergePair = async (keep: Manga, remove: Manga) => {
+    await supabase.from('manga_list').update({
+      current_chapter: Math.max(keep.current_chapter, remove.current_chapter),
+      total_chapters: keep.total_chapters ?? remove.total_chapters,
+      genres: keep.genres?.length ? keep.genres : remove.genres,
+      authors: keep.authors?.length ? keep.authors : remove.authors,
+      synopsis: keep.synopsis ?? remove.synopsis,
+      notes: keep.notes ?? remove.notes,
+    }).eq('id', keep.id)
+    await supabase.from('manga_list').delete().eq('id', remove.id)
+    setManga(prev => prev.filter(m => m.id !== remove.id).map(m =>
+      m.id === keep.id ? { ...m, current_chapter: Math.max(keep.current_chapter, remove.current_chapter) } : m
+    ))
+    showToast('Merged — keeping best progress')
+  }
+
   const counts = manga.reduce((acc, m) => {
     acc[m.status] = (acc[m.status] ?? 0) + 1
     return acc
@@ -1489,7 +1684,7 @@ export default function Home() {
   ]
 
   const filtered = manga
-    .filter(m => filter === 'all' || m.status === filter)
+    .filter(m => filter === 'all' || filter === 'duplicates' || m.status === filter)
     .filter(m => !search || m.title.toLowerCase().includes(search.toLowerCase()))
     .filter(m => !mood || MOODS.find(mo => mo.id === mood)?.test(m))
     .sort(sortFn)
@@ -1550,6 +1745,44 @@ export default function Home() {
             />
           </div>
         </div>
+
+        {/* Stats — 2 cols on mobile, responsive on desktop (hide watching if 0) */}
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-2">
+          {(Object.keys(STATUS_LABELS) as MangaStatus[]).filter(s => s !== 'watching' || (counts.watching ?? 0) > 0).map(s => (
+            <button key={s} onClick={() => setFilter(filter === s ? 'all' : s)}
+              className={`rounded-xl p-3 text-center transition-colors ${filter === s ? 'bg-white text-black' : 'bg-zinc-900 hover:bg-zinc-800'}`}>
+              <div className="text-xl font-bold">{counts[s] ?? 0}</div>
+              <div className={`text-xs mt-0.5 ${filter === s ? 'text-zinc-600' : 'text-zinc-500'}`}>{STATUS_LABELS[s]}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* Anime stats row */}
+        {(() => {
+          const totalHours  = animeList.reduce((s, e) => s + e.total_watch_hours, 0)
+          const totalSeries = animeList.filter(e => !e.is_movie).length
+          const totalMovies = animeList.filter(e =>  e.is_movie).length
+          const activeCount = animeList.filter(e => getAnimeStatus(e) === 'active').length
+          const stats = [
+            { value: totalSeries,                 label: 'Anime series',  icon: <Tv          size={16} strokeWidth={1.5} className="icon-primary"   /> },
+            { value: `${totalHours.toFixed(0)}h`, label: 'Hours watched', icon: <Timer       size={16} strokeWidth={1.5} className="icon-secondary" /> },
+            { value: activeCount,                 label: 'Active',        icon: <Play        size={16} strokeWidth={1.5} className="icon-primary"   /> },
+            { value: totalMovies,                 label: 'Movies',        icon: <Clapperboard size={16} strokeWidth={1.5} className="icon-muted"    /> },
+          ] as { value: string | number; label: string; icon: React.ReactNode }[]
+          return (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
+              {stats.map(s => (
+                <div key={s.label} className="bg-zinc-900 rounded-xl p-3 flex items-center gap-3">
+                  <span className="shrink-0">{s.icon}</span>
+                  <div>
+                    <div className="text-lg font-bold leading-tight" style={{ color: 'var(--cyan)' }}>{s.value}</div>
+                    <div className="text-xs text-zinc-500 mt-0.5">{s.label}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
 
         {/* Chapter notifications banner */}
         {notifications.length > 0 && (
@@ -1700,6 +1933,12 @@ export default function Home() {
           )
         })()}
 
+        {/* Release calendar — anime airing this week + currently-releasing manga */}
+        <ReleaseCalendar
+          animeMalIds={manga.filter(m => m.anime_mal_id).map(m => m.anime_mal_id!)}
+          releasingManga={manga.filter(m => m.status === 'reading' && m.publishing_status === 'Publishing')}
+        />
+
         {/* Trending section — reads excluded genres from localStorage (set on Search page) */}
         <TrendingSection
           onSelect={rec => setSelectedRec(rec)}
@@ -1708,43 +1947,11 @@ export default function Home() {
           })()}
         />
 
-        {/* Stats — 2 cols on mobile, responsive on desktop (hide watching if 0) */}
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-2">
-          {(Object.keys(STATUS_LABELS) as MangaStatus[]).filter(s => s !== 'watching' || (counts.watching ?? 0) > 0).map(s => (
-            <button key={s} onClick={() => setFilter(filter === s ? 'all' : s)}
-              className={`rounded-xl p-3 text-center transition-colors ${filter === s ? 'bg-white text-black' : 'bg-zinc-900 hover:bg-zinc-800'}`}>
-              <div className="text-xl font-bold">{counts[s] ?? 0}</div>
-              <div className={`text-xs mt-0.5 ${filter === s ? 'text-zinc-600' : 'text-zinc-500'}`}>{STATUS_LABELS[s]}</div>
-            </button>
-          ))}
-        </div>
+        {/* Discovery — Featured / Popular Today / New Releases */}
+        <DiscoverySection
+          onSelect={(mal_id, title) => setSelectedRec({ title, mal_id, confidence: 0, reason: '', isAnime: false })}
+        />
 
-        {/* Anime stats row */}
-        {(() => {
-          const totalHours   = animeList.reduce((s, e) => s + e.total_watch_hours, 0)
-          const totalSeries  = animeList.filter(e => !e.is_movie).length
-          const totalMovies  = animeList.filter(e =>  e.is_movie).length
-          const activeCount  = animeList.filter(e => getAnimeStatus(e) === 'active').length
-          const stats = [
-            { value: totalSeries,                    label: 'Anime series',   icon: <Tv size={16} strokeWidth={1.5} className="icon-primary" /> },
-            { value: `${totalHours.toFixed(0)}h`,    label: 'Hours watched',  icon: <Timer size={16} strokeWidth={1.5} className="icon-secondary" /> },
-            { value: activeCount,                    label: 'Active',         icon: <Play size={16} strokeWidth={1.5} className="icon-primary" /> },
-            { value: totalMovies,                    label: 'Movies',         icon: <Clapperboard size={16} strokeWidth={1.5} className="icon-muted" /> },
-          ] as { value: string | number; label: string; icon: React.ReactNode }[]
-          return (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
-              {stats.map(s => (
-                <div key={s.label} className="bg-zinc-900 rounded-xl p-3 flex items-center gap-3">
-                  <span className="shrink-0">{s.icon}</span>
-                  <div>
-                    <div className="text-lg font-bold leading-tight" style={{ color: 'var(--cyan)' }}>{s.value}</div>
-                    <div className="text-xs text-zinc-500 mt-0.5">{s.label}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )
-        })()}
 
         <MangaFact />
 
@@ -1805,6 +2012,16 @@ export default function Home() {
                   {s === 'all' ? 'All' : STATUS_LABELS[s as MangaStatus]}
                 </button>
               ))}
+              <button onClick={() => setFilter('duplicates')} aria-pressed={filter === 'duplicates'}
+                className={`px-3 py-2 rounded-lg text-sm whitespace-nowrap transition-colors flex items-center gap-1.5 ${filter === 'duplicates' ? 'bg-amber-500 text-black font-medium' : 'text-zinc-400 hover:text-white'}`}>
+                <GitMerge size={13} strokeWidth={1.5} />
+                Duplicates
+                {duplicatePairs.length > 0 && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${filter === 'duplicates' ? 'bg-black/20 text-black' : 'bg-amber-500/20 text-amber-400'}`}>
+                    {duplicatePairs.length}
+                  </span>
+                )}
+              </button>
             </div>
           </div>
 
@@ -1823,8 +2040,63 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Duplicates view */}
+        {filter === 'duplicates' && !loading && (
+          <div className="space-y-3">
+            {duplicatePairs.length === 0 ? (
+              <div className="text-center py-12">
+                <GitMerge size={32} strokeWidth={1} className="mx-auto mb-3 text-zinc-700" />
+                <p className="text-zinc-500 text-sm">No suspected duplicates found.</p>
+              </div>
+            ) : duplicatePairs.map(({ a, b, score, reason }) => {
+              const key = [a.id, b.id].sort().join('|')
+              return (
+                <div key={key} className="bg-zinc-900 border border-amber-500/20 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-medium text-amber-400 flex items-center gap-1.5">
+                      <GitMerge size={12} strokeWidth={1.5} /> {reason} — {Math.round(score * 100)}% match
+                    </span>
+                    <button onClick={() => dismissPair(a, b)} className="text-zinc-600 hover:text-zinc-400 transition-colors">
+                      <X size={14} strokeWidth={1.5} />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    {[a, b].map(m => (
+                      <div key={m.id} className="bg-zinc-800 rounded-lg p-3">
+                        <div className="flex gap-2 mb-2">
+                          {m.cover_url && <img src={m.cover_url} alt="" className="w-8 h-11 object-cover rounded shrink-0" />}
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold leading-snug truncate">{m.title}</p>
+                            <p className="text-[10px] text-zinc-500 mt-0.5">{STATUS_LABELS[m.status]}</p>
+                            <p className="text-[10px] text-zinc-600">Ch. {m.current_chapter}{m.total_chapters ? `/${m.total_chapters}` : ''}</p>
+                          </div>
+                        </div>
+                        {m.synopsis && <p className="text-[10px] text-zinc-600 line-clamp-2 leading-relaxed">{m.synopsis}</p>}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => mergePair(
+                        a.current_chapter >= b.current_chapter ? a : b,
+                        a.current_chapter >= b.current_chapter ? b : a,
+                      )}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium rounded-lg transition-colors">
+                      <GitMerge size={12} strokeWidth={1.5} /> Merge (keep best progress)
+                    </button>
+                    <button onClick={() => dismissPair(a, b)}
+                      className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs rounded-lg transition-colors">
+                      Not a duplicate
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
         {/* List */}
-        {loading ? (
+        {filter !== 'duplicates' && (loading ? (
           <div className="text-zinc-500 text-sm">Loading…</div>
         ) : filtered.length === 0 ? (
           <div className="text-zinc-500 text-sm">Nothing here.</div>
@@ -1852,6 +2124,18 @@ export default function Home() {
                   {/* Info */}
                   <div className="flex-1 min-w-0 flex flex-col">
                     <div className="flex items-center gap-2 min-w-0">
+                      {/* Publishing status dot */}
+                      {m.publishing_status && m.status === 'reading' && (
+                        <span
+                          title={m.publishing_status}
+                          className="shrink-0 w-2 h-2 rounded-full"
+                          style={{
+                            backgroundColor:
+                              m.publishing_status === 'Publishing' ? '#2FCF7A' :
+                              m.publishing_status === 'On Hiatus'  ? '#FFB02E' : '#52525b',
+                          }}
+                        />
+                      )}
                       <button onClick={() => setSelectedManga(m)}
                         className="font-medium text-sm leading-snug truncate text-left hover:text-violet-300 transition-colors flex-1 min-w-0">
                         {m.title}
@@ -1962,6 +2246,32 @@ export default function Home() {
                         </div>
                       </div>
                     )}
+
+                    {/* Genre tags */}
+                    {m.genres?.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {m.genres.slice(0, 4).map(g => (
+                          <span key={g} className="text-[10px] px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded-full">{g}</span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Synopsis */}
+                    {m.synopsis && (
+                      <div className="mt-1.5">
+                        <p className={`text-[11px] text-zinc-600 leading-relaxed ${expandedSynopsis.has(m.id) ? '' : 'line-clamp-2'}`}>
+                          {m.synopsis}
+                        </p>
+                        <button
+                          onClick={() => toggleSynopsis(m.id)}
+                          className="text-[10px] text-zinc-700 hover:text-zinc-400 transition-colors mt-0.5 flex items-center gap-0.5"
+                        >
+                          {expandedSynopsis.has(m.id)
+                            ? <><ChevronUp size={10} strokeWidth={2} /> less</>
+                            : <><ChevronDown size={10} strokeWidth={2} /> more</>}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Chapter stepper + delete */}
@@ -2026,26 +2336,49 @@ export default function Home() {
                         >
                           <Folder size={14} strokeWidth={1.5} />
                         </button>
+                        <a
+                          href={`/search?q=${encodeURIComponent(m.title)}`}
+                          aria-label={`Search for ${m.title}`}
+                          title="Search for more info"
+                          className="ml-1 text-zinc-700 hover:text-cyan-400 transition-colors"
+                        >
+                          <Search size={13} strokeWidth={1.5} />
+                        </a>
+                        <button
+                          onClick={() => refreshCardInfo(m)}
+                          disabled={refreshingId === m.id}
+                          aria-label={`Refresh info for ${m.title}`}
+                          title="Refresh synopsis & info from Jikan"
+                          className={`ml-0.5 transition-colors ${refreshingId === m.id ? 'text-cyan-400 animate-spin' : 'text-zinc-700 hover:text-cyan-400'}`}
+                        >
+                          <RefreshCw size={12} strokeWidth={1.5} />
+                        </button>
                                         {/* Thumbs rating */}
                         <div className="flex gap-0.5 ml-1">
                           <button
-                            onClick={async () => {
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              const prev_rating = m.user_rating
                               const next = m.user_rating === 'up' ? null : 'up'
-                              await supabase.from('manga_list').update({ user_rating: next }).eq('id', m.id)
                               setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: next } : x))
+                              const { error } = await supabase.from('manga_list').update({ user_rating: next }).eq('id', m.id)
+                              if (error) setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: prev_rating } : x))
                             }}
                             aria-label="Thumbs up"
-                            title={m.user_rating === 'up' ? 'Remove rating' : 'Like'}
+                            title={m.user_rating === 'up' ? 'Remove like' : 'Like'}
                             className={`p-0.5 rounded transition-colors ${m.user_rating === 'up' ? 'text-emerald-400' : 'text-zinc-700 hover:text-emerald-400'}`}
                           ><ThumbsUp size={13} strokeWidth={1.5} /></button>
                           <button
-                            onClick={async () => {
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              const prev_rating = m.user_rating
                               const next = m.user_rating === 'down' ? null : 'down'
-                              await supabase.from('manga_list').update({ user_rating: next }).eq('id', m.id)
                               setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: next } : x))
+                              const { error } = await supabase.from('manga_list').update({ user_rating: next }).eq('id', m.id)
+                              if (error) setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: prev_rating } : x))
                             }}
                             aria-label="Thumbs down"
-                            title={m.user_rating === 'down' ? 'Remove rating' : 'Dislike'}
+                            title={m.user_rating === 'down' ? 'Remove dislike' : 'Dislike'}
                             className={`p-0.5 rounded transition-colors ${m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-700 hover:text-red-400'}`}
                           ><ThumbsDown size={13} strokeWidth={1.5} /></button>
                         </div>
@@ -2104,7 +2437,7 @@ export default function Home() {
               </div>
             ))}
           </div>
-        )}
+        ))}
 
         {/* Sync results */}
         {syncResults && (
@@ -2252,6 +2585,7 @@ export default function Home() {
           onMerge={(removedId) => {
             setManga(prev => prev.filter(m => m.id !== removedId))
           }}
+          onNavigate={(m) => setSelectedManga(m)}
         />
       )}
 
@@ -2260,6 +2594,20 @@ export default function Home() {
         <div role="alert" className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 text-sm text-white px-4 py-2 rounded-lg shadow-lg">
           {toast}
         </div>
+      )}
+
+      {completionManga && (
+        <CompletionModal
+          manga={completionManga}
+          onClose={() => setCompletionManga(null)}
+          onSaved={(id, rating, note) => {
+            setManga(prev => prev.map(m => m.id === id
+              ? { ...m, user_rating: rating, notes: note ? (m.notes ? m.notes.trim() + '\n' : '') + `[Completed] ${note}` : m.notes }
+              : m
+            ))
+            showToast(`"${completionManga.title}" logged ✓`)
+          }}
+        />
       )}
     </main>
   )

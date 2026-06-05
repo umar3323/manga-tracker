@@ -4,12 +4,11 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const tabs = [
-  { href: '/',         label: 'Library',  icon: '▤' },
-  { href: '/search',   label: 'Search',   icon: '⌕' },
-  { href: '/discover', label: 'Discover', icon: '◎' },
-  { href: '/anime',    label: 'Anime',    icon: '▷' },
-  { href: '/stats',    label: 'Stats',    icon: '◈' },
-  { href: '/shelves',  label: 'Shelves',  icon: '⊟' },
+  { href: '/',       label: 'Library', icon: '▤' },
+  { href: '/search', label: 'Search',  icon: '⌕' },
+  { href: '/anime',  label: 'Anime',   icon: '▷' },
+  { href: '/stats',  label: 'Stats',   icon: '◈' },
+  { href: '/shelves',label: 'Shelves', icon: '⊟' },
 ]
 
 export default function Nav() {
@@ -34,7 +33,7 @@ export default function Nav() {
         </Link>
 
         {tabs.map(t => {
-          const active = path === t.href
+          const active = path === t.href || (t.href === '/search' && path === '/discover')
           return (
             <Link key={t.href} href={t.href} title={t.label} style={{
               width: 46, height: 46, borderRadius: 12,

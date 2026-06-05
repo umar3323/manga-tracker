@@ -1,6 +1,7 @@
 export interface JikanManga {
   coverUrl: string | null
   totalChapters: number | null
+  synopsis: string | null
 }
 
 export interface JikanAuthor {
@@ -22,6 +23,7 @@ export interface JikanSearchResult {
   hid?: string               // ComicK hash ID (primary key when mal_id is null)
   source?: string            // originating source: 'jikan' | 'mangadex' | 'comick' | 'kitsu' | 'anilist' | 'webtoons'
   country?: 'jp' | 'kr' | 'cn' | 'other'
+  published_from?: string    // ISO date string for start of publication
 }
 
 export interface JikanAnimeAdaptation {
@@ -182,16 +184,17 @@ export async function getTrendingThisYear(limit = 12, excludeGenreIds: number[] 
 export async function fetchMangaInfo(title: string): Promise<JikanManga> {
   try {
     const res = await jikanGet(`/manga?q=${encodeURIComponent(title)}&limit=1`)
-    if (!res.ok) return { coverUrl: null, totalChapters: null }
+    if (!res.ok) return { coverUrl: null, totalChapters: null, synopsis: null }
     const json = await res.json()
     const item = json.data?.[0]
-    if (!item) return { coverUrl: null, totalChapters: null }
+    if (!item) return { coverUrl: null, totalChapters: null, synopsis: null }
     return {
       coverUrl: item.images?.jpg?.image_url ?? null,
       totalChapters: item.chapters ?? null,
+      synopsis: item.synopsis ?? null,
     }
   } catch {
-    return { coverUrl: null, totalChapters: null }
+    return { coverUrl: null, totalChapters: null, synopsis: null }
   }
 }
 
@@ -275,6 +278,20 @@ export async function getTopMangaByGenres(
   }
 }
 
+export async function getNewManga(limit = 12, genreId: number | null = null): Promise<JikanSearchResult[]> {
+  try {
+    const p = new URLSearchParams({
+      order_by: 'start_date', sort: 'desc',
+      status: 'publishing', limit: String(limit),
+    })
+    if (genreId) p.set('genres', String(genreId))
+    const res = await jikanGet(`/manga?${p.toString()}`)
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.data ?? []).map(mapMangaResult)
+  } catch { return [] }
+}
+
 function mapMangaResult(item: Record<string, unknown>): JikanSearchResult {
   const genres = [
     ...((item.genres as { name: string }[]) ?? []),
@@ -286,6 +303,12 @@ function mapMangaResult(item: Record<string, unknown>): JikanSearchResult {
     name: a.name,
   }))
 
+  const published = item.published as { prop?: { from?: { year?: number; month?: number; day?: number } } } | undefined
+  const pf = published?.prop?.from
+  const published_from = (pf?.year && pf?.month && pf?.day)
+    ? `${pf.year}-${String(pf.month).padStart(2, '0')}-${String(pf.day).padStart(2, '0')}`
+    : undefined
+
   return {
     mal_id: item.mal_id as number,
     title: (item.title as string) ?? 'Unknown',
@@ -296,6 +319,7 @@ function mapMangaResult(item: Record<string, unknown>): JikanSearchResult {
     score: (item.score as number | null) ?? null,
     status: (item.status as string | null) ?? null,
     authors,
+    published_from,
   }
 }
 
