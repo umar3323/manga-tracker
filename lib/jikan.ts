@@ -24,6 +24,8 @@ export interface JikanSearchResult {
   source?: string            // originating source: 'jikan' | 'mangadex' | 'comick' | 'kitsu' | 'anilist' | 'webtoons'
   country?: 'jp' | 'kr' | 'cn' | 'other'
   published_from?: string    // ISO date string for start of publication
+  media_type?: 'manga' | 'anime'  // explicitly set when result comes from anime endpoint
+  episodes?: number | null        // anime only — parallel to total_chapters for manga
 }
 
 export interface JikanAnimeAdaptation {
@@ -71,9 +73,16 @@ export interface SearchFilters {
   page?: number
 }
 
-export async function searchMangaWithFilters(filters: SearchFilters): Promise<JikanSearchResult[]> {
+export type SearchResult =
+  | { ok: true;  results: JikanSearchResult[] }
+  | { ok: false; reason: 'mal_unavailable' | 'network_error' | 'no_results' }
+
+/**
+ * Returns a typed result so callers can distinguish between "genuinely no
+ * results", "MAL/Jikan is down (504)", and "network error".
+ */
+export async function searchMangaWithFiltersTyped(filters: SearchFilters): Promise<SearchResult> {
   try {
-    // Author-based search: use person's manga works directly
     if (filters.authorId) {
       let works = await getAuthorWorks(filters.authorId)
       if (filters.excludeGenres?.length) {
@@ -83,7 +92,7 @@ export async function searchMangaWithFilters(filters: SearchFilters): Promise<Ji
           return gid && exc.has(gid)
         }))
       }
-      return works
+      return { ok: true, results: works }
     }
 
     const p = new URLSearchParams()
@@ -99,16 +108,32 @@ export async function searchMangaWithFilters(filters: SearchFilters): Promise<Ji
     p.set('sfw', 'false')
 
     const res = await jikanGet(`/manga?${p.toString()}`)
-    if (!res.ok) return []
-    const json = await res.json()
-    let results = (json.data ?? []).map(mapMangaResult) as JikanSearchResult[]
 
-    // Client-side chapter range filter (Jikan has no min/max chapters param)
+    // 503/504 → MAL is down; distinguish from genuine empty results
+    if (res.status === 503 || res.status === 504) return { ok: false, reason: 'mal_unavailable' }
+    if (!res.ok) return { ok: false, reason: 'network_error' }
+
+    const json = await res.json()
+
+    // Proxy forwards Jikan error payloads with status codes embedded
+    if (json.status === 504 || json.type === 'BadResponseException') {
+      return { ok: false, reason: 'mal_unavailable' }
+    }
+
+    let results = (json.data ?? []).map(mapMangaResult) as JikanSearchResult[]
     if (filters.minChapters) results = results.filter(m => !m.total_chapters || m.total_chapters >= filters.minChapters!)
     if (filters.maxChapters) results = results.filter(m => !m.total_chapters || m.total_chapters <= filters.maxChapters!)
 
-    return results
-  } catch { return [] }
+    return { ok: true, results }
+  } catch {
+    return { ok: false, reason: 'network_error' }
+  }
+}
+
+/** Legacy shim — callers that don't need error distinction. */
+export async function searchMangaWithFilters(filters: SearchFilters): Promise<JikanSearchResult[]> {
+  const r = await searchMangaWithFiltersTyped(filters)
+  return r.ok ? r.results : []
 }
 
 export async function searchPeople(name: string): Promise<{ id: number; name: string }[]> {
@@ -123,7 +148,75 @@ export async function searchPeople(name: string): Promise<{ id: number; name: st
 }
 
 async function jikanGet(path: string): Promise<Response> {
+  // When running in the browser, route /manga?q=... and /anime?q=... through
+  // our server-side proxy which handles 429 retries and 30 s caching.
+  if (typeof window !== 'undefined' && (path.startsWith('/manga?') || path.startsWith('/anime?'))) {
+    const isAnime = path.startsWith('/anime?')
+    const prefix = isAnime ? '/anime?' : '/manga?'
+    const jikanParams = new URLSearchParams(path.slice(prefix.length))
+    const proxyParams = new URLSearchParams()
+    jikanParams.forEach((v, k) => proxyParams.set(k, v))
+    if (isAnime) proxyParams.set('type', 'anime')
+    const proxyUrl = `/api/jikan-search?${proxyParams.toString()}`
+    const res = await fetch(proxyUrl)
+    if (!res.ok) return res
+    const json = await res.json()
+    return new Response(JSON.stringify(json), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
   return fetch(`https://api.jikan.moe/v4${path}`)
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapAnimeResult(a: any): JikanSearchResult {
+  return {
+    mal_id:         a.mal_id ?? null,
+    title:          a.title_english ?? a.title ?? '',
+    synopsis:       a.synopsis ?? null,
+    cover_url:      a.images?.jpg?.large_image_url ?? a.images?.jpg?.image_url ?? null,
+    genres:         (a.genres ?? []).map((g: { name: string }) => g.name),
+    total_chapters: null,
+    episodes:       a.episodes ?? null,
+    score:          a.score ?? null,
+    status:         a.status ?? null,
+    authors:        (a.studios ?? []).slice(0, 2).map((s: { mal_id: number; name: string }) => ({ id: s.mal_id, name: s.name })),
+    source:         'jikan',
+    media_type:     'anime',
+  }
+}
+
+/**
+ * Search anime via Jikan — returns typed result so callers can distinguish
+ * MAL-down (504) from genuine empty/network errors.
+ */
+export async function searchAnimeWithFiltersTyped(
+  filters: Pick<SearchFilters, 'query' | 'orderBy' | 'sort' | 'page'>
+): Promise<SearchResult> {
+  try {
+    const p = new URLSearchParams()
+    if (filters.query?.trim()) p.set('q', filters.query.trim())
+    p.set('order_by', filters.orderBy ?? 'score')
+    p.set('sort',     filters.sort    ?? 'desc')
+    p.set('limit', '12')
+    p.set('page',  String(filters.page ?? 1))
+    p.set('sfw', 'false')
+
+    const res = await jikanGet(`/anime?${p.toString()}`)
+    if (res.status === 503 || res.status === 504) return { ok: false, reason: 'mal_unavailable' }
+    if (!res.ok) return { ok: false, reason: 'network_error' }
+
+    const json = await res.json()
+    if (json.status === 504 || json.type === 'BadResponseException') {
+      return { ok: false, reason: 'mal_unavailable' }
+    }
+
+    const results: JikanSearchResult[] = (json.data ?? []).map(mapAnimeResult)
+    return { ok: true, results }
+  } catch {
+    return { ok: false, reason: 'network_error' }
+  }
 }
 
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms))

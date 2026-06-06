@@ -4,15 +4,18 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import Image from 'next/image'
 import { supabase, type MangaStatus } from '@/lib/supabase'
 import {
-  searchMangaWithFilters, searchPeople, getAnimeAdaptations, getMangaById,
+  searchMangaWithFilters, searchMangaWithFiltersTyped, searchAnimeWithFiltersTyped,
+  searchPeople, getAnimeAdaptations, getMangaById,
   MANGA_GENRES, type JikanSearchResult, type SearchFilters,
 } from '@/lib/jikan'
 import type { GoodreadsBook } from '@/app/api/goodreads/route'
-import DiscoverPanel from '@/components/DiscoverPanel'
+import MangaPlusFeed from '@/components/MangaPlusFeed'
+import WebtoonsFeed from '@/components/WebtoonsFeed'
+import type { SJChapter } from '@/app/api/shonenjump/route'
 
 const STATUS_OPTIONS: { value: MangaStatus; label: string }[] = [
   { value: 'reading',      label: 'Currently Reading' },
-  { value: 'plan_to_read', label: 'Plan to Read'      },
+  { value: 'plan_to_read', label: 'Plan To Read'      },
   { value: 'completed',    label: 'Completed'          },
   { value: 'on_hold',      label: 'On Hold'            },
   { value: 'dropped',      label: 'Dropped'            },
@@ -20,10 +23,123 @@ const STATUS_OPTIONS: { value: MangaStatus; label: string }[] = [
 
 const MAL_STATUS: Record<string, MangaStatus> = {
   'Reading': 'reading', 'Completed': 'completed',
-  'On-Hold': 'on_hold', 'Dropped': 'dropped', 'Plan to Read': 'plan_to_read',
+  'On-Hold': 'on_hold', 'Dropped': 'dropped', 'Plan To Read': 'plan_to_read',
 }
 
 type GenreState = 'neutral' | 'include' | 'exclude'
+
+// Quick-access genres shown in the empty state
+const QUICK_GENRES = [
+  { id: 1,  name: 'Action'        },
+  { id: 22, name: 'Romance'       },
+  { id: 10, name: 'Fantasy'       },
+  { id: 4,  name: 'Comedy'        },
+  { id: 8,  name: 'Drama'         },
+  { id: 37, name: 'Supernatural'  },
+  { id: 27, name: 'Shounen'       },
+  { id: 42, name: 'Seinen'        },
+  { id: 36, name: 'Slice of Life' },
+  { id: 14, name: 'Horror'        },
+  { id: 7,  name: 'Mystery'       },
+  { id: 24, name: 'Sci-Fi'        },
+]
+
+// Popular search terms
+const QUICK_SEARCHES = ['One Piece', 'Berserk', 'Vinland Saga', 'Blue Period', 'Dungeon Meshi', 'Vagabond']
+
+function SearchEmptyState({
+  onGenreSearch,
+  onQuerySearch,
+}: {
+  onGenreSearch: (genreId: number, genreName: string) => void
+  onQuerySearch: (q: string) => void
+}) {
+  const [sjChapters, setSjChapters] = useState<SJChapter[]>([])
+  const [sjLoading, setSjLoading] = useState(true)
+  const [liveTab, setLiveTab] = useState<'jump' | 'plus' | 'webtoons'>('jump')
+  const [trackedTitles] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    fetch('/api/shonenjump').then(r => r.json())
+      .then(j => { setSjChapters((j.chapters ?? []).slice(0, 8)); setSjLoading(false) })
+      .catch(() => setSjLoading(false))
+  }, [])
+
+  return (
+    <div className="space-y-8 mt-2">
+
+      {/* Genre quick-starts */}
+      <div>
+        <p className="text-xs text-zinc-500 uppercase tracking-widest font-semibold mb-3">Browse by genre</p>
+        <div className="flex flex-wrap gap-2">
+          {QUICK_GENRES.map(g => (
+            <button key={g.id} onClick={() => onGenreSearch(g.id, g.name)}
+              className="px-3 py-1.5 rounded-full text-sm bg-zinc-900 border border-zinc-800 text-zinc-300 hover:border-zinc-600 hover:text-white transition-colors">
+              {g.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Quick title searches */}
+      <div>
+        <p className="text-xs text-zinc-500 uppercase tracking-widest font-semibold mb-3">Popular titles</p>
+        <div className="flex flex-wrap gap-2">
+          {QUICK_SEARCHES.map(q => (
+            <button key={q} onClick={() => onQuerySearch(q)}
+              className="px-3 py-1.5 rounded-full text-sm bg-zinc-900 border border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-white transition-colors">
+              {q}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Live platform feeds — not replicable via search */}
+      <div>
+        <p className="text-xs text-zinc-500 uppercase tracking-widest font-semibold mb-3">Live chapter feeds</p>
+        <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1 mb-4 w-fit">
+          {([['jump', '⚡ Jump'], ['plus', '📖 Jump+'], ['webtoons', '📱 Webtoons']] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setLiveTab(id)}
+              className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-colors ${liveTab === id ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {liveTab === 'jump' && (
+          sjLoading ? (
+            <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-14 bg-zinc-900 rounded-xl animate-pulse" />)}</div>
+          ) : (
+            <div className="space-y-1.5">
+              {sjChapters.map(ch => (
+                <div key={ch.seriesSlug} className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 hover:border-zinc-600 transition-colors">
+                  <div className="w-1.5 h-8 rounded-full shrink-0 bg-zinc-700" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-zinc-100 truncate">{ch.title}</p>
+                    <p className="text-xs text-zinc-500">Ch. {ch.chapter}</p>
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    {ch.isFree && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-400 border border-emerald-800/50">FREE</span>}
+                    <a href={ch.vizUrl} target="_blank" rel="noopener noreferrer" className="px-2.5 py-1.5 bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold rounded-lg transition-colors">Read ↗</a>
+                  </div>
+                </div>
+              ))}
+              {sjChapters.length > 0 && (
+                <p className="text-[10px] text-zinc-700 text-center pt-1">
+                  More on <a href="https://www.viz.com/shonenjump" target="_blank" rel="noopener noreferrer" className="underline hover:text-zinc-500">viz.com/shonenjump</a>
+                </p>
+              )}
+            </div>
+          )
+        )}
+
+        {liveTab === 'plus' && <MangaPlusFeed trackedTitles={trackedTitles} />}
+        {liveTab === 'webtoons' && <WebtoonsFeed trackedTitles={trackedTitles} onSelect={() => {}} />}
+      </div>
+
+    </div>
+  )
+}
 
 export default function SearchPage() {
   // ── Search state ──────────────────────────────────────────────────────────
@@ -37,6 +153,10 @@ export default function SearchPage() {
   const [grResults, setGrResults] = useState<GoodreadsBook[]>([])
   const [grLoading, setGrLoading] = useState(false)
   const [addingGr, setAddingGr] = useState<string | null>(null)
+  // 'ok' = Jikan working | 'down' = MAL/Jikan 504 | 'unknown' = not yet checked
+  const [malStatus, setMalStatus] = useState<'ok' | 'down' | 'unknown'>('unknown')
+  const [usingCatalogFallback, setUsingCatalogFallback] = useState(false)
+  const [animeResults, setAnimeResults] = useState<JikanSearchResult[]>([])
 
   // ── Filter state ──────────────────────────────────────────────────────────
   const [showFilters, setShowFilters] = useState(false)
@@ -76,8 +196,31 @@ export default function SearchPage() {
     if (!query.trim() || query.length < 2) { setSuggestions([]); setShowSuggestions(false); return }
     suggestTimer.current = setTimeout(async () => {
       setSuggestLoading(true)
-      const res = await searchMangaWithFilters({ query: query.trim(), orderBy: 'score', sort: 'desc' })
-      setSuggestions(res.slice(0, 8))
+      const result = await searchMangaWithFiltersTyped({ query: query.trim(), orderBy: 'score', sort: 'desc' })
+      if (result.ok) {
+        setMalStatus('ok')
+        setUsingCatalogFallback(false)
+        setSuggestions(result.results.slice(0, 8))
+      } else if (result.reason === 'mal_unavailable') {
+        setMalStatus('down')
+        // Fall back: search the local catalog by text
+        try {
+          const r = await fetch('/api/catalog')
+          if (r.ok) {
+            const j = await r.json()
+            const q = query.trim().toLowerCase()
+            const hits: JikanSearchResult[] = (j.catalog ?? [])
+              .filter((m: JikanSearchResult) => m.title.toLowerCase().includes(q))
+              .slice(0, 8)
+            setSuggestions(hits)
+            setUsingCatalogFallback(hits.length > 0)
+          } else {
+            setSuggestions([])
+          }
+        } catch { setSuggestions([]) }
+      } else {
+        setSuggestions([])
+      }
       setShowSuggestions(true)
       setSuggestLoading(false)
     }, 350)
@@ -155,8 +298,12 @@ export default function SearchPage() {
     if (!query.trim() && !hasFilters) return
     if (query.trim()) saveRecentSearch(query.trim())
     setLoading(true)
-    setResults([])
+    // Show autocomplete suggestions immediately so the user sees something
+    // while the full search runs. The proxy cache means this is usually instant.
+    if (suggestions.length > 0) setResults(suggestions)
+    else setResults([])
     setGrResults([])
+    setAnimeResults([])
 
     // Detect MAL URL
     const malMatch = query.match(/myanimelist\.net\/manga\/(\d+)/i)
@@ -180,9 +327,13 @@ export default function SearchPage() {
       authorId: selectedAuthor?.id,
     }
 
-    // Run Jikan + Goodreads in parallel
-    const [jikanRes] = await Promise.all([
-      searchMangaWithFilters(filters),
+    // Run Jikan manga, Jikan anime, + Goodreads in parallel
+    const [jikanResult, animeResult] = await Promise.all([
+      searchMangaWithFiltersTyped(filters),
+      // Anime search — only when there's a text query (genre-only searches are manga-specific)
+      query.trim()
+        ? searchAnimeWithFiltersTyped({ query: query.trim(), orderBy: filters.orderBy, sort: filters.sort })
+        : Promise.resolve({ ok: false, reason: 'no_results' } as const),
       // Kick off Goodreads search in background if there's a text query
       query.trim() ? (async () => {
         setGrLoading(true)
@@ -190,7 +341,6 @@ export default function SearchPage() {
           const r = await fetch(`/api/goodreads?q=${encodeURIComponent(query.trim())}`)
           if (r.ok) {
             const j = await r.json()
-            // Filter out GR results whose MAL ID already appears in Jikan results
             setGrResults(j.books ?? [])
           }
         } catch { /* non-critical */ }
@@ -198,9 +348,36 @@ export default function SearchPage() {
       })() : Promise.resolve(),
     ])
 
-    setResults(jikanRes)
+    if (animeResult.ok) {
+      setAnimeResults(animeResult.results)
+    }
+
+    if (jikanResult.ok) {
+      setMalStatus('ok')
+      setUsingCatalogFallback(false)
+      if (jikanResult.results.length > 0) setResults(jikanResult.results)
+      // else keep suggestions (already set above as fast-path)
+    } else if (jikanResult.reason === 'mal_unavailable') {
+      setMalStatus('down')
+      // Fall back to catalog text search
+      try {
+        const r = await fetch('/api/catalog')
+        if (r.ok) {
+          const j = await r.json()
+          const q = query.trim().toLowerCase()
+          const hits: JikanSearchResult[] = (j.catalog ?? [])
+            .filter((m: JikanSearchResult) => m.title.toLowerCase().includes(q))
+          if (hits.length > 0) {
+            setResults(hits)
+            setUsingCatalogFallback(true)
+          }
+        }
+      } catch { /* keep suggestions */ }
+    }
+    // else network error — keep whatever we set from suggestions
+
     setLoading(false)
-  }, [query, includeGenreIds, excludeGenreIds, mangaStatus, orderBy, sortDir, minScore, minChapters, maxChapters, selectedAuthor, hasFilters])
+  }, [query, suggestions, includeGenreIds, excludeGenreIds, mangaStatus, orderBy, sortDir, minScore, minChapters, maxChapters, selectedAuthor, hasFilters])
 
   const addManga = async (manga: JikanSearchResult, status: MangaStatus) => {
     setAdding(manga.mal_id)
@@ -355,7 +532,16 @@ export default function SearchPage() {
                   <div className="px-4 py-3 text-xs text-zinc-500">Searching…</div>
                 )}
                 {!suggestLoading && suggestions.length === 0 && (
-                  <div className="px-4 py-3 text-xs text-zinc-500">No matches — try a different spelling</div>
+                  <div className="px-4 py-3 text-xs text-zinc-500">
+                    {malStatus === 'down'
+                      ? '⚠️ MyAnimeList is currently unavailable — results may be limited'
+                      : 'No matches — try a different spelling'}
+                  </div>
+                )}
+                {!suggestLoading && suggestions.length > 0 && usingCatalogFallback && (
+                  <div className="px-4 py-2 text-[10px] text-amber-500/70 border-b border-zinc-800">
+                    ⚠️ MAL unavailable — showing cached catalog results
+                  </div>
                 )}
                 {!suggestLoading && suggestions.map(s => (
                   <button
@@ -565,74 +751,203 @@ export default function SearchPage() {
 
         {/* Results */}
         {loading && <div className="text-zinc-500 text-sm py-4">Searching…</div>}
-        {!loading && results.length === 0 && (query || hasFilters) && (
-          <div className="text-zinc-500 text-sm py-4">No results found — try adjusting the filters.</div>
-        )}
-
-        {/* Discovery — shown when no search is active */}
-        {!loading && !query.trim() && !hasFilters && results.length === 0 && (
-          <div className="mt-2">
-            <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold mb-4">Discover</p>
-            <DiscoverPanel defaultTab="similar" />
+        {/* MAL down banner */}
+        {malStatus === 'down' && (
+          <div className="mb-4 flex items-start gap-2.5 bg-amber-900/20 border border-amber-500/30 rounded-xl px-4 py-3">
+            <span className="text-amber-400 mt-0.5 shrink-0">⚠️</span>
+            <div>
+              <p className="text-xs font-semibold text-amber-300">MyAnimeList Is Currently Unavailable</p>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                {usingCatalogFallback
+                  ? 'Showing results from the local catalog instead. Full search will resume when MAL is back.'
+                  : 'Search results may be empty. Try again in a few minutes, or use the genre filters below.'}
+              </p>
+            </div>
           </div>
         )}
 
-        <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
-          {results.map(manga => (
-            <div key={manga.mal_id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-              <div className="flex gap-4 p-4">
-                <div className="shrink-0 w-16 rounded-lg overflow-hidden bg-zinc-800" style={{ height: '88px' }}>
-                  {manga.cover_url ? (
-                    <Image src={manga.cover_url} alt={manga.title} width={64} height={88}
-                      className="w-full h-full object-cover" unoptimized />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">?</div>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm leading-snug">{manga.title}</div>
-                  {manga.authors.length > 0 && (
-                    <div className="text-xs text-zinc-500 mt-0.5">by {manga.authors.map(a => a.name).join(', ')}</div>
-                  )}
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {manga.genres.slice(0, 3).map(g => (
-                      <span key={g} className="text-xs px-1.5 py-0.5 bg-zinc-800 text-zinc-400 rounded">{g}</span>
-                    ))}
-                    {manga.score && <span className="text-xs px-1.5 py-0.5 bg-zinc-800 text-yellow-400 rounded">★ {manga.score}</span>}
-                    {manga.total_chapters && <span className="text-xs px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded">{manga.total_chapters} ch</span>}
-                    {manga.status && <span className="text-xs px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded">{manga.status}</span>}
+        {!loading && results.length === 0 && (query || hasFilters) && malStatus !== 'down' && (
+          <div className="text-zinc-500 text-sm py-4">No Results Found — Try Adjusting The Filters.</div>
+        )}
+        {!loading && results.length === 0 && (query || hasFilters) && malStatus === 'down' && (
+          <div className="text-zinc-500 text-sm py-4">No Local Catalog Matches — MAL Is Down, Try Again Later.</div>
+        )}
+
+        {/* Empty state — no search active */}
+        {!loading && !query.trim() && !hasFilters && results.length === 0 && (
+          <SearchEmptyState
+            onGenreSearch={async (genreId) => {
+              setLoading(true)
+              setResults([])
+              const res = await searchMangaWithFilters({ includeGenres: [genreId], orderBy: 'score', sort: 'desc' })
+              setResults(res)
+              setLoading(false)
+              setGenreStates({ [genreId]: 'include' })
+            }}
+            onQuerySearch={async (q) => {
+              setQuery(q)
+              setShowSuggestions(false)
+              saveRecentSearch(q)
+              setLoading(true)
+              setResults([])
+              const res = await searchMangaWithFilters({ query: q, orderBy: 'score', sort: 'desc' })
+              setResults(res)
+              setLoading(false)
+            }}
+          />
+        )}
+
+        {/* ── Build adaptation pairs: manga titles that also appear in anime results ── */}
+        {(() => {
+          // Index anime results by normalised title for O(1) lookup
+          const animeByTitle = new Map<string, JikanSearchResult>()
+          for (const a of animeResults) {
+            animeByTitle.set(a.title.toLowerCase(), a)
+          }
+
+          // A manga result is "paired" when the anime list contains an entry
+          // whose title starts with (or equals) the manga title.
+          const getPairedAnime = (mangaTitle: string): JikanSearchResult | null => {
+            const key = mangaTitle.toLowerCase()
+            if (animeByTitle.has(key)) return animeByTitle.get(key)!
+            // Partial prefix match: "Bleach" pairs "Bleach: TYBW"
+            for (const [aTitle, a] of animeByTitle) {
+              if (aTitle.startsWith(key) || key.startsWith(aTitle)) return a
+            }
+            return null
+          }
+
+          // IDs of anime results that were already shown as a pair, so we don't repeat them below
+          const pairedAnimeIds = new Set<number | null>()
+
+          const ResultCard = ({ item, pairedWith }: { item: JikanSearchResult; pairedWith?: JikanSearchResult | null }) => {
+            const isAnime = item.media_type === 'anime'
+            const typeLabel  = isAnime ? '🎌 Anime'   : '📖 Manga'
+            const typeBg     = isAnime ? 'bg-cyan-900/30 border-cyan-700/40 text-cyan-300' : 'bg-violet-900/30 border-violet-700/40 text-violet-300'
+            const countryBadge = !isAnime && item.country === 'kr'
+              ? { label: 'Manhwa', style: 'bg-pink-900/30 border-pink-700/40 text-pink-300' }
+              : !isAnime && item.country === 'cn'
+              ? { label: 'Manhua', style: 'bg-blue-900/30 border-blue-700/40 text-blue-300' }
+              : null
+
+            return (
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+                <div className="flex gap-4 p-4">
+                  <div className="shrink-0 w-16 rounded-lg overflow-hidden bg-zinc-800" style={{ height: '88px' }}>
+                    {item.cover_url ? (
+                      <Image src={item.cover_url} alt={item.title} width={64} height={88}
+                        className="w-full h-full object-cover" unoptimized />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">?</div>
+                    )}
                   </div>
-                  {manga.synopsis && (
-                    <button onClick={() => setExpandedId(expandedId === manga.mal_id ? null : manga.mal_id)}
-                      className="mt-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
-                      {expandedId === manga.mal_id ? 'Hide ↑' : 'Synopsis ↓'}
-                    </button>
-                  )}
-                </div>
-                <div className="shrink-0">
-                  {manga.mal_id !== null && added.has(manga.mal_id) ? (
-                    <span className="text-emerald-400 text-sm font-medium">✓ Added</span>
-                  ) : (
-                    <div className="flex flex-col gap-1.5">
-                      {STATUS_OPTIONS.map(opt => (
-                        <button key={opt.value} onClick={() => addManga(manga, opt.value)}
-                          disabled={adding === manga.mal_id}
-                          className="px-3 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 hover:text-white transition-colors disabled:opacity-40 text-left whitespace-nowrap">
-                          {adding === manga.mal_id ? '…' : opt.label}
-                        </button>
-                      ))}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start gap-1.5 flex-wrap mb-1">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium shrink-0 ${typeBg}`}>{typeLabel}</span>
+                      {countryBadge && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium shrink-0 ${countryBadge.style}`}>{countryBadge.label}</span>
+                      )}
                     </div>
-                  )}
+                    <div className="font-semibold text-sm leading-snug">{item.title}</div>
+                    {item.authors.length > 0 && (
+                      <div className="text-xs text-zinc-500 mt-0.5">
+                        {isAnime ? 'Studio: ' : 'by '}{item.authors.map(a => a.name).join(', ')}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {item.genres.slice(0, 3).map(g => (
+                        <span key={g} className="text-xs px-1.5 py-0.5 bg-zinc-800 text-zinc-400 rounded">{g}</span>
+                      ))}
+                      {item.score && <span className="text-xs px-1.5 py-0.5 bg-zinc-800 text-yellow-400 rounded">★ {item.score}</span>}
+                      {!isAnime && item.total_chapters && <span className="text-xs px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded">{item.total_chapters} ch</span>}
+                      {isAnime && item.episodes && <span className="text-xs px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded">{item.episodes} ep</span>}
+                      {item.status && <span className="text-xs px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded">{item.status}</span>}
+                    </div>
+                    {/* Adaptation link badge */}
+                    {pairedWith && (
+                      <div className="mt-1.5 flex items-center gap-1 text-[10px] text-amber-400/80">
+                        <span>🔗</span>
+                        <span>
+                          {isAnime
+                            ? `Based on the manga · ${pairedWith.total_chapters ? `${pairedWith.total_chapters} ch` : ''}`
+                            : `Has anime · ${pairedWith.episodes ? `${pairedWith.episodes} ep` : pairedWith.title}`}
+                        </span>
+                      </div>
+                    )}
+                    {item.synopsis && (
+                      <button onClick={() => setExpandedId(expandedId === item.mal_id ? null : item.mal_id)}
+                        className="mt-1 text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
+                        {expandedId === item.mal_id ? 'Hide ↑' : 'Synopsis ↓'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="shrink-0">
+                    {item.mal_id !== null && added.has(item.mal_id) ? (
+                      <span className="text-emerald-400 text-sm font-medium">✓ Added</span>
+                    ) : (
+                      <div className="flex flex-col gap-1.5">
+                        {STATUS_OPTIONS.map(opt => (
+                          <button key={opt.value} onClick={() => addManga(item, opt.value)}
+                            disabled={adding === item.mal_id}
+                            className="px-3 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 hover:text-white transition-colors disabled:opacity-40 text-left whitespace-nowrap">
+                            {adding === item.mal_id ? '…' : opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
+                {expandedId === item.mal_id && item.synopsis && (
+                  <div className="border-t border-zinc-800 px-4 py-3">
+                    <p className="text-xs text-zinc-400 leading-relaxed">{item.synopsis}</p>
+                  </div>
+                )}
               </div>
-              {expandedId === manga.mal_id && manga.synopsis && (
-                <div className="border-t border-zinc-800 px-4 py-3">
-                  <p className="text-xs text-zinc-400 leading-relaxed">{manga.synopsis}</p>
+            )
+          }
+
+          return (
+            <>
+              {/* Manga section */}
+              {results.length > 0 && (
+                <div className="mb-6">
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold mb-2 flex items-center gap-1.5">
+                    📖 Manga
+                    <span className="text-zinc-700">· {results.length} results</span>
+                  </p>
+                  <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
+                    {results.map(manga => {
+                      const paired = getPairedAnime(manga.title)
+                      if (paired?.mal_id) pairedAnimeIds.add(paired.mal_id)
+                      return <ResultCard key={manga.mal_id ?? manga.title} item={manga} pairedWith={paired} />
+                    })}
+                  </div>
                 </div>
               )}
-            </div>
-          ))}
-        </div>
+
+              {/* Anime section */}
+              {animeResults.length > 0 && (
+                <div className="mb-6">
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold mb-2 flex items-center gap-1.5">
+                    🎌 Anime
+                    <span className="text-zinc-700">· {animeResults.length} results</span>
+                  </p>
+                  <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
+                    {animeResults.map(anime => {
+                      // Find the paired manga if any (reverse lookup)
+                      const pairedManga = results.find(m =>
+                        m.title.toLowerCase() === anime.title.toLowerCase() ||
+                        anime.title.toLowerCase().startsWith(m.title.toLowerCase()) ||
+                        m.title.toLowerCase().startsWith(anime.title.toLowerCase())
+                      ) ?? null
+                      return <ResultCard key={`anime-${anime.mal_id ?? anime.title}`} item={anime} pairedWith={pairedManga} />
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )
+        })()}
 
         {/* Goodreads results */}
         {(grLoading || grResults.length > 0) && (
@@ -696,7 +1011,7 @@ export default function SearchPage() {
                               <>
                                 <button onClick={() => addFromGoodreads(book, 'plan_to_read')} disabled={isAdding}
                                   className="px-3 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 hover:text-white transition-colors disabled:opacity-40 whitespace-nowrap">
-                                  {isAdding ? '…' : '+ Plan to Read'}
+                                  {isAdding ? '…' : '+ Plan To Read'}
                                 </button>
                                 <button onClick={() => addFromGoodreads(book, 'reading')} disabled={isAdding}
                                   className="px-3 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 hover:text-white transition-colors disabled:opacity-40 whitespace-nowrap">

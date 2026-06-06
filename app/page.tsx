@@ -18,7 +18,10 @@ import type { MUSeriesData } from '@/lib/mangaupdates'
 import type { ANNRelatedWork } from '@/lib/ann'
 import MangaFact from '@/components/MangaFact'
 import CompletionModal from '@/components/CompletionModal'
+import DateAttributionModal, { type DateAttribution } from '@/components/DateAttributionModal'
+import NotificationBell from '@/components/NotificationBell'
 import { getStatus as getAnimeStatus, type AnimeRow } from '@/lib/anime-data'
+import { deepDiveSeries } from '@/lib/data/takeout-series'
 import {
   Tv, Timer, Play, Clapperboard, BookOpen, PenLine, ThumbsUp, ThumbsDown,
   Folder, MapPin, Flag, Zap, Sword, Cloud, Moon, Flame, Heart, Search,
@@ -91,7 +94,7 @@ const STATUS_LABELS: Record<MangaStatus, string> = {
   completed:    'Completed',
   on_hold:      'On Hold',
   dropped:      'Dropped',
-  plan_to_read: 'Plan to Read',
+  plan_to_read: 'Plan To Read',
   watching:     'Watching',
 }
 
@@ -107,16 +110,16 @@ const STATUS_COLORS: Record<MangaStatus, string> = {
 type SortKey = 'last_read' | 'title' | 'chapter'
 
 function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return 'never'
+  if (!dateStr) return 'Never'
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
+  if (mins < 1) return 'Just Now'
+  if (mins < 60) return `${mins}m Ago`
   const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
+  if (hrs < 24) return `${hrs}h Ago`
   const days = Math.floor(hrs / 24)
-  if (days < 30) return `${days}d ago`
-  return `${Math.floor(days / 30)}mo ago`
+  if (days < 30) return `${days}d Ago`
+  return `${Math.floor(days / 30)}mo Ago`
 }
 
 /** Safe bold-markdown renderer — no dangerouslySetInnerHTML */
@@ -181,13 +184,15 @@ function RelationMergeButton({ keep, remove, onMerge }: {
 }
 
 /** Manga detail modal */
-function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onNavigate }: {
+function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMergeMultiple, onNavigate }: {
   manga: Manga
   allManga: Manga[]
   onClose: () => void
   onStatusChange: (id: string, status: MangaStatus) => void
-  /** Called with the ID of the entry that was deleted during a merge */
+  /** Called with the ID of the entry that was deleted during a single merge */
   onMerge: (removedId: string) => void
+  /** Called with array of IDs to remove during a multi-merge — parent handles DB + state */
+  onMergeMultiple: (removeIds: string[]) => Promise<void>
   /** Navigate to another manga in the list from a related-work card */
   onNavigate: (m: Manga) => void
 }) {
@@ -209,6 +214,11 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onNavi
   const [merging, setMerging] = useState(false)
   const [muData, setMuData] = useState<MUSeriesData | null>(null)
   const [annAnime, setAnnAnime] = useState<ANNRelatedWork[]>([])
+  // Merge panel
+  const [mergeOpen, setMergeOpen] = useState(false)
+  const [mergeQuery, setMergeQuery] = useState('')
+  const [mergeSelected, setMergeSelected] = useState<Set<string>>(new Set())
+  const [mergingMulti, setMergingMulti] = useState(false)
 
   useEffect(() => {
     if (manga.mal_id) {
@@ -300,7 +310,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onNavi
 
   const STATUS_LABELS: Record<MangaStatus, string> = {
     reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-    dropped: 'Dropped', plan_to_read: 'Plan to Read', watching: 'Watching',
+    dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching',
   }
   return (
     <div className="fixed inset-0 z-50 flex items-end lg:items-stretch lg:justify-end" onClick={onClose}>
@@ -706,6 +716,138 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onNavi
             currentChapter={manga.current_chapter}
           />
 
+          {/* ── Merge panel ─────────────────────────────────────────── */}
+          {(() => {
+            const candidates = allManga.filter(m => m.id !== manga.id)
+            const q = mergeQuery.trim().toLowerCase()
+            const visible = q
+              ? candidates.filter(m => m.title.toLowerCase().includes(q))
+              : candidates.slice(0, 40)
+            const selectedEntries = allManga.filter(m => mergeSelected.has(m.id))
+
+            const executeMerge = async () => {
+              if (mergeSelected.size === 0) return
+              setMergingMulti(true)
+              await onMergeMultiple([...mergeSelected])
+              setMergingMulti(false)
+              setMergeSelected(new Set())
+              setMergeQuery('')
+              setMergeOpen(false)
+              onClose()
+            }
+
+            return (
+              <div className="mt-4 border-t border-zinc-800 pt-4">
+                <button
+                  onClick={() => setMergeOpen(v => !v)}
+                  className="w-full flex items-center justify-between text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-colors mb-1 px-1"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <GitMerge size={12} strokeWidth={1.5} />
+                    Merge With Other Entries
+                    {mergeSelected.size > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold"
+                        style={{ background: 'rgba(255,45,70,0.18)', color: 'var(--vermillion)' }}>
+                        {mergeSelected.size} selected
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-zinc-600">{mergeOpen ? '▲' : '▼'}</span>
+                </button>
+
+                {mergeOpen && (
+                  <div className="mt-2 space-y-2">
+                    {/* Search input */}
+                    <input
+                      type="text"
+                      value={mergeQuery}
+                      onChange={e => setMergeQuery(e.target.value)}
+                      placeholder="Search your library…"
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm outline-none focus:border-zinc-500 placeholder:text-zinc-600"
+                      autoFocus
+                    />
+
+                    {/* Selected chips */}
+                    {selectedEntries.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedEntries.map(m => (
+                          <span key={m.id}
+                            className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full"
+                            style={{ background: 'rgba(255,45,70,0.15)', color: 'var(--vermillion)', border: '1px solid rgba(255,45,70,0.3)' }}>
+                            {m.title.length > 24 ? m.title.slice(0, 22) + '…' : m.title}
+                            <button
+                              onClick={() => setMergeSelected(prev => { const n = new Set(prev); n.delete(m.id); return n })}
+                              className="opacity-60 hover:opacity-100 leading-none ml-0.5"
+                            >×</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Results list */}
+                    <div className="max-h-52 overflow-y-auto rounded-xl border border-zinc-800 divide-y divide-zinc-800">
+                      {visible.length === 0 ? (
+                        <p className="text-xs text-zinc-600 text-center py-4">No results</p>
+                      ) : visible.map(m => {
+                        const checked = mergeSelected.has(m.id)
+                        return (
+                          <button key={m.id}
+                            onClick={() => setMergeSelected(prev => {
+                              const n = new Set(prev)
+                              checked ? n.delete(m.id) : n.add(m.id)
+                              return n
+                            })}
+                            className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-zinc-800 ${checked ? 'bg-zinc-800/80' : ''}`}
+                          >
+                            {/* Checkbox indicator */}
+                            <span className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] transition-colors ${
+                              checked
+                                ? 'border-[var(--vermillion)] bg-[var(--vermillion)] text-white'
+                                : 'border-zinc-600 bg-transparent'
+                            }`}>
+                              {checked && '✓'}
+                            </span>
+
+                            {m.cover_url && (
+                              <img src={m.cover_url} alt="" className="w-7 h-9 object-cover rounded shrink-0" />
+                            )}
+
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-zinc-200 truncate">{m.title}</p>
+                              <p className="text-[10px] text-zinc-500">
+                                Ch.{m.current_chapter}
+                                {m.total_chapters ? `/${m.total_chapters}` : ''}
+                                {' · '}{STATUS_LABELS[m.status]}
+                              </p>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {/* Execute */}
+                    {mergeSelected.size > 0 && (
+                      <button
+                        onClick={executeMerge}
+                        disabled={mergingMulti}
+                        className="w-full py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-40"
+                        style={{ background: 'var(--vermillion)', color: '#fff' }}
+                      >
+                        {mergingMulti
+                          ? 'Merging…'
+                          : `Merge ${mergeSelected.size + 1} Entries Into This One`}
+                      </button>
+                    )}
+
+                    <p className="text-[10px] text-zinc-600 text-center px-2">
+                      This entry is kept. Selected entries are deleted. Best progress &amp; metadata from all sources is preserved.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           <button onClick={onClose}
             className="w-full mt-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300 transition-colors">
             Close
@@ -817,7 +959,7 @@ function RecommendationModal({ rec, onClose }: { rec: Recommendation; onClose: (
 
   const STATUS_LABELS: Record<MangaStatus, string> = {
     reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-    dropped: 'Dropped', plan_to_read: 'Plan to Read', watching: 'Watching',
+    dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching',
   }
 
   useEffect(() => {
@@ -1075,11 +1217,13 @@ function ShareModal({ token, enabled, onToggle, onClose }: {
   )
 }
 
-function MobileMenu({ onRecommend, onSync, onSignOut, onExport, onShare, loadingRec, syncing }: {
-  onRecommend: () => void; onSync: () => void; onSignOut: () => void; onExport: () => void; onShare: () => void
-  loadingRec: boolean; syncing: boolean
+function MobileMenu({ onRecommend, onSync, onSignOut, onExportCSV, onExportMAL, onExportAniList, onShare, loadingRec, syncing }: {
+  onRecommend: () => void; onSync: () => void; onSignOut: () => void
+  onExportCSV: () => void; onExportMAL: () => void; onExportAniList: () => void
+  onShare: () => void; loadingRec: boolean; syncing: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   return (
     <div className="relative">
       <button onClick={() => setOpen(v => !v)} aria-label="More actions"
@@ -1088,8 +1232,8 @@ function MobileMenu({ onRecommend, onSync, onSignOut, onExport, onShare, loading
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-12 z-20 bg-zinc-800 border border-zinc-700 rounded-xl overflow-hidden shadow-xl w-44">
+          <div className="fixed inset-0 z-10" onClick={() => { setOpen(false); setExportOpen(false) }} />
+          <div className="absolute right-0 top-12 z-20 bg-zinc-800 border border-zinc-700 rounded-xl overflow-hidden shadow-xl w-48">
             <button onClick={() => { onRecommend(); setOpen(false) }} disabled={loadingRec}
               className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40">
               <span>✦</span> {loadingRec ? 'Thinking…' : 'Recommend'}
@@ -1098,10 +1242,28 @@ function MobileMenu({ onRecommend, onSync, onSignOut, onExport, onShare, loading
               className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40 border-t border-zinc-700">
               <span>⟳</span> {syncing ? 'Syncing…' : 'Sync from MAL'}
             </button>
-            <button onClick={() => { onExport(); setOpen(false) }}
-              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
-              <span>↓</span> Export CSV
+            {/* Export sub-menu */}
+            <button onClick={() => setExportOpen(v => !v)}
+              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center justify-between gap-2 border-t border-zinc-700">
+              <span className="flex items-center gap-2"><span>↓</span> Export</span>
+              <span className="text-zinc-500 text-xs">{exportOpen ? '▲' : '▼'}</span>
             </button>
+            {exportOpen && (
+              <>
+                <button onClick={() => { onExportCSV(); setOpen(false) }}
+                  className="w-full px-6 py-2.5 text-xs text-left text-zinc-300 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700/50">
+                  CSV
+                </button>
+                <button onClick={() => { onExportMAL(); setOpen(false) }}
+                  className="w-full px-6 py-2.5 text-xs text-left text-zinc-300 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700/50">
+                  MAL XML
+                </button>
+                <button onClick={() => { onExportAniList(); setOpen(false) }}
+                  className="w-full px-6 py-2.5 text-xs text-left text-zinc-300 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700/50">
+                  AniList JSON
+                </button>
+              </>
+            )}
             <button onClick={() => { onShare(); setOpen(false) }}
               className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
               <span>🔗</span> Share list
@@ -1132,6 +1294,7 @@ function RecommendationText({ text }: { text: string }) {
 export default function Home() {
   const [manga, setManga] = useState<Manga[]>([])
   const [filter, setFilter] = useState<MangaStatus | 'all' | 'duplicates'>('all')
+  const [typeFilter, setTypeFilter] = useState<string>('all')
   const [sort, setSort] = useState<SortKey>('last_read')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -1161,6 +1324,9 @@ export default function Home() {
   const [mood, setMood] = useState<string | null>(null)
   const [watchPrompt, setWatchPrompt] = useState<{ id: string; epInput: string } | null>(null)
   const [completionManga, setCompletionManga] = useState<Manga | null>(null)
+  const [progressPrompt, setProgressPrompt] = useState<{
+    id: string; delta: number; current: number; type: 'chapter' | 'episode'; title: string
+  } | null>(null)
   const [pacePerDay, setPacePerDay] = useState(0)
   const [shareModal, setShareModal] = useState(false)
   const [shareToken, setShareToken] = useState<string | null>(null)
@@ -1264,7 +1430,7 @@ export default function Home() {
     run()
   }, [manga])
 
-  const updateChapter = async (id: string, delta: number, current: number) => {
+  const commitChapterProgress = async (id: string, delta: number, current: number, attr: DateAttribution) => {
     const next = Math.max(0, current + delta)
     const now = new Date().toISOString()
     setManga(prev => prev.map(m => m.id === id ? { ...m, current_chapter: next, last_read_at: now } : m))
@@ -1275,10 +1441,29 @@ export default function Home() {
     if (error) {
       showToast('Failed to update chapter')
       setManga(prev => prev.map(m => m.id === id ? { ...m, current_chapter: current } : m))
-    } else if (delta > 0) {
-      // Log reading activity for stats
-      await supabase.from('reading_log').insert({ manga_id: id, chapters_read: delta })
+      return
     }
+    if (delta > 0) {
+      const logRow: Record<string, unknown> = {
+        manga_id: id,
+        chapters_read: delta,
+        media_type: 'manga',
+        date_precision: attr.precision,
+      }
+      if (attr.precision === 'exact') logRow.progress_date = attr.date
+      if (attr.precision === 'year_only') logRow.progress_year = attr.year
+      await supabase.from('reading_log').insert(logRow)
+    }
+  }
+
+  const updateChapter = (id: string, delta: number, current: number) => {
+    if (delta <= 0) {
+      // Decrements: apply immediately, no date needed
+      commitChapterProgress(id, delta, current, { precision: 'unknown' })
+      return
+    }
+    const m = manga.find(x => x.id === id)
+    setProgressPrompt({ id, delta, current, type: 'chapter', title: m?.title ?? '' })
   }
 
   const updateStatus = async (id: string, status: MangaStatus) => {
@@ -1352,6 +1537,12 @@ export default function Home() {
     window.location.href = '/login'
   }
 
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = filename; a.click(); URL.revokeObjectURL(url)
+  }
+
   const exportCSV = () => {
     const headers = ['Title', 'Status', 'Current Chapter', 'Total Chapters', 'Has Anime', 'Episodes Watched', 'Last Read', 'Notes']
     const rows = manga.map(m => [
@@ -1365,11 +1556,67 @@ export default function Home() {
       `"${(m.notes ?? '').replace(/"/g, '""')}"`,
     ])
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `manga-list-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click(); URL.revokeObjectURL(url)
+    triggerDownload(new Blob([csv], { type: 'text/csv' }), `yomu-${new Date().toISOString().slice(0, 10)}.csv`)
+  }
+
+  // MAL XML format — compatible with MyAnimeList import
+  const exportMALXML = () => {
+    const statusMap: Record<string, string> = {
+      reading: 'Reading', completed: 'Completed', on_hold: 'On-Hold',
+      dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Reading',
+    }
+    const entries = manga.map(m => `  <manga>
+    <manga_mangadb_id>${m.mal_id ?? 0}</manga_mangadb_id>
+    <manga_title><![CDATA[${m.title}]]></manga_title>
+    <manga_volumes>0</manga_volumes>
+    <manga_chapters>${m.current_chapter}</manga_chapters>
+    <my_id>0</my_id>
+    <my_read_volumes>0</my_read_volumes>
+    <my_read_chapters>${m.current_chapter}</my_read_chapters>
+    <my_start_date>0000-00-00</my_start_date>
+    <my_finish_date>${m.status === 'completed' && m.last_read_at ? m.last_read_at.slice(0, 10) : '0000-00-00'}</my_finish_date>
+    <my_score>${m.user_rating === 'up' ? 8 : m.user_rating === 'down' ? 4 : 0}</my_score>
+    <my_status>${statusMap[m.status] ?? 'Reading'}</my_status>
+    <my_reread_value></my_reread_value>
+    <my_comments><![CDATA[${m.notes ?? ''}]]></my_comments>
+    <update_on_import>1</update_on_import>
+  </manga>`).join('\n')
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<myanimelist>
+  <myinfo>
+    <user_export_type>2</user_export_type>
+  </myinfo>
+${entries}
+</myanimelist>`
+    triggerDownload(new Blob([xml], { type: 'application/xml' }), `yomu-mal-${new Date().toISOString().slice(0, 10)}.xml`)
+  }
+
+  // AniList JSON format — compatible with AniList import
+  const exportAniListJSON = () => {
+    const statusMap: Record<string, string> = {
+      reading: 'CURRENT', completed: 'COMPLETED', on_hold: 'PAUSED',
+      dropped: 'DROPPED', plan_to_read: 'PLANNING', watching: 'CURRENT',
+    }
+    const lists: Record<string, object[]> = {}
+    for (const m of manga) {
+      const s = statusMap[m.status] ?? 'CURRENT'
+      if (!lists[s]) lists[s] = []
+      lists[s].push({
+        mediaId: m.mal_id ?? null,
+        title: m.title,
+        status: s,
+        score: m.user_rating === 'up' ? 8 : m.user_rating === 'down' ? 4 : 0,
+        progress: m.current_chapter,
+        progressVolumes: 0,
+        startedAt: null,
+        completedAt: m.status === 'completed' && m.last_read_at ? m.last_read_at.slice(0, 10) : null,
+        notes: m.notes ?? '',
+        genres: m.genres,
+      })
+    }
+    const json = JSON.stringify({ lists, exportedAt: new Date().toISOString(), source: 'YOMU' }, null, 2)
+    triggerDownload(new Blob([json], { type: 'application/json' }), `yomu-anilist-${new Date().toISOString().slice(0, 10)}.json`)
   }
 
   const toggleShare = async () => {
@@ -1406,17 +1653,21 @@ export default function Home() {
   const endSession = async (chaptersRead: number, durationMinutes: number) => {
     if (!activeSession) return
     const now = new Date().toISOString()
-    // Update chapter count
+    const todayDate = now.slice(0, 10)
+    // Update chapter count with today's exact date (session = real-time, date is known)
     if (chaptersRead > 0) {
       const m = manga.find(m => m.id === activeSession.mangaId)
-      if (m) await updateChapter(activeSession.mangaId, chaptersRead, m.current_chapter)
+      if (m) await commitChapterProgress(activeSession.mangaId, chaptersRead, m.current_chapter, { precision: 'exact', date: todayDate })
     }
-    // Log with duration
+    // Also log duration separately
     await supabase.from('reading_log').insert({
       manga_id: activeSession.mangaId,
       chapters_read: chaptersRead,
       duration_minutes: durationMinutes,
       logged_at: now,
+      media_type: 'manga',
+      date_precision: 'exact',
+      progress_date: todayDate,
     })
     showToast(`Session logged — ${chaptersRead} ch in ${durationMinutes} min`)
     setActiveSession(null)
@@ -1428,14 +1679,35 @@ export default function Home() {
     await supabase.from('chapter_notifications').update({ seen: true }).in('id', ids)
   }
 
-  const updateEpisodes = async (id: string, delta: number, current: number) => {
+  const commitEpisodeProgress = async (id: string, delta: number, current: number, attr: DateAttribution) => {
     const next = Math.max(0, current + delta)
     setManga(prev => prev.map(m => m.id === id ? { ...m, episodes_watched: next } : m))
     const { error } = await supabase.from('manga_list').update({ episodes_watched: next }).eq('id', id)
     if (error) {
       showToast('Failed to update episodes')
       setManga(prev => prev.map(m => m.id === id ? { ...m, episodes_watched: current } : m))
+      return
     }
+    if (delta > 0) {
+      const logRow: Record<string, unknown> = {
+        manga_id: id,
+        chapters_read: 0,
+        media_type: 'anime',
+        date_precision: attr.precision,
+      }
+      if (attr.precision === 'exact') logRow.progress_date = attr.date
+      if (attr.precision === 'year_only') logRow.progress_year = attr.year
+      await supabase.from('reading_log').insert(logRow)
+    }
+  }
+
+  const updateEpisodes = (id: string, delta: number, current: number) => {
+    if (delta <= 0) {
+      commitEpisodeProgress(id, delta, current, { precision: 'unknown' })
+      return
+    }
+    const m = manga.find(x => x.id === id)
+    setProgressPrompt({ id, delta, current, type: 'episode', title: m?.title ?? '' })
   }
 
   const confirmDelete = (id: string) => setPendingDelete(id)
@@ -1639,21 +1911,67 @@ export default function Home() {
     })
   }
 
-  const mergePair = async (keep: Manga, remove: Manga) => {
-    await supabase.from('manga_list').update({
-      current_chapter: Math.max(keep.current_chapter, remove.current_chapter),
-      total_chapters: keep.total_chapters ?? remove.total_chapters,
-      genres: keep.genres?.length ? keep.genres : remove.genres,
-      authors: keep.authors?.length ? keep.authors : remove.authors,
-      synopsis: keep.synopsis ?? remove.synopsis,
-      notes: keep.notes ?? remove.notes,
-    }).eq('id', keep.id)
-    await supabase.from('manga_list').delete().eq('id', remove.id)
-    setManga(prev => prev.filter(m => m.id !== remove.id).map(m =>
-      m.id === keep.id ? { ...m, current_chapter: Math.max(keep.current_chapter, remove.current_chapter) } : m
-    ))
-    showToast('Merged — keeping best progress')
+  /** Merge any number of entries into `keep`. Best-of-all logic across every field. */
+  const mergeMultiple = async (keep: Manga, toRemove: Manga[]) => {
+    // Walk all removed entries accumulating the best values
+    let bestChapter   = keep.current_chapter
+    let bestTotal     = keep.total_chapters
+    let bestGenres    = keep.genres
+    let bestAuthors   = keep.authors
+    let bestSynopsis  = keep.synopsis
+    let bestCover     = keep.cover_url
+    let bestHasAnime  = keep.has_anime
+    let bestAnimeMal  = keep.anime_mal_id
+    let bestAnimeTitle= keep.anime_title
+    let bestRating    = keep.user_rating
+    let notes         = keep.notes ?? ''
+
+    for (const r of toRemove) {
+      bestChapter    = Math.max(bestChapter, r.current_chapter)
+      bestTotal      = bestTotal ?? r.total_chapters
+      bestGenres     = bestGenres?.length ? bestGenres : r.genres
+      bestAuthors    = bestAuthors?.length ? bestAuthors : r.authors
+      bestSynopsis   = bestSynopsis ?? r.synopsis
+      bestCover      = bestCover ?? r.cover_url
+      bestHasAnime   = bestHasAnime || r.has_anime
+      bestAnimeMal   = bestAnimeMal ?? r.anime_mal_id
+      bestAnimeTitle = bestAnimeTitle ?? r.anime_title
+      bestRating     = bestRating ?? r.user_rating
+      if (r.notes?.trim() && !notes.includes(r.notes.trim())) {
+        notes = notes ? `${notes}\n---\n${r.notes.trim()}` : r.notes.trim()
+      }
+    }
+
+    const updates = {
+      current_chapter: bestChapter,
+      total_chapters:  bestTotal,
+      genres:          bestGenres,
+      authors:         bestAuthors,
+      synopsis:        bestSynopsis,
+      cover_url:       bestCover,
+      has_anime:       bestHasAnime,
+      anime_mal_id:    bestAnimeMal,
+      anime_title:     bestAnimeTitle,
+      user_rating:     bestRating,
+      notes:           notes || null,
+    }
+
+    const removeIds = toRemove.map(r => r.id)
+    await supabase.from('manga_list').update(updates).eq('id', keep.id)
+    await supabase.from('manga_list').delete().in('id', removeIds)
+
+    setManga(prev =>
+      prev
+        .filter(m => !removeIds.includes(m.id))
+        .map(m => m.id === keep.id ? { ...m, ...updates } : m)
+    )
+    showToast(toRemove.length === 1
+      ? 'Merged — Best Progress Kept'
+      : `Merged ${toRemove.length + 1} Entries — Best Progress Kept`)
   }
+
+  /** Convenience wrapper for the old pair-merge used by the duplicates view */
+  const mergePair = (keep: Manga, remove: Manga) => mergeMultiple(keep, [remove])
 
   const counts = manga.reduce((acc, m) => {
     acc[m.status] = (acc[m.status] ?? 0) + 1
@@ -1685,9 +2003,17 @@ export default function Home() {
 
   const filtered = manga
     .filter(m => filter === 'all' || filter === 'duplicates' || m.status === filter)
+    .filter(m => typeFilter === 'all' || (m.content_type ?? 'manga') === typeFilter)
     .filter(m => !search || m.title.toLowerCase().includes(search.toLowerCase()))
     .filter(m => !mood || MOODS.find(mo => mo.id === mood)?.test(m))
     .sort(sortFn)
+
+  // Count per type for badge labels
+  const typeCounts = manga.reduce((acc, m) => {
+    const t = m.content_type ?? 'manga'
+    acc[t] = (acc[t] ?? 0) + 1
+    return acc
+  }, {} as Record<string, number>)
 
   return (
     <main className="min-h-screen bg-[#0d0d0d] text-white">
@@ -1714,10 +2040,18 @@ export default function Home() {
               className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white disabled:opacity-40 transition-colors">
               {syncing ? '⟳ Syncing…' : '⟳ Sync'}
             </button>
-            <button onClick={exportCSV} aria-label="Export list as CSV"
-              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
-              ↓ Export
-            </button>
+            <div className="relative group">
+              <button aria-label="Export list"
+                className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
+                ↓ Export
+              </button>
+              <div className="absolute right-0 top-10 z-20 hidden group-hover:flex flex-col bg-zinc-800 border border-zinc-700 rounded-xl overflow-hidden shadow-xl w-36">
+                <button onClick={exportCSV} className="px-4 py-2.5 text-xs text-left text-zinc-200 hover:bg-zinc-700">CSV</button>
+                <button onClick={exportMALXML} className="px-4 py-2.5 text-xs text-left text-zinc-200 hover:bg-zinc-700 border-t border-zinc-700/50">MAL XML</button>
+                <button onClick={exportAniListJSON} className="px-4 py-2.5 text-xs text-left text-zinc-200 hover:bg-zinc-700 border-t border-zinc-700/50">AniList JSON</button>
+              </div>
+            </div>
+            <NotificationBell />
             <button onClick={() => setShareModal(true)} aria-label="Share my list"
               className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
               🔗 Share
@@ -1738,7 +2072,9 @@ export default function Home() {
               onRecommend={getRecommendations}
               onSync={runSync}
               onSignOut={signOut}
-              onExport={exportCSV}
+              onExportCSV={exportCSV}
+              onExportMAL={exportMALXML}
+              onExportAniList={exportAniListJSON}
               onShare={() => setShareModal(true)}
               loadingRec={loadingRec}
               syncing={syncing}
@@ -1975,7 +2311,7 @@ export default function Home() {
                 </div>
                 {weeksLeft !== null && (
                   <span className="text-xs text-zinc-500">
-                    ~{weeksLeft < 1 ? 'this week' : weeksLeft === 1 ? '1 week' : `${weeksLeft} weeks`} at your pace
+                    ~{weeksLeft < 1 ? 'This Week' : weeksLeft === 1 ? '1 Week' : `${weeksLeft} Weeks`} At Your Pace
                   </span>
                 )}
               </div>
@@ -2000,6 +2336,40 @@ export default function Home() {
           ))}
           {mood && <button onClick={() => setMood(null)} className="text-xs text-zinc-600 hover:text-zinc-400 px-2">✕ clear</button>}
         </div>
+
+        {/* Type filter — only show if there's more than one type in the library */}
+        {Object.keys(typeCounts).length > 1 && (
+          <div className="flex gap-1.5 flex-wrap mb-3">
+            {([
+              { id: 'all',    label: 'All Types',  color: '' },
+              { id: 'manga',  label: 'Manga',      color: typeFilter === 'manga'   ? 'bg-zinc-700 border-zinc-500 text-white' : '' },
+              { id: 'manhwa', label: 'Manhwa',     color: typeFilter === 'manhwa'  ? 'bg-violet-600/30 border-violet-500/50 text-violet-300' : '' },
+              { id: 'webtoon',label: 'Webtoon',    color: typeFilter === 'webtoon' ? 'bg-orange-600/30 border-orange-500/50 text-orange-300' : '' },
+              { id: 'manhua', label: 'Manhua',     color: typeFilter === 'manhua'  ? 'bg-blue-600/30 border-blue-500/50 text-blue-300' : '' },
+              { id: 'anime',  label: 'Anime',      color: typeFilter === 'anime'   ? 'bg-cyan-600/30 border-cyan-500/50 text-cyan-300' : '' },
+            ]
+              .filter(t => t.id === 'all' || typeCounts[t.id] > 0)
+              .map(t => {
+                const count = t.id === 'all' ? manga.length : (typeCounts[t.id] ?? 0)
+                const active = typeFilter === t.id
+                return (
+                  <button key={t.id}
+                    onClick={() => setTypeFilter(t.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all
+                      ${active
+                        ? (t.color || 'bg-white/10 border-white/20 text-white')
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'
+                      }`}>
+                    {t.label}
+                    <span className={`text-[10px] px-1 rounded ${active ? 'opacity-70' : 'text-zinc-700'}`}>
+                      {count}
+                    </span>
+                  </button>
+                )
+              })
+            )}
+          </div>
+        )}
 
         {/* Controls — stacked on mobile */}
         <div className="flex flex-col gap-2 mb-5 md:flex-row md:items-center md:flex-wrap md:gap-3">
@@ -2104,15 +2474,16 @@ export default function Home() {
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))' }}>
             {filtered.map(m => (
               <div key={m.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden flex flex-col h-full">
-                <div className="flex gap-3 py-3 px-3 flex-1">
-                  {/* Cover */}
-                  <div className="shrink-0 w-16 h-20 rounded-md overflow-hidden bg-zinc-800">
+                <div className="flex gap-3 p-3 flex-1">
+
+                  {/* Cover — slightly larger, vertically centred */}
+                  <div className="shrink-0 w-20 h-28 rounded-lg overflow-hidden bg-zinc-800 self-center">
                     {m.cover_url ? (
                       <Image
                         src={m.cover_url}
                         alt={`Cover for ${m.title}`}
-                        width={64}
-                        height={80}
+                        width={80}
+                        height={112}
                         className="w-full h-full object-cover"
                         unoptimized
                       />
@@ -2140,8 +2511,20 @@ export default function Home() {
                             +{m.total_chapters - m.current_chapter}
                           </span>
                         )}
+                        {deepDiveSeries.some(s => s.title.toLowerCase() === m.title.toLowerCase()) && (
+                          <span title="YouTube rabbit hole — hundreds of analysis & lore videos watched"
+                            className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                            style={{ background: 'rgba(255,45,70,0.12)', color: 'var(--vermillion)', border: '1px solid rgba(255,45,70,0.25)' }}>
+                            🔥 yt deep-dive
+                          </span>
+                        )}
+                        {(m.content_type === 'manhwa' || m.content_type === 'webtoon' || m.content_type === 'manhua') && (
+                          <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide font-medium whitespace-nowrap"
+                            style={{ background: 'rgba(167,139,250,0.12)', color: '#A78BFA', border: '1px solid rgba(167,139,250,0.25)' }}>
+                            {m.content_type}
+                          </span>
+                        )}
                       </div>
-                      {/* Author — always present */}
                       {m.authors?.length > 0 ? (
                         <div className="flex gap-1 flex-wrap mt-0.5">
                           {m.authors.map((a: Author) => (
@@ -2156,7 +2539,7 @@ export default function Home() {
                       )}
                     </div>
 
-                    {/* 2. Status dropdown */}
+                    {/* 2. Status dropdown + action buttons */}
                     <div className="flex items-center gap-2 flex-wrap">
                       <select value={m.status} onChange={e => updateStatus(m.id, e.target.value as MangaStatus)}
                         aria-label={`Status for ${m.title}`}
@@ -2177,42 +2560,34 @@ export default function Home() {
                       </button>
                       <div className="ml-auto flex items-center gap-1.5">
                         {m.status === 'reading' && (
-                          <button
-                            onClick={() => activeSession?.mangaId === m.id ? setActiveSession(null) : startSession(m)}
-                            aria-label={activeSession?.mangaId === m.id ? 'Stop session' : `Start reading session for ${m.title}`}
+                          <button onClick={() => activeSession?.mangaId === m.id ? setActiveSession(null) : startSession(m)}
                             title={activeSession?.mangaId === m.id ? 'Stop session' : 'Start reading session'}
-                            className={`transition-colors ${activeSession?.mangaId === m.id ? 'text-violet-400 animate-pulse' : 'text-zinc-700 hover:text-violet-400'}`}
-                          >
+                            className={`transition-colors ${activeSession?.mangaId === m.id ? 'text-violet-400 animate-pulse' : 'text-zinc-700 hover:text-violet-400'}`}>
                             {activeSession?.mangaId === m.id ? <Timer size={13} strokeWidth={1.5} /> : <Play size={13} strokeWidth={1.5} />}
                           </button>
                         )}
-                        <button onClick={() => setShelfPickerManga(m)} aria-label={`Add ${m.title} to shelf`} title="Add to shelf" className="text-zinc-700 hover:text-violet-400 transition-colors">
+                        <button onClick={() => setShelfPickerManga(m)} title="Add to shelf" className="text-zinc-700 hover:text-violet-400 transition-colors">
                           <Folder size={13} strokeWidth={1.5} />
                         </button>
-                        <a href={`/search?q=${encodeURIComponent(m.title)}`} aria-label={`Search for ${m.title}`} title="Search for more info" className="text-zinc-700 hover:text-cyan-400 transition-colors">
+                        <a href={`/search?q=${encodeURIComponent(m.title)}`} title="Search for more info" className="text-zinc-700 hover:text-cyan-400 transition-colors">
                           <Search size={12} strokeWidth={1.5} />
                         </a>
-                        <button onClick={() => refreshCardInfo(m)} disabled={refreshingId === m.id} aria-label={`Refresh info for ${m.title}`} title="Refresh synopsis & info from Jikan"
+                        <button onClick={() => refreshCardInfo(m)} disabled={refreshingId === m.id} title="Refresh info"
                           className={`transition-colors ${refreshingId === m.id ? 'text-cyan-400 animate-spin' : 'text-zinc-700 hover:text-cyan-400'}`}>
                           <RefreshCw size={12} strokeWidth={1.5} />
                         </button>
-                        <button onClick={() => confirmDelete(m.id)} aria-label={`Delete ${m.title}`} className="text-zinc-700 hover:text-red-400 transition-colors text-lg leading-none">
-                          ×
-                        </button>
+                        <button onClick={() => confirmDelete(m.id)} aria-label={`Delete ${m.title}`} className="text-zinc-700 hover:text-red-400 transition-colors text-lg leading-none">×</button>
                       </div>
                     </div>
 
-                    {/* 3. Description — always rendered, 3-line clamp, fixed min-height */}
-                    <p
-                      className={`text-[11px] leading-[1.5] ${m.synopsis ? 'text-zinc-500' : 'text-zinc-700 italic'} ${expandedSynopsis.has(m.id) ? '' : 'line-clamp-3'}`}
+                    {/* 3. Description */}
+                    <p className={`text-[11px] leading-[1.5] ${m.synopsis ? 'text-zinc-500' : 'text-zinc-700 italic'} ${expandedSynopsis.has(m.id) ? '' : 'line-clamp-3'}`}
                       style={{ minHeight: '3.375rem', cursor: m.synopsis ? 'pointer' : 'default' }}
-                      onClick={() => m.synopsis && toggleSynopsis(m.id)}
-                      title={m.synopsis ? (expandedSynopsis.has(m.id) ? 'Click to collapse' : 'Click to expand') : undefined}
-                    >
+                      onClick={() => m.synopsis && toggleSynopsis(m.id)}>
                       {m.synopsis ?? 'No description available.'}
                     </p>
 
-                    {/* Arc / re-read (inline, only if present) */}
+                    {/* Arc / re-read */}
                     {(() => {
                       const arc = currentArc(m); const rereadCount = rereadCounts[m.id] ?? 0
                       if (!arc && !rereadCount) return null
@@ -2224,62 +2599,77 @@ export default function Home() {
                       )
                     })()}
 
-                    {/* Anime episode tracker (only if has_anime) */}
+                    {/* Anime episode tracker */}
                     {m.has_anime && (
-                      <div className="flex items-center gap-2">
-                        <Clapperboard size={11} strokeWidth={1.5} className="text-violet-400 shrink-0" />
-                        <span className="text-[11px] text-zinc-600 truncate">{m.anime_title ?? 'Anime'}</span>
-                        {m.total_episodes && m.episodes_watched < m.total_episodes && (
-                          <span className="text-[10px] px-1.5 py-0.5 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded-full whitespace-nowrap shrink-0">
-                            +{m.total_episodes - m.episodes_watched} ep
-                          </span>
-                        )}
-                        <div className="flex items-center gap-1 ml-auto shrink-0">
-                          <button onClick={() => updateEpisodes(m.id, -1, m.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
-                          <EditableNumber value={m.episodes_watched} onSave={n => updateEpisodes(m.id, n - m.episodes_watched, m.episodes_watched)} label={`Episodes for ${m.title}`} className="w-8 text-xs py-0.5" />
-                          {m.total_episodes && <span className="text-[11px] text-zinc-600 font-mono">/{m.total_episodes}</span>}
-                          <button onClick={() => updateEpisodes(m.id, 1, m.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-2">
+                          <Clapperboard size={11} strokeWidth={1.5} className="text-violet-400 shrink-0" />
+                          <span className="text-[11px] text-zinc-600 truncate">{m.anime_title ?? 'Anime'}</span>
+                          {m.total_episodes && m.episodes_watched < m.total_episodes && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded-full whitespace-nowrap shrink-0">
+                              +{m.total_episodes - m.episodes_watched} ep
+                            </span>
+                          )}
+                          <div className="flex items-center gap-1 ml-auto shrink-0">
+                            <button onClick={() => updateEpisodes(m.id, -1, m.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
+                            <EditableNumber value={m.episodes_watched} onSave={n => updateEpisodes(m.id, n - m.episodes_watched, m.episodes_watched)} label={`Episodes for ${m.title}`} className="w-8 text-xs py-0.5" />
+                            {m.total_episodes && <span className="text-[11px] text-zinc-600 font-mono">/{m.total_episodes}</span>}
+                            <button onClick={() => updateEpisodes(m.id, 1, m.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
+                          </div>
                         </div>
+                        {/* Episode → manga chapter equivalent */}
+                        {m.total_episodes && m.total_chapters && m.episodes_watched > 0 && (
+                          <p className="text-[10px] text-zinc-600 pl-4 tabular-nums">
+                            ≈ ch.&nbsp;{Math.round((m.episodes_watched / m.total_episodes) * m.total_chapters)}&nbsp;manga equivalent
+                            <span className="text-zinc-700"> ({m.total_chapters} ch total)</span>
+                          </p>
+                        )}
                       </div>
                     )}
 
-                    {/* 4. Chapter tracker + progress bar — always rendered */}
+                    {/* 4. Chapter tracker + inline stepper + progress bar */}
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[11px] text-zinc-500 tabular-nums">
                           Ch.&nbsp;{m.current_chapter}&nbsp;/&nbsp;{m.total_chapters ?? '?'}
+                          {m.total_chapters && <span className="text-zinc-700 ml-1">{Math.min(100, Math.round((m.current_chapter / m.total_chapters) * 100))}%</span>}
                         </span>
-                        {m.total_chapters && (
-                          <span className="text-[10px] text-zinc-700 tabular-nums">
-                            {Math.min(100, Math.round((m.current_chapter / m.total_chapters) * 100))}%
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => updateChapter(m.id, -1, m.current_chapter)} aria-label={`Decrease chapter for ${m.title}`}
+                            className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
+                          <EditableNumber value={m.current_chapter} onSave={n => updateChapter(m.id, n - m.current_chapter, m.current_chapter)}
+                            label={`Chapter for ${m.title}`} className="w-9 text-xs py-0.5" />
+                          <button onClick={() => updateChapter(m.id, 1, m.current_chapter)} aria-label={`Increase chapter for ${m.title}`}
+                            className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
+                        </div>
                       </div>
                       <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden"
                         role="progressbar" aria-valuenow={m.current_chapter} aria-valuemax={m.total_chapters ?? 0}>
                         <div className="h-full bg-violet-500 rounded-full transition-all"
                           style={{ width: m.total_chapters ? `${Math.min(100, Math.round((m.current_chapter / m.total_chapters) * 100))}%` : '0%' }} />
                       </div>
+                      {/* Chapter → anime episode equivalent */}
+                      {m.has_anime && m.total_chapters && m.total_episodes && m.current_chapter > 0 && (
+                        <p className="text-[10px] text-zinc-600 mt-0.5 tabular-nums">
+                          ≈ ep.&nbsp;{Math.round((m.current_chapter / m.total_chapters) * m.total_episodes)}&nbsp;anime equivalent
+                          <span className="text-zinc-700"> ({m.total_episodes} ep total)</span>
+                        </p>
+                      )}
                     </div>
 
-                    {/* 5. Genre tags — always rendered */}
+                    {/* 5. Genre tags */}
                     <div className="flex flex-wrap gap-1">
                       {m.genres?.length > 0
-                        ? m.genres.slice(0, 5).map(g => (
-                            <span key={g} className="text-[10px] px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded-full">{g}</span>
-                          ))
-                        : (
-                            <span className="text-[10px] text-zinc-700 italic">No genres listed</span>
-                          )
+                        ? m.genres.slice(0, 5).map(g => <span key={g} className="text-[10px] px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded-full">{g}</span>)
+                        : <span className="text-[10px] text-zinc-700 italic">No genres listed</span>
                       }
                     </div>
 
-                    {/* 6. Rating row — always rendered */}
+                    {/* 6. Rating row */}
                     <div className="flex items-center gap-2 pt-1.5 border-t border-zinc-800/70 mt-auto">
                       <span className="text-[10px] text-zinc-700 uppercase tracking-widest">Rating</span>
                       <div className="flex items-center gap-1.5 ml-auto">
-                        <button
-                          onClick={async (e) => {
+                        <button onClick={async (e) => {
                             e.stopPropagation()
                             const prev_rating = m.user_rating
                             const next = m.user_rating === 'up' ? null : 'up'
@@ -2288,12 +2678,10 @@ export default function Home() {
                             if (error) setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: prev_rating } : x))
                           }}
                           title={m.user_rating === 'up' ? 'Remove like' : 'Like'}
-                          className={`transition-colors ${m.user_rating === 'up' ? 'text-emerald-400' : 'text-zinc-700 hover:text-emerald-400'}`}
-                        >
+                          className={`transition-colors ${m.user_rating === 'up' ? 'text-emerald-400' : 'text-zinc-700 hover:text-emerald-400'}`}>
                           <ThumbsUp size={13} strokeWidth={1.5} />
                         </button>
-                        <button
-                          onClick={async (e) => {
+                        <button onClick={async (e) => {
                             e.stopPropagation()
                             const prev_rating = m.user_rating
                             const next = m.user_rating === 'down' ? null : 'down'
@@ -2302,8 +2690,7 @@ export default function Home() {
                             if (error) setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: prev_rating } : x))
                           }}
                           title={m.user_rating === 'down' ? 'Remove dislike' : 'Dislike'}
-                          className={`transition-colors ${m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-700 hover:text-red-400'}`}
-                        >
+                          className={`transition-colors ${m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-700 hover:text-red-400'}`}>
                           <ThumbsDown size={13} strokeWidth={1.5} />
                         </button>
                         <span className="text-[10px] text-zinc-700 ml-1">
@@ -2312,36 +2699,6 @@ export default function Home() {
                       </div>
                     </div>
 
-                  </div>
-
-                  {/* Chapter stepper */}
-                  <div className="flex flex-col items-center gap-1 shrink-0 pt-0.5">
-                    {pendingDelete === m.id ? (
-                      <div className="flex flex-col items-center gap-1 text-xs">
-                        <span className="text-zinc-400 text-[10px]">Del?</span>
-                        <button onClick={() => deleteManga(m.id)} aria-label="Confirm delete" className="px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-500 text-white transition-colors text-[10px]">Yes</button>
-                        <button onClick={cancelDelete} aria-label="Cancel delete" className="px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-white transition-colors text-[10px]">No</button>
-                      </div>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => updateChapter(m.id, 1, m.current_chapter)}
-                          aria-label={`Increase chapter for ${m.title}`}
-                          className="w-7 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-sm transition-colors"
-                        >+</button>
-                        <EditableNumber
-                          value={m.current_chapter}
-                          onSave={n => updateChapter(m.id, n - m.current_chapter, m.current_chapter)}
-                          label={`Chapter for ${m.title}`}
-                          className="w-10 text-xs py-0.5"
-                        />
-                        <button
-                          onClick={() => updateChapter(m.id, -1, m.current_chapter)}
-                          aria-label={`Decrease chapter for ${m.title}`}
-                          className="w-7 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-sm transition-colors"
-                        >−</button>
-                      </>
-                    )}
                   </div>
                 </div>
 
@@ -2372,17 +2729,35 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Notes */}
+                {/* Notes + optional public review */}
                 {(expandedNotes.has(m.id) || m.notes) && (
                   <div className="border-t border-zinc-800 px-3 pb-3 pt-2">
                     <textarea
                       value={m.notes ?? ''}
                       onChange={e => updateNotes(m.id, e.target.value)}
-                      placeholder="Add a note…"
+                      placeholder="Add a note… (supports [spoiler]text[/spoiler])"
                       aria-label={`Notes for ${m.title}`}
                       rows={2}
                       className="w-full bg-transparent text-xs text-zinc-400 placeholder:text-zinc-700 outline-none resize-none"
                     />
+                    {/* Make public review toggle */}
+                    {m.notes && m.notes.trim().length > 10 && (
+                      <label className="flex items-center gap-2 mt-2 cursor-pointer select-none w-fit">
+                        <div className={`relative w-7 h-4 rounded-full transition-colors ${m.is_public_review ? 'bg-violet-600' : 'bg-zinc-700'}`}>
+                          <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${m.is_public_review ? 'left-3.5' : 'left-0.5'}`} />
+                        </div>
+                        <input type="checkbox" className="sr-only"
+                          checked={m.is_public_review ?? false}
+                          onChange={async e => {
+                            const val = e.target.checked
+                            setManga(prev => prev.map(x => x.id === m.id ? { ...x, is_public_review: val } : x))
+                            await supabase.from('manga_list').update({ is_public_review: val }).eq('id', m.id)
+                          }} />
+                        <span className="text-[10px] text-zinc-500">
+                          {m.is_public_review ? 'Visible on share page' : 'Make this a public review'}
+                        </span>
+                      </label>
+                    )}
                   </div>
                 )}
               </div>
@@ -2476,7 +2851,7 @@ export default function Home() {
                               className="font-semibold text-sm text-white hover:text-violet-300 transition-colors text-left">
                               {r.title} ↗
                             </button>
-                            {r.isAnime && <span className="text-xs px-1.5 py-0.5 bg-violet-500/20 text-violet-400 rounded-full">anime</span>}
+                            {r.isAnime && <span className="text-xs px-1.5 py-0.5 bg-violet-500/20 text-violet-400 rounded-full">Anime</span>}
                           </div>
                           <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-1.5">
                             <div className={`h-full rounded-full ${barColour}`} style={{ width: `${r.confidence}%` }} />
@@ -2536,6 +2911,11 @@ export default function Home() {
           onMerge={(removedId) => {
             setManga(prev => prev.filter(m => m.id !== removedId))
           }}
+          onMergeMultiple={async (removeIds) => {
+            const keep = selectedManga
+            const toRemove = manga.filter(m => removeIds.includes(m.id))
+            await mergeMultiple(keep, toRemove)
+          }}
           onNavigate={(m) => setSelectedManga(m)}
         />
       )}
@@ -2545,6 +2925,27 @@ export default function Home() {
         <div role="alert" className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 text-sm text-white px-4 py-2 rounded-lg shadow-lg">
           {toast}
         </div>
+      )}
+
+      {progressPrompt && (
+        <DateAttributionModal
+          title={progressPrompt.title}
+          delta={progressPrompt.delta}
+          type={progressPrompt.type}
+          onConfirm={(attr) => {
+            const p = progressPrompt
+            setProgressPrompt(null)
+            if (p.type === 'chapter') commitChapterProgress(p.id, p.delta, p.current, attr)
+            else commitEpisodeProgress(p.id, p.delta, p.current, attr)
+          }}
+          onDismiss={() => {
+            const p = progressPrompt
+            setProgressPrompt(null)
+            // Dismissed = save as unknown date
+            if (p.type === 'chapter') commitChapterProgress(p.id, p.delta, p.current, { precision: 'unknown' })
+            else commitEpisodeProgress(p.id, p.delta, p.current, { precision: 'unknown' })
+          }}
+        />
       )}
 
       {completionManga && (
