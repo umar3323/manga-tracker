@@ -97,6 +97,7 @@ const STATUS_LABELS: Record<MangaStatus, string> = {
   dropped:      'Dropped',
   plan_to_read: 'Plan To Read',
   watching:     'Watching',
+  unwatched:    'Unwatched',
 }
 
 const STATUS_COLORS: Record<MangaStatus, string> = {
@@ -106,6 +107,7 @@ const STATUS_COLORS: Record<MangaStatus, string> = {
   dropped:      'bg-red-500/20 text-red-300 border-red-500/30',
   plan_to_read: 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30',
   watching:     'bg-violet-500/20 text-violet-300 border-violet-500/30',
+  unwatched:    'bg-zinc-500/20 text-zinc-400 border-zinc-600/30',
 }
 
 type SortKey = 'last_read' | 'title' | 'chapter'
@@ -185,7 +187,7 @@ function RelationMergeButton({ keep, remove, onMerge }: {
 }
 
 /** Manga detail modal */
-function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMergeMultiple, onNavigate }: {
+function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMergeMultiple, onNavigate, onChapterReset, onEpisodesReset }: {
   manga: Manga
   allManga: Manga[]
   onClose: () => void
@@ -196,6 +198,10 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
   onMergeMultiple: (removeIds: string[]) => Promise<void>
   /** Navigate to another manga in the list from a related-work card */
   onNavigate: (m: Manga) => void
+  /** Called when a re-read starts and chapter is reset to 0 */
+  onChapterReset: (chapterAtStart: number) => void
+  /** Called when a re-watch starts and episodes are reset to 0 */
+  onEpisodesReset: (episodesAtStart: number) => void
 }) {
   const [alManga, setAlManga] = useState<AniListMangaData | null>(null)
   const [alAnime, setAlAnime] = useState<AniListAnimeData | null>(null)
@@ -311,7 +317,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
 
   const STATUS_LABELS: Record<MangaStatus, string> = {
     reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-    dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching',
+    dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching', unwatched: 'Unwatched',
   }
   return (
     <div className="fixed inset-0 z-50 flex items-end lg:items-stretch lg:justify-end" onClick={onClose}>
@@ -404,18 +410,18 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
           {/* Duplicate detection banner */}
           {duplicateCandidate && !duplicateDismissed && (
             <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-3 mb-4">
-              <p className="text-xs font-medium text-amber-300 mb-1">Possible duplicate detected</p>
+              <p className="text-xs font-medium text-amber-300 mb-1">Possible Duplicate Detected</p>
               <p className="text-xs text-zinc-400 mb-2">
-                &ldquo;{duplicateCandidate.title}&rdquo; looks very similar to this entry. Merge them?
+                &ldquo;{duplicateCandidate.title}&rdquo; Looks Very Similar To This Entry. Merge Them?
               </p>
               <div className="flex gap-2">
                 <button onClick={mergeDuplicate} disabled={merging}
                   className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors">
-                  {merging ? 'Merging…' : 'Merge (keep best progress)'}
+                  {merging ? 'Merging…' : 'Merge (Keep Best Progress)'}
                 </button>
                 <button onClick={() => { try { localStorage.setItem(dupKey, '1') } catch {} setDuplicateDismissed(true) }}
                   className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs rounded-lg transition-colors">
-                  Not a duplicate
+                  Not A Duplicate
                 </button>
               </div>
             </div>
@@ -709,10 +715,19 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
             </div>
           )}
 
-          <RereadSection mangaId={manga.id} />
+          <RereadSection
+            mangaId={manga.id}
+            currentChapter={manga.current_chapter}
+            onStarted={onChapterReset}
+          />
 
           {manga.has_anime && (
-            <RewatchSection mangaId={manga.id} animeTitle={manga.anime_title ?? null} />
+            <RewatchSection
+              mangaId={manga.id}
+              animeTitle={manga.anime_title ?? null}
+              episodesWatched={manga.episodes_watched}
+              onStarted={onEpisodesReset}
+            />
           )}
 
           <ArcEditor
@@ -893,7 +908,7 @@ function AuthorModal({ author, onClose }: { author: Author; onClose: () => void 
       total_chapters: manga.total_chapters, authors: manga.authors ?? [],
     })
     if (!error) setAdded(prev => new Set([...prev, manga.mal_id ?? -1]))
-    else if (error.code === '23505') setToast('Already in your list')
+    else if (error.code === '23505') setToast('Already In Your List')
     setAdding(null)
   }
 
@@ -964,7 +979,7 @@ function RecommendationModal({ rec, onClose }: { rec: Recommendation; onClose: (
 
   const STATUS_LABELS: Record<MangaStatus, string> = {
     reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-    dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching',
+    dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching', unwatched: 'Unwatched',
   }
 
   useEffect(() => {
@@ -993,9 +1008,9 @@ function RecommendationModal({ rec, onClose }: { rec: Recommendation; onClose: (
     })
     if (!error || error.code === '23505') {
       setAdded(true)
-      setToast(error?.code === '23505' ? 'Already in your list' : 'Added to your list!')
+      setToast(error?.code === '23505' ? 'Already In Your List' : 'Added To Your List!')
     } else {
-      setToast('Failed to add — try again')
+      setToast('Failed To Add — Try Again')
     }
     setAdding(false)
   }
@@ -1084,7 +1099,7 @@ function RecommendationModal({ rec, onClose }: { rec: Recommendation; onClose: (
             {/* Add to list */}
             {added ? (
               <div className="w-full py-3 bg-emerald-900/30 border border-emerald-700/40 rounded-xl text-sm text-emerald-400 text-center">
-                ✓ {toast || 'Added to your list'}
+                ✓ {toast || 'Added To Your List'}
               </div>
             ) : (
               <div className="flex gap-2">
@@ -1232,10 +1247,10 @@ function computeHealth(manga: Manga[]): CardHealth[] {
     .map(m => {
       const issues: CardIssue[] = []
       if (!m.mal_id)                                     issues.push({ field: 'mal_id',    label: 'No MAL ID'       })
-      if (!m.cover_url)                                  issues.push({ field: 'cover_url', label: 'No cover'        })
-      if (!m.authors || (m.authors as unknown[]).length === 0) issues.push({ field: 'authors', label: 'No author'    })
-      if (!m.genres  || m.genres.length === 0)           issues.push({ field: 'genres',    label: 'No genres'       })
-      if (!m.synopsis)                                   issues.push({ field: 'synopsis',  label: 'No synopsis'     })
+      if (!m.cover_url)                                  issues.push({ field: 'cover_url', label: 'No Cover'        })
+      if (!m.authors || (m.authors as unknown[]).length === 0) issues.push({ field: 'authors', label: 'No Author'    })
+      if (!m.genres  || m.genres.length === 0)           issues.push({ field: 'genres',    label: 'No Genres'       })
+      if (!m.synopsis)                                   issues.push({ field: 'synopsis',  label: 'No Synopsis'     })
       return { manga: m, issues }
     })
     .filter(c => c.issues.length > 0)
@@ -1349,7 +1364,7 @@ function HealthCheckModal({
             <p className="text-xs text-zinc-500 mt-0.5">
               {manga.length} total cards ·{' '}
               <span className={scoreColor}>{pct}% healthy</span>
-              {cards.length > 0 && ` · ${cards.length} need attention`}
+              {cards.length > 0 && ` · ${cards.length} Need Attention`}
             </p>
           </div>
           <button onClick={onClose} className="text-zinc-500 hover:text-white text-xl leading-none">×</button>
@@ -1364,8 +1379,8 @@ function HealthCheckModal({
             />
           </div>
           <div className="flex justify-between text-xs text-zinc-600 mt-1">
-            <span>{healthy} healthy</span>
-            <span>{cards.length} issues</span>
+            <span>{healthy} Healthy</span>
+            <span>{cards.length} Issues</span>
           </div>
         </div>
 
@@ -1425,19 +1440,19 @@ function HealthCheckModal({
         {/* Footer */}
         {cards.length > 0 && !done && (
           <div className="px-6 py-4 border-t border-zinc-800 flex justify-between items-center gap-3">
-            <p className="text-xs text-zinc-500">{enrichingAll ? 'Enriching from Jikan / MAL…' : `${cards.length} card${cards.length !== 1 ? 's' : ''} need data`}</p>
+            <p className="text-xs text-zinc-500">{enrichingAll ? 'Enriching From Jikan / MAL…' : `${cards.length} Card${cards.length !== 1 ? 's' : ''} Need Data`}</p>
             <button
               onClick={handleEnrichAll}
               disabled={enrichingAll || !!enrichingId}
               className="px-4 py-2 rounded-lg bg-cyan-600 text-white text-sm font-medium hover:bg-cyan-500 disabled:opacity-40 transition-colors"
             >
-              {enrichingAll ? '⟳ Enriching all…' : `⚡ Fix all ${cards.length}`}
+              {enrichingAll ? '⟳ Enriching All…' : `⚡ Fix All ${cards.length}`}
             </button>
           </div>
         )}
         {done && (
           <div className="px-6 py-4 border-t border-zinc-800 text-center text-sm text-emerald-400">
-            ✅ Enrichment complete — {manga.length} cards checked
+            ✅ Enrichment Complete — {manga.length} Cards Checked
           </div>
         )}
       </div>
@@ -1496,15 +1511,15 @@ function MobileMenu({ onRecommend, onSync, onSignOut, onExportCSV, onExportMAL, 
             )}
             <button onClick={() => { onCheckCards(); setOpen(false) }}
               className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
-              <span>🩺</span> Check cards
+              <span>🩺</span> Check Cards
             </button>
             <button onClick={() => { onShare(); setOpen(false) }}
               className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
-              <span>🔗</span> Share list
+              <span>🔗</span> Share List
             </button>
             <button onClick={() => { onSignOut(); setOpen(false) }}
               className="w-full px-4 py-3 text-sm text-left text-zinc-400 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
-              <span>↩</span> Sign out
+              <span>↩</span> Sign Out
             </button>
           </div>
         </>
@@ -1593,7 +1608,7 @@ export default function Home() {
       supabase.from('manga_list').select('*'),
       supabase.from('anime_list').select('id,title,total_watch_hours,last_watched,is_movie'),
     ])
-    if (error) { showToast('Failed to load manga list'); return }
+    if (error) { showToast('Failed To Load Manga List'); return }
     if (data) setManga(data as Manga[])
     if (al) setAnimeList(al as AnimeRow[])
     setLoading(false)
@@ -1685,7 +1700,7 @@ export default function Home() {
       .update({ current_chapter: next, last_read_at: now })
       .eq('id', id)
     if (error) {
-      showToast('Failed to update chapter')
+      showToast('Failed To Update Chapter')
       setManga(prev => prev.map(m => m.id === id ? { ...m, current_chapter: current } : m))
       return
     }
@@ -1723,7 +1738,7 @@ export default function Home() {
     setManga(prev => prev.map(m => m.id === id ? { ...m, status } : m))
     const { error } = await supabase.from('manga_list').update({ status }).eq('id', id)
     if (error) {
-      showToast('Failed to update status')
+      showToast('Failed To Update Status')
       if (prev_status) setManga(prev => prev.map(m => m.id === id ? { ...m, status: prev_status } : m))
       return
     }
@@ -1745,7 +1760,7 @@ export default function Home() {
       .update({ status: 'watching', episodes_watched: ep })
       .eq('id', watchPrompt.id)
     if (ep > 0) await supabase.from('reading_log').insert({ manga_id: watchPrompt.id, chapters_read: 0 })
-    showToast(`Now watching — ep. ${ep} logged`)
+    showToast(`Now Watching — Ep. ${ep} Logged`)
     setWatchPrompt(null)
   }
 
@@ -1756,7 +1771,7 @@ export default function Home() {
     if (existing) clearTimeout(existing)
     const timer = setTimeout(async () => {
       const { error } = await supabase.from('manga_list').update({ notes }).eq('id', id)
-      if (error) showToast('Failed to save note')
+      if (error) showToast('Failed To Save Note')
       notesTimers.current.delete(id)
     }, 500)
     notesTimers.current.set(id, timer)
@@ -1768,11 +1783,11 @@ export default function Home() {
     try {
       const res = await fetch('/api/sync', { method: 'POST' })
       const data = await res.json()
-      if (!res.ok) { showToast(data.error ?? 'Sync failed'); return }
+      if (!res.ok) { showToast(data.error ?? 'Sync Failed'); return }
       setSyncResults(data)
-      showToast(data.updated > 0 ? `Sync complete — ${data.updated} updates` : 'Sync complete — everything up to date')
+      showToast(data.updated > 0 ? `Sync Complete — ${data.updated} Updates` : 'Sync Complete — Everything Up To Date')
     } catch {
-      showToast('Sync failed — check your connection')
+      showToast('Sync Failed — Check Your Connection')
     } finally {
       setSyncing(false)
     }
@@ -1915,7 +1930,7 @@ ${entries}
       date_precision: 'exact',
       progress_date: todayDate,
     })
-    showToast(`Session logged — ${chaptersRead} ch in ${durationMinutes} min`)
+    showToast(`Session Logged — ${chaptersRead} Ch In ${durationMinutes} Min`)
     setActiveSession(null)
   }
 
@@ -1930,7 +1945,7 @@ ${entries}
     setManga(prev => prev.map(m => m.id === id ? { ...m, episodes_watched: next } : m))
     const { error } = await supabase.from('manga_list').update({ episodes_watched: next }).eq('id', id)
     if (error) {
-      showToast('Failed to update episodes')
+      showToast('Failed To Update Episodes')
       setManga(prev => prev.map(m => m.id === id ? { ...m, episodes_watched: current } : m))
       return
     }
@@ -1965,7 +1980,7 @@ ${entries}
     setManga(prev => prev.filter(m => m.id !== id))
     const { error } = await supabase.from('manga_list').delete().eq('id', id)
     if (error) {
-      showToast('Failed to delete')
+      showToast('Failed To Delete')
       if (removed) setManga(prev => [...prev, removed].sort((a, b) => a.title.localeCompare(b.title)))
     }
   }
@@ -2001,8 +2016,8 @@ ${entries}
         .insert(insertPayload)
         .select()
         .single()
-      if (error?.code === '23505') { showToast(`"${insertPayload.title}" is already in your list`); setAdding(false); return }
-      if (error) { showToast('Failed to add manga'); return }
+      if (error?.code === '23505') { showToast(`"${insertPayload.title}" Is Already In Your List`); setAdding(false); return }
+      if (error) { showToast('Failed To Add Manga'); return }
       if (data) {
         const newEntry = data as Manga
         setManga(prev => [...prev, newEntry])
@@ -2104,12 +2119,12 @@ ${entries}
       if (Object.keys(updates).length > 0) {
         await supabase.from('manga_list').update(updates).eq('id', m.id)
         setManga(prev => prev.map(x => x.id === m.id ? { ...x, ...updates } : x))
-        showToast('Info updated')
+        showToast('Info Updated')
       } else {
-        showToast('No new info found')
+        showToast('No New Info Found')
       }
     } catch {
-      showToast('Failed to fetch info')
+      showToast('Failed To Fetch Info')
     } finally {
       setRefreshingId(null)
     }
@@ -2269,7 +2284,7 @@ ${entries}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Manga Tracker</h1>
-            <p className="text-zinc-500 text-xs md:text-sm mt-0.5">{manga.length} titles</p>
+            <p className="text-zinc-500 text-xs md:text-sm mt-0.5">{manga.length} Titles</p>
           </div>
 
           {/* Desktop actions (all visible) */}
@@ -2308,7 +2323,7 @@ ${entries}
             </button>
             <button onClick={signOut} aria-label="Sign out"
               className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
-              Sign out
+              Sign Out
             </button>
           </div>
 
@@ -2335,7 +2350,7 @@ ${entries}
 
         {/* Stats — 2 cols on mobile, responsive on desktop (hide watching if 0) */}
         <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-2">
-          {(Object.keys(STATUS_LABELS) as MangaStatus[]).filter(s => s !== 'watching' || (counts.watching ?? 0) > 0).map(s => (
+          {(Object.keys(STATUS_LABELS) as MangaStatus[]).filter(s => (s !== 'watching' && s !== 'unwatched') || (counts[s] ?? 0) > 0).map(s => (
             <button key={s} onClick={() => setFilter(filter === s ? 'all' : s)}
               className={`rounded-xl p-3 text-center transition-colors ${filter === s ? 'bg-white text-black' : 'bg-zinc-900 hover:bg-zinc-800'}`}>
               <div className="text-xl font-bold">{counts[s] ?? 0}</div>
@@ -2707,7 +2722,7 @@ ${entries}
                     </button>
                     <button onClick={() => dismissPair(a, b)}
                       className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs rounded-lg transition-colors">
-                      Not a duplicate
+                      Not A Duplicate
                     </button>
                   </div>
                 </div>
@@ -2795,7 +2810,7 @@ ${entries}
                       <select value={m.status} onChange={e => updateStatus(m.id, e.target.value as MangaStatus)}
                         aria-label={`Status for ${m.title}`}
                         className={`text-xs px-2 py-0.5 rounded-full border bg-transparent cursor-pointer outline-none ${STATUS_COLORS[m.status]}`}>
-                        {(Object.keys(STATUS_LABELS) as MangaStatus[]).filter(s => s !== 'watching' || m.has_anime).map(s => (
+                        {(Object.keys(STATUS_LABELS) as MangaStatus[]).filter(s => (s !== 'watching' && s !== 'unwatched') || m.has_anime).map(s => (
                           <option key={s} value={s} className="bg-zinc-900 text-white">{STATUS_LABELS[s]}</option>
                         ))}
                       </select>
@@ -2835,7 +2850,7 @@ ${entries}
                     <p className={`text-[11px] leading-[1.5] ${m.synopsis ? 'text-zinc-500' : 'text-zinc-700 italic'} ${expandedSynopsis.has(m.id) ? '' : 'line-clamp-3'}`}
                       style={{ minHeight: '3.375rem', cursor: m.synopsis ? 'pointer' : 'default' }}
                       onClick={() => m.synopsis && toggleSynopsis(m.id)}>
-                      {m.synopsis ?? 'No description available.'}
+                      {m.synopsis ?? 'No Description Available.'}
                     </p>
 
                     {/* Arc / re-read / re-watch badges */}
@@ -2847,8 +2862,8 @@ ${entries}
                       return (
                         <div className="flex items-center gap-2">
                           {arc && <span className="text-[11px] text-zinc-600 truncate flex items-center gap-1"><MapPin size={10} strokeWidth={1.5} /> {arc.label}</span>}
-                          {rereadCount > 0 && <span className="text-[11px] text-violet-500 shrink-0">×{rereadCount} re-read</span>}
-                          {rewatchCount > 0 && <span className="text-[11px] text-cyan-600 shrink-0">×{rewatchCount} re-watch</span>}
+                          {rereadCount > 0 && <span className="text-[11px] text-violet-500 shrink-0">×{rereadCount} Re-Read</span>}
+                          {rewatchCount > 0 && <span className="text-[11px] text-cyan-600 shrink-0">×{rewatchCount} Re-Watch</span>}
                         </div>
                       )
                     })()}
@@ -2874,8 +2889,8 @@ ${entries}
                         {/* Episode → manga chapter equivalent */}
                         {m.total_episodes && m.total_chapters && m.episodes_watched > 0 && (
                           <p className="text-[10px] text-zinc-600 pl-4 tabular-nums">
-                            ≈ ch.&nbsp;{Math.round((m.episodes_watched / m.total_episodes) * m.total_chapters)}&nbsp;manga equivalent
-                            <span className="text-zinc-700"> ({m.total_chapters} ch total)</span>
+                            ≈ Ch.&nbsp;{Math.round((m.episodes_watched / m.total_episodes) * m.total_chapters)}&nbsp;Manga Equivalent
+                            <span className="text-zinc-700"> ({m.total_chapters} Ch Total)</span>
                           </p>
                         )}
                       </div>
@@ -2905,8 +2920,8 @@ ${entries}
                       {/* Chapter → anime episode equivalent */}
                       {m.has_anime && m.total_chapters && m.total_episodes && m.current_chapter > 0 && (
                         <p className="text-[10px] text-zinc-600 mt-0.5 tabular-nums">
-                          ≈ ep.&nbsp;{Math.round((m.current_chapter / m.total_chapters) * m.total_episodes)}&nbsp;anime equivalent
-                          <span className="text-zinc-700"> ({m.total_episodes} ep total)</span>
+                          ≈ Ep.&nbsp;{Math.round((m.current_chapter / m.total_chapters) * m.total_episodes)}&nbsp;Anime Equivalent
+                          <span className="text-zinc-700"> ({m.total_episodes} Ep Total)</span>
                         </p>
                       )}
                     </div>
@@ -2915,7 +2930,7 @@ ${entries}
                     <div className="flex flex-wrap gap-1">
                       {m.genres?.length > 0
                         ? m.genres.slice(0, 5).map(g => <span key={g} className="text-[10px] px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded-full">{g}</span>)
-                        : <span className="text-[10px] text-zinc-700 italic">No genres listed</span>
+                        : <span className="text-[10px] text-zinc-700 italic">No Genres Listed</span>
                       }
                     </div>
 
@@ -2948,7 +2963,7 @@ ${entries}
                           <ThumbsDown size={13} strokeWidth={1.5} />
                         </button>
                         <span className="text-[10px] text-zinc-700 ml-1">
-                          {m.user_rating === 'up' ? 'Liked' : m.user_rating === 'down' ? 'Disliked' : 'Not rated'}
+                          {m.user_rating === 'up' ? 'Liked' : m.user_rating === 'down' ? 'Disliked' : 'Not Rated'}
                         </span>
                       </div>
                     </div>
@@ -2959,7 +2974,7 @@ ${entries}
                 {/* Watching episode prompt */}
                 {watchPrompt?.id === m.id && (
                   <div className="border-t border-zinc-800 px-3 py-3 bg-violet-900/10">
-                    <p className="text-xs text-violet-300 font-medium mb-2 flex items-center gap-1.5"><Tv size={12} strokeWidth={1.5} /> How many episodes have you watched?</p>
+                    <p className="text-xs text-violet-300 font-medium mb-2 flex items-center gap-1.5"><Tv size={12} strokeWidth={1.5} /> How Many Episodes Have You Watched?</p>
                     <div className="flex gap-2 items-center">
                       <input
                         type="number" min={0}
@@ -3008,7 +3023,7 @@ ${entries}
                             await supabase.from('manga_list').update({ is_public_review: val }).eq('id', m.id)
                           }} />
                         <span className="text-[10px] text-zinc-500">
-                          {m.is_public_review ? 'Visible on share page' : 'Make this a public review'}
+                          {m.is_public_review ? 'Visible On Share Page' : 'Make This A Public Review'}
                         </span>
                       </label>
                     )}
@@ -3027,11 +3042,11 @@ ${entries}
               <button onClick={() => setSyncResults(null)} aria-label="Dismiss sync results" className="text-zinc-600 hover:text-zinc-400 text-lg leading-none">×</button>
             </div>
             <p className="text-xs text-zinc-500 mb-3">
-              Checked {manga.filter(m => m.mal_id).length} titles against MyAnimeList
+              Checked {manga.filter(m => m.mal_id).length} Titles Against MyAnimeList
               {syncResults.timestamp && ` · ${new Date(syncResults.timestamp).toLocaleTimeString()}`}
             </p>
             {syncResults.updated === 0 ? (
-              <p className="text-xs text-zinc-500">Everything is up to date.</p>
+              <p className="text-xs text-zinc-500">Everything Is Up To Date.</p>
             ) : (
               <div className="space-y-1.5">
                 {syncResults.results.map((r, i) => (
@@ -3083,7 +3098,7 @@ ${entries}
                   <p className="text-zinc-600 text-xs mb-4 font-mono break-all px-2">{recError}</p>
                   <button onClick={getRecommendations}
                     className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300">
-                    Try again
+                    Try Again
                   </button>
                 </div>
               )}
@@ -3180,6 +3195,16 @@ ${entries}
             await mergeMultiple(keep, toRemove)
           }}
           onNavigate={(m) => setSelectedManga(m)}
+          onChapterReset={(chapterAtStart) => {
+            setManga(prev => prev.map(m => m.id === selectedManga!.id ? { ...m, current_chapter: 0 } : m))
+            setSelectedManga(prev => prev ? { ...prev, current_chapter: 0 } : prev)
+            showToast(`Re-Read Started — Ch. ${chapterAtStart} Saved, Reset To 0`)
+          }}
+          onEpisodesReset={(episodesAtStart) => {
+            setManga(prev => prev.map(m => m.id === selectedManga!.id ? { ...m, episodes_watched: 0 } : m))
+            setSelectedManga(prev => prev ? { ...prev, episodes_watched: 0 } : prev)
+            showToast(`Re-Watch Started — Ep. ${episodesAtStart} Saved, Reset To 0`)
+          }}
         />
       )}
 
@@ -3220,7 +3245,7 @@ ${entries}
               ? { ...m, user_rating: rating, notes: note ? (m.notes ? m.notes.trim() + '\n' : '') + `[Completed] ${note}` : m.notes }
               : m
             ))
-            showToast(`"${completionManga.title}" logged ✓`)
+            showToast(`"${completionManga.title}" Logged ✓`)
           }}
         />
       )}

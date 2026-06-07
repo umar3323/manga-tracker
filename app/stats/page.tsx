@@ -15,11 +15,11 @@ import NarrativeInsights from '@/components/NarrativeInsights'
 
 const STATUS_LABELS: Record<MangaStatus, string> = {
   reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-  dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching',
+  dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching', unwatched: 'Unwatched',
 }
 const STATUS_COLORS: Record<MangaStatus, string> = {
   reading: '#FF2D46', completed: '#2FCF7A',
-  on_hold: '#FFB02E', dropped: '#6F6E7C', plan_to_read: '#FFC93D', watching: '#2BE6DC',
+  on_hold: '#FFB02E', dropped: '#6F6E7C', plan_to_read: '#FFC93D', watching: '#2BE6DC', unwatched: '#71717A',
 }
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']

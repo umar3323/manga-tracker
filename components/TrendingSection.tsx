@@ -226,7 +226,7 @@ export default function TrendingSection({ onSelect, excludeGenreIds = [] }: Prop
 
             {!isLoading && items.length === 0 && (
               <p style={{ fontSize: 13, color: 'var(--fg-4)', padding: '16px 0' }}>
-                {selectedGenre ? 'No results for this genre — try another.' : 'Nothing loaded — check your connection.'}
+                {selectedGenre ? 'No Results For This Genre — Try Another.' : 'Nothing Loaded — Check Your Connection.'}
               </p>
             )}
           </div>

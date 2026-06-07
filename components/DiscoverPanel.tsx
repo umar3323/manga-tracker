@@ -42,7 +42,7 @@ const SWIPE_THRESHOLD = 100
 
 const STATUS_LABELS: Record<MangaStatus, string> = {
   reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-  dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching',
+  dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching', unwatched: 'Unwatched',
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
