@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import Image from 'next/image'
 import { supabase, type Manga, type MangaStatus, type Author } from '@/lib/supabase'
-import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, getMangaById, getAnimeAdaptations, searchMangaWithFilters, type JikanSearchResult } from '@/lib/jikan'
+import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, getMangaById, getAnimeAdaptations, getMangaAllRelations, searchMangaWithFilters, type JikanSearchResult, type SeriesRelation } from '@/lib/jikan'
 import TrendingSection from '@/components/TrendingSection'
 import DiscoverySection from '@/components/DiscoverySection'
 import ReleaseCalendar from '@/components/ReleaseCalendar'
@@ -18,6 +18,7 @@ import { RELATION_LABELS, formatCountdown } from '@/lib/anilist'
 import type { MUSeriesData } from '@/lib/mangaupdates'
 import type { ANNRelatedWork } from '@/lib/ann'
 import MangaFact from '@/components/MangaFact'
+import SeriesMapModal from '@/components/SeriesMapModal'
 import CompletionModal from '@/components/CompletionModal'
 import DateAttributionModal, { type DateAttribution } from '@/components/DateAttributionModal'
 import NotificationBell from '@/components/NotificationBell'
@@ -226,6 +227,10 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
   const [mergeQuery, setMergeQuery] = useState('')
   const [mergeSelected, setMergeSelected] = useState<Set<string>>(new Set())
   const [mergingMulti, setMergingMulti] = useState(false)
+  // Series Map
+  const [showSeriesMap, setShowSeriesMap] = useState(false)
+  const [jikanRelations, setJikanRelations] = useState<SeriesRelation[]>([])
+  const [relationsLoaded, setRelationsLoaded] = useState(false)
 
   useEffect(() => {
     if (manga.mal_id) {
@@ -271,6 +276,19 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
         .catch(() => {/* non-critical */})
     }
   }, [manga.mal_id, manga.anime_mal_id, manga.has_anime, manga.title])
+
+  // Fetch Jikan relations for Related Anime section + Series Map button
+  useEffect(() => {
+    if (!manga.mal_id) return
+    setRelationsLoaded(false)
+    getMangaAllRelations(manga.mal_id).then(rels => {
+      setJikanRelations(rels)
+      setRelationsLoaded(true)
+    })
+  }, [manga.mal_id])
+
+  const relatedAnime = jikanRelations.filter(r => r.type === 'anime')
+  const hasSeriesRelations = jikanRelations.length > 0
 
   // Duplicate detection: derived via useMemo to avoid setState-in-effect
   const duplicateCandidate = useMemo(() => {
@@ -375,6 +393,21 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
               {manga.total_episodes && <span className="text-xs text-zinc-500 ml-auto">{manga.total_episodes} eps</span>}
             </div>
           )}
+          {/* Series Map button — only shown when Jikan has relations */}
+          {manga.mal_id && (relationsLoaded ? hasSeriesRelations : true) && (
+            <button
+              onClick={() => setShowSeriesMap(true)}
+              className="w-full mb-4 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 hover:text-white transition-colors"
+            >
+              <span>⬡</span>
+              <span>Series Map</span>
+              {relationsLoaded && jikanRelations.length > 0 && (
+                <span className="text-zinc-500">· {jikanRelations.length} Related</span>
+              )}
+              {!relationsLoaded && <span className="text-zinc-600">Loading…</span>}
+            </button>
+          )}
+
           {manga.notes && (
             <div className="bg-zinc-800 rounded-lg p-3 mb-4">
               <p className="text-xs text-zinc-400 leading-relaxed">{manga.notes}</p>
@@ -620,6 +653,42 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
                       </div>
                     )
                   })}
+              </div>
+            </div>
+          )}
+
+          {/* Related Anime — all anime-type Jikan relations for this manga */}
+          {relatedAnime.length > 0 && (
+            <div className="mb-4">
+              <p className="text-xs font-medium text-zinc-500 mb-2">Related Anime</p>
+              <div className="space-y-1.5">
+                {relatedAnime.map((rel, i) => {
+                  const MAL_ANIME_LABELS: Record<string, { label: string; color: string }> = {
+                    'Adaptation':          { label: 'Adaptation',    color: 'text-violet-400' },
+                    'Sequel':              { label: 'Sequel',        color: 'text-emerald-400' },
+                    'Prequel':             { label: 'Prequel',       color: 'text-blue-400' },
+                    'Side story':          { label: 'Side Story',    color: 'text-orange-400' },
+                    'Spin-off':            { label: 'Spin-Off',      color: 'text-pink-400' },
+                    'Alternative version': { label: 'Alt. Version',  color: 'text-zinc-400' },
+                    'Summary':             { label: 'Summary',       color: 'text-zinc-500' },
+                    'Other':               { label: 'Other',         color: 'text-zinc-500' },
+                  }
+                  const meta = MAL_ANIME_LABELS[rel.relation] ?? { label: rel.relation, color: 'text-zinc-400' }
+                  return (
+                    <a key={i}
+                      href={`https://myanimelist.net/anime/${rel.mal_id}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-2.5 bg-zinc-800 rounded-xl px-3 py-2 hover:bg-zinc-700 transition-colors"
+                      style={{ textDecoration: 'none' }}>
+                      <span className="text-lg shrink-0">📺</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium truncate">{rel.name}</p>
+                        <p className={`text-[10px] ${meta.color}`}>{meta.label}</p>
+                      </div>
+                      <span className="text-zinc-600 text-xs shrink-0">↗</span>
+                    </a>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -874,6 +943,16 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
           </button>
         </div>
       </div>
+
+      {/* Series Map overlay — rendered inside the detail panel backdrop */}
+      {showSeriesMap && manga.mal_id && (
+        <SeriesMapModal
+          malId={manga.mal_id}
+          title={manga.title}
+          coverUrl={manga.cover_url}
+          onClose={() => setShowSeriesMap(false)}
+        />
+      )}
     </div>
   )
 }

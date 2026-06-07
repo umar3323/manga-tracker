@@ -464,6 +464,77 @@ export async function getUpdatedManga(limit = 20, excludeMalIds: number[] = [], 
   } catch { return [] }
 }
 
+// ─── Series relations ──────────────────────────────────────────────────────
+
+export interface SeriesRelation {
+  relation: string          // 'Prequel' | 'Sequel' | 'Adaptation' | 'Side story' | etc.
+  mal_id:   number
+  type:     'manga' | 'anime'
+  name:     string
+  url:      string
+}
+
+/** Returns ALL relations for a manga (not just anime adaptations). */
+export async function getMangaAllRelations(malId: number): Promise<SeriesRelation[]> {
+  try {
+    const res = await fetch(`https://api.jikan.moe/v4/manga/${malId}/relations`)
+    if (!res.ok) return []
+    const json = await res.json()
+    const out: SeriesRelation[] = []
+    for (const rel of json.data ?? []) {
+      for (const entry of rel.entry ?? []) {
+        out.push({
+          relation: rel.relation as string,
+          mal_id:   entry.mal_id,
+          type:     entry.type === 'anime' ? 'anime' : 'manga',
+          name:     entry.name,
+          url:      entry.url,
+        })
+      }
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
+export interface SeriesEntryDetail {
+  cover_url:  string | null
+  year:       number | null
+  episodes:   number | null
+  chapters:   number | null
+  status:     string | null
+  score:      number | null
+}
+
+/** Fetch lightweight detail (cover + year + count) for a related entry. */
+export async function getSeriesEntryDetail(
+  malId: number,
+  type: 'manga' | 'anime',
+): Promise<SeriesEntryDetail | null> {
+  try {
+    const res = await fetch(`https://api.jikan.moe/v4/${type}/${malId}`)
+    if (!res.ok) return null
+    const d = (await res.json()).data
+    if (!d) return null
+    const coverRaw = d.images?.jpg?.large_image_url ?? d.images?.jpg?.image_url ?? null
+    const yearRaw  =
+      type === 'manga'
+        ? (d.published?.from ? new Date(d.published.from).getFullYear() : null)
+        : (d.year ?? (d.aired?.from ? new Date(d.aired.from).getFullYear() : null))
+    return {
+      cover_url: coverRaw,
+      year:      yearRaw,
+      episodes:  type === 'anime' ? (d.episodes ?? null) : null,
+      chapters:  type === 'manga' ? (d.chapters ?? null) : null,
+      status:    d.status ?? null,
+      score:     d.score ?? null,
+    }
+  } catch {
+    return null
+  }
+}
+
 export async function getAuthorInfo(personId: number): Promise<{ name: string; about: string | null } | null> {
   try {
     const res = await jikanGet(`/people/${personId}/full`)
