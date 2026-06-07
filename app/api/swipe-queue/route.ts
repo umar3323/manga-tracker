@@ -1,9 +1,48 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import type { JikanSearchResult } from '@/lib/jikan'
 
-export async function GET(req: NextRequest) {
+export const maxDuration = 30
+
+// Map a raw Jikan manga object to JikanSearchResult
+function mapItem(item: Record<string, unknown>): JikanSearchResult | null {
+  const mal_id = item.mal_id as number | null
+  if (!mal_id) return null
+  const images = item.images as Record<string, Record<string, string>> | undefined
+  const cover_url = images?.jpg?.large_image_url ?? images?.jpg?.image_url ?? null
+  if (!cover_url) return null // swipe cards need a cover
+  const genres  = ((item.genres  as { name: string }[] | undefined) ?? []).map(g => g.name)
+  const themes  = ((item.themes  as { name: string }[] | undefined) ?? []).map(g => g.name)
+  const authors = ((item.authors as { name: string }[] | undefined) ?? []).map(a => ({ id: 0, name: a.name }))
+  return {
+    mal_id,
+    title: (item.title as string) ?? '',
+    synopsis: (item.synopsis as string | null) ?? null,
+    cover_url,
+    genres: [...genres, ...themes],
+    total_chapters: (item.chapters as number | null) ?? null,
+    score: (item.score as number | null) ?? null,
+    status: (item.status as string | null) ?? null,
+    authors,
+  }
+}
+
+async function jikanFetch(path: string): Promise<JikanSearchResult[]> {
+  try {
+    const res = await fetch(`https://api.jikan.moe/v4${path}`, {
+      signal: AbortSignal.timeout(8000),
+      next: { revalidate: 3600 }, // cache 1h at the edge
+    })
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.data ?? []).map(mapItem).filter(Boolean) as JikanSearchResult[]
+  } catch {
+    return []
+  }
+}
+
+export async function GET() {
   try {
     const cookieStore = await cookies()
     const supabase = createServerClient(
@@ -17,28 +56,25 @@ export async function GET(req: NextRequest) {
       }
     )
 
-    // Excluded IDs: already in library + already swiped
-    const { data: addedData } = await supabase.from('manga_list').select('mal_id')
-    const addedMalIds = (addedData ?? [])
-      .map((r: { mal_id: number | null }) => r.mal_id)
-      .filter(Boolean) as number[]
+    // Supabase reads + Jikan fetches run in parallel
+    const [addedRes, swipesRes, topRes, popRes] = await Promise.all([
+      supabase.from('manga_list').select('mal_id'),
+      supabase.from('swipe_history').select('mal_id, direction, genres').order('swiped_at', { ascending: false }).limit(500),
+      jikanFetch('/top/manga?limit=25&page=1'),
+      jikanFetch('/top/manga?filter=publishing&limit=25'),
+    ])
 
-    const { data: swipes } = await supabase
-      .from('swipe_history')
-      .select('mal_id, direction, genres')
-      .order('swiped_at', { ascending: false })
-      .limit(500)
-
-    const alreadySwiped = (swipes ?? []).map((s: { mal_id: number }) => s.mal_id)
+    const addedMalIds = ((addedRes.data ?? []) as { mal_id: number | null }[])
+      .map(r => r.mal_id).filter(Boolean) as number[]
+    const swipes = (swipesRes.data ?? []) as { mal_id: number; direction: string; genres: string[] }[]
+    const alreadySwiped = swipes.map(s => s.mal_id)
     const excludeSet = new Set([...addedMalIds, ...alreadySwiped])
 
-    // Build genre preference profile from swipe history
+    // Build genre preference profile
     const genreScore: Record<string, number> = {}
-    for (const s of swipes ?? []) {
+    for (const s of swipes) {
       const weight = s.direction === 'right' ? 1 : -0.5
-      for (const g of s.genres ?? []) {
-        genreScore[g] = (genreScore[g] ?? 0) + weight
-      }
+      for (const g of s.genres ?? []) genreScore[g] = (genreScore[g] ?? 0) + weight
     }
     const topGenres = Object.entries(genreScore)
       .filter(([, v]) => v > 0)
@@ -50,36 +86,30 @@ export async function GET(req: NextRequest) {
       Object.entries(genreScore).filter(([, v]) => v < -1).map(([g]) => g)
     )
 
-    // Fetch unified catalog
-    const origin = new URL(req.url).origin
-    const catalogRes = await fetch(`${origin}/api/catalog`, { signal: AbortSignal.timeout(30000) })
-    let catalog: JikanSearchResult[] = []
-    if (catalogRes.ok) {
-      const json = await catalogRes.json()
-      catalog = json.catalog ?? []
+    // Deduplicate the two Jikan result sets by mal_id
+    const seen = new Set<number>()
+    const catalog: JikanSearchResult[] = []
+    for (const m of [...topRes, ...popRes]) {
+      if (m.mal_id && !seen.has(m.mal_id)) { seen.add(m.mal_id); catalog.push(m) }
     }
 
-    // Filter out excluded IDs and disliked-genre-heavy manga
+    // Filter + score
     const candidates = catalog.filter(m => {
       if (!m.mal_id || excludeSet.has(m.mal_id)) return false
-      if (!m.cover_url) return false // need a cover to show the card
       const dislikedCount = (m.genres ?? []).filter(g => dislikedGenres.has(g)).length
       const totalGenres = (m.genres ?? []).length || 1
-      if (dislikedCount / totalGenres > 0.6) return false // mostly disliked genres
-      return true
+      return dislikedCount / totalGenres <= 0.6
     })
 
-    // Score by genre overlap with user's taste
     const scored = candidates.map(m => {
       const overlap = (m.genres ?? []).filter(g => preferredGenreSet.has(g)).length
       const scoreBonus = (m.score ?? 7) / 10
       return { m, rank: overlap * 3 + scoreBonus }
     })
 
-    // Shuffle top candidates (take top 60% by rank, then randomise)
     scored.sort((a, b) => b.rank - a.rank)
-    const topPool = scored.slice(0, Math.max(30, Math.floor(scored.length * 0.6)))
-    // Fisher-Yates shuffle
+    const topPool = scored.slice(0, Math.max(25, Math.floor(scored.length * 0.7)))
+    // Fisher-Yates shuffle for variety
     for (let i = topPool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1))
       ;[topPool[i], topPool[j]] = [topPool[j], topPool[i]]

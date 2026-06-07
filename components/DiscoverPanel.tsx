@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import type { MangaStatus } from '@/lib/supabase'
 import {
-  getTopManga, getTrendingThisYear, getNewSeriesManga, getUpdatedManga,
+  getNewSeriesManga, getUpdatedManga,
   getAnimeAdaptations, type JikanSearchResult,
 } from '@/lib/jikan'
 import type { SJChapter } from '@/app/api/shonenjump/route'
@@ -14,10 +14,21 @@ import WebtoonsFeed from '@/components/WebtoonsFeed'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type DiscoverTab = 'similar' | 'new' | 'updated' | 'jump' | 'plus' | 'webtoons' | 'swipe'
+type DiscoverTab = 'new' | 'updated' | 'jump' | 'plus' | 'webtoons' | 'swipe'
+
+// Mood chips map a vibe to a set of MAL genre keywords
+const MOODS: { label: string; emoji: string; genres: string[] }[] = [
+  { label: 'Slow burn',    emoji: '🕯️', genres: ['Slice of Life', 'Drama'] },
+  { label: 'Adrenaline',   emoji: '⚡', genres: ['Action', 'Sports'] },
+  { label: 'Feel-good',    emoji: '☀️', genres: ['Comedy', 'Slice of Life'] },
+  { label: 'Dark & gritty',emoji: '🌑', genres: ['Horror', 'Psychological', 'Thriller'] },
+  { label: 'Found family', emoji: '🤝', genres: ['Adventure', 'Fantasy'] },
+  { label: 'Romance',      emoji: '💕', genres: ['Romance', 'Shoujo'] },
+  { label: 'Mind-bending', emoji: '🔮', genres: ['Psychological', 'Mystery', 'Sci-Fi'] },
+  { label: 'Epic world',   emoji: '🗺️', genres: ['Fantasy', 'Adventure', 'Isekai'] },
+]
 
 const DISC_TABS: { id: DiscoverTab; label: string; emoji: string }[] = [
-  { id: 'similar',  label: 'Similar',  emoji: '🎯' },
   { id: 'new',      label: 'New',      emoji: '✨' },
   { id: 'updated',  label: 'Updated',  emoji: '🔔' },
   { id: 'jump',     label: 'Jump',     emoji: '⚡' },
@@ -31,7 +42,7 @@ const SWIPE_THRESHOLD = 100
 
 const STATUS_LABELS: Record<MangaStatus, string> = {
   reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-  dropped: 'Dropped', plan_to_read: 'Plan to Read', watching: 'Watching',
+  dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching',
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -192,10 +203,11 @@ interface DiscoverPanelProps {
   defaultTab?: DiscoverTab
 }
 
-export default function DiscoverPanel({ defaultTab = 'similar' }: DiscoverPanelProps) {
+export default function DiscoverPanel({ defaultTab = 'new' }: DiscoverPanelProps) {
   const [activeTab, setActiveTab] = useState<DiscoverTab>(defaultTab)
   const [selectedCard, setSelectedCard] = useState<JikanSearchResult | null>(null)
   const [trackedTitles, setTrackedTitles] = useState<Set<string>>(new Set())
+  const [activeMood, setActiveMood] = useState<string | null>(null)
 
   useEffect(() => {
     supabase.from('manga_list').select('title').then(({ data }) => {
@@ -217,15 +229,7 @@ export default function DiscoverPanel({ defaultTab = 'similar' }: DiscoverPanelP
     let excludeGenreIds: number[] = []
     try { excludeGenreIds = JSON.parse(localStorage.getItem('excluded_genres') ?? '[]') } catch {}
     let results: JikanSearchResult[] = []
-    if (tab === 'similar') {
-      const { data: swipes } = await supabase.from('swipe_history').select('genres, direction').eq('direction', 'right').limit(100)
-      const genreScore: Record<string, number> = {}
-      for (const s of swipes ?? []) for (const g of s.genres ?? []) genreScore[g] = (genreScore[g] ?? 0) + 1
-      const topGenres = Object.entries(genreScore).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([n]) => n)
-      const GENRE_IDS: Record<string, number> = { Action: 1, Adventure: 2, Comedy: 4, Drama: 8, Fantasy: 10, Horror: 14, Mystery: 7, Romance: 22, 'Sci-Fi': 24, 'Slice of Life': 36, Sports: 30, Supernatural: 37, Thriller: 41, Shounen: 27, Seinen: 42, Shoujo: 25 }
-      const genreIds = topGenres.map(g => GENRE_IDS[g]).filter(Boolean) as number[]
-      results = genreIds.length ? await getTopManga('publishing', 24, [...excludeIds, ...excludeGenreIds]) : await getTrendingThisYear(24, excludeGenreIds)
-    } else if (tab === 'new') {
+    if (tab === 'new') {
       results = await getNewSeriesManga(24, excludeIds)
     } else if (tab === 'updated') {
       results = await getUpdatedManga(24, excludeIds, excludeGenreIds)
@@ -295,7 +299,7 @@ export default function DiscoverPanel({ defaultTab = 'similar' }: DiscoverPanelP
     await supabase.from('swipe_history').insert({ mal_id: card.mal_id, title: card.title, direction: dir, genres: card.genres ?? [] })
     if (dir === 'right') {
       const { error } = await supabase.from('manga_list').insert({ mal_id: card.mal_id, title: card.title, current_chapter: 0, status: 'plan_to_read', cover_url: card.cover_url, total_chapters: card.total_chapters })
-      if (!error) showToast(`Added "${card.title}" to Plan to Read`)
+      if (!error) showToast(`Added "${card.title}" to Plan To Read`)
       else if (error.code === '23505') showToast('Already in your list!')
     }
     if (queue.length <= 2) setTimeout(() => loadQueue(), 300)
@@ -340,6 +344,22 @@ export default function DiscoverPanel({ defaultTab = 'similar' }: DiscoverPanelP
       onMouseUp={activeTab === 'swipe' ? onMouseUp : undefined}
       onMouseLeave={activeTab === 'swipe' ? onMouseUp : undefined}
     >
+      {/* Mood chips — shown on grid tabs */}
+      {activeTab !== 'swipe' && activeTab !== 'jump' && activeTab !== 'plus' && activeTab !== 'webtoons' && (
+        <div className="flex gap-2 overflow-x-auto pb-1 mb-4 scrollbar-none">
+          {MOODS.map(m => (
+            <button key={m.label}
+              onClick={() => setActiveMood(prev => prev === m.label ? null : m.label)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-all shrink-0
+                ${activeMood === m.label
+                  ? 'bg-[#FF2D46] text-white font-medium shadow'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700'}`}>
+              <span>{m.emoji}</span>{m.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Tab bar */}
       <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1 mb-5 overflow-x-auto">
         {DISC_TABS.map(tab => (
@@ -365,14 +385,16 @@ export default function DiscoverPanel({ defaultTab = 'similar' }: DiscoverPanelP
       {/* Grid tabs */}
       {activeTab !== 'swipe' && activeTab !== 'jump' && activeTab !== 'plus' && activeTab !== 'webtoons' && (
         <DiscoveryGrid
-          items={gridData[activeTab] ?? []}
+          items={(() => {
+            const all = gridData[activeTab] ?? []
+            if (!activeMood) return all
+            const moodGenres = MOODS.find(m => m.label === activeMood)?.genres ?? []
+            const filtered = all.filter(m => m.genres.some(g => moodGenres.includes(g)))
+            return filtered.length > 0 ? filtered : all // fall back if nothing matches
+          })()}
           loading={gridLoading[activeTab] ?? false}
           onSelect={setSelectedCard}
-          emptyMsg={
-            activeTab === 'similar' ? 'Swipe some manga first to build your taste profile.' :
-            activeTab === 'new'     ? 'No new series found.' :
-            'No recently updated manga found.'
-          }
+          emptyMsg={activeTab === 'new' ? 'No new series found.' : 'No recently updated manga found.'}
         />
       )}
 
@@ -388,10 +410,10 @@ export default function DiscoverPanel({ defaultTab = 'similar' }: DiscoverPanelP
               </p>
             </div>
             <div className="text-right">
-              <div className="text-xs text-zinc-500">{swipeCount} swiped</div>
+              <div className="text-xs text-zinc-500">{swipeCount} Swiped</div>
               <div className="flex gap-1 mt-1 justify-end">
-                {lastSwipe === 'right' && <span className="text-emerald-400 text-xs">✓ liked</span>}
-                {lastSwipe === 'left'  && <span className="text-red-400 text-xs">✗ skipped</span>}
+                {lastSwipe === 'right' && <span className="text-emerald-400 text-xs">✓ Liked</span>}
+                {lastSwipe === 'left'  && <span className="text-red-400 text-xs">✗ Skipped</span>}
               </div>
             </div>
           </div>

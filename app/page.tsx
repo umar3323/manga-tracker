@@ -1217,10 +1217,235 @@ function ShareModal({ token, enabled, onToggle, onClose }: {
   )
 }
 
-function MobileMenu({ onRecommend, onSync, onSignOut, onExportCSV, onExportMAL, onExportAniList, onShare, loadingRec, syncing }: {
+// ─── Library Health Check ────────────────────────────────────────────────────
+
+type CardIssue = { field: string; label: string }
+type CardHealth = { manga: Manga; issues: CardIssue[] }
+
+function computeHealth(manga: Manga[]): CardHealth[] {
+  return manga
+    .map(m => {
+      const issues: CardIssue[] = []
+      if (!m.mal_id)                                     issues.push({ field: 'mal_id',    label: 'No MAL ID'       })
+      if (!m.cover_url)                                  issues.push({ field: 'cover_url', label: 'No cover'        })
+      if (!m.authors || (m.authors as unknown[]).length === 0) issues.push({ field: 'authors', label: 'No author'    })
+      if (!m.genres  || m.genres.length === 0)           issues.push({ field: 'genres',    label: 'No genres'       })
+      if (!m.synopsis)                                   issues.push({ field: 'synopsis',  label: 'No synopsis'     })
+      return { manga: m, issues }
+    })
+    .filter(c => c.issues.length > 0)
+    .sort((a, b) => b.issues.length - a.issues.length)
+}
+
+function HealthCheckModal({
+  manga,
+  onClose,
+  onEnriched,
+}: {
+  manga: Manga[]
+  onClose: () => void
+  onEnriched: (updated: Manga) => void
+}) {
+  const [cards, setCards] = useState<CardHealth[]>(() => computeHealth(manga))
+  const [enrichingId, setEnrichingId] = useState<string | null>(null)
+  const [enrichingAll, setEnrichingAll] = useState(false)
+  const [log, setLog] = useState<string[]>([])
+  const [done, setDone] = useState(false)
+
+  const healthy   = manga.length - cards.length
+  const pct       = Math.round((healthy / manga.length) * 100)
+  const scoreColor = pct === 100 ? 'text-emerald-400' : pct >= 80 ? 'text-yellow-400' : 'text-red-400'
+
+  const enrichOne = async (m: Manga): Promise<boolean> => {
+    try {
+      // Search Jikan for this title (or use existing mal_id)
+      let jikan: JikanSearchResult | null = null
+      if (m.mal_id != null) {
+        jikan = await getMangaById(m.mal_id)
+      }
+      if (!jikan) {
+        const results = await searchMangaWithFilters({ query: m.title })
+        jikan = results[0] ?? null
+      }
+      if (!jikan || jikan.mal_id == null) return false
+
+      // Anime adaptation
+      let animePatch: Partial<Manga> = {}
+      if (!m.has_anime) {
+        const adaptations = await getAnimeAdaptations(jikan.mal_id)
+        const anim = adaptations[0] ?? null
+        if (anim) {
+          animePatch = {
+            has_anime: true,
+            anime_mal_id: anim.mal_id,
+            anime_title: anim.title,
+            total_episodes: anim.episodes ?? null,
+          }
+        }
+      }
+
+      const patch: Partial<Manga> = {
+        mal_id:         jikan.mal_id,
+        cover_url:      jikan.cover_url ?? m.cover_url,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        authors:        (jikan.authors?.length ? jikan.authors : m.authors) as any,
+        genres:         jikan.genres?.length  ? jikan.genres  : m.genres,
+        synopsis:       jikan.synopsis ?? m.synopsis,
+        total_chapters: jikan.total_chapters ?? m.total_chapters,
+        ...animePatch,
+      }
+
+      await supabase.from('manga_list').update(patch).eq('id', m.id)
+      onEnriched({ ...m, ...patch })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const handleEnrichOne = async (c: CardHealth) => {
+    setEnrichingId(c.manga.id)
+    const ok = await enrichOne(c.manga)
+    setEnrichingId(null)
+    if (ok) setCards(prev => prev.filter(x => x.manga.id !== c.manga.id))
+    else setLog(prev => [...prev, `❌ ${c.manga.title} — could not fetch`])
+  }
+
+  const handleEnrichAll = async () => {
+    setEnrichingAll(true)
+    setLog([])
+    const queue = [...cards]
+    for (const c of queue) {
+      setLog(prev => [...prev, `⟳ Enriching ${c.manga.title}…`])
+      const ok = await enrichOne(c.manga)
+      setLog(prev => {
+        const next = [...prev]
+        next[next.length - 1] = ok
+          ? `✅ ${c.manga.title}`
+          : `❌ ${c.manga.title} — not found`
+        return next
+      })
+      if (ok) setCards(prev => prev.filter(x => x.manga.id !== c.manga.id))
+      await new Promise(r => setTimeout(r, 450)) // respect Jikan rate limit
+    }
+    setEnrichingAll(false)
+    setDone(true)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl"
+        onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
+          <div>
+            <h2 className="font-bold text-lg">Library Health Check</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              {manga.length} total cards ·{' '}
+              <span className={scoreColor}>{pct}% healthy</span>
+              {cards.length > 0 && ` · ${cards.length} need attention`}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-zinc-500 hover:text-white text-xl leading-none">×</button>
+        </div>
+
+        {/* Score bar */}
+        <div className="px-6 pt-4">
+          <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${pct === 100 ? 'bg-emerald-500' : pct >= 80 ? 'bg-yellow-500' : 'bg-red-500'}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-xs text-zinc-600 mt-1">
+            <span>{healthy} healthy</span>
+            <span>{cards.length} issues</span>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+          {cards.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-4xl mb-3">✅</div>
+              <p className="text-zinc-300 font-medium">All {manga.length} cards are fully populated!</p>
+              <p className="text-zinc-500 text-sm mt-1">Every entry has MAL ID, cover, authors, genres & synopsis.</p>
+            </div>
+          ) : (
+            cards.map(c => (
+              <div key={c.manga.id} className="flex items-center gap-3 bg-zinc-800/60 rounded-xl p-3">
+                {/* Cover thumbnail */}
+                {c.manga.cover_url ? (
+                  <img src={c.manga.cover_url} alt={c.manga.title}
+                    className="w-10 h-14 object-cover rounded-lg shrink-0 bg-zinc-700" />
+                ) : (
+                  <div className="w-10 h-14 rounded-lg bg-zinc-700 shrink-0 flex items-center justify-center text-zinc-500 text-xs">?</div>
+                )}
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{c.manga.title}</p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {c.issues.map(i => (
+                      <span key={i.field} className="text-[10px] bg-red-900/40 text-red-400 border border-red-900/60 rounded px-1.5 py-0.5">
+                        {i.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Enrich button */}
+                <button
+                  onClick={() => handleEnrichOne(c)}
+                  disabled={!!enrichingId || enrichingAll}
+                  className="shrink-0 px-3 py-1.5 rounded-lg bg-cyan-900/40 text-cyan-400 border border-cyan-900/60 text-xs font-medium hover:bg-cyan-800/60 disabled:opacity-40 transition-colors"
+                >
+                  {enrichingId === c.manga.id ? '⟳' : '⚡ Fix'}
+                </button>
+              </div>
+            ))
+          )}
+
+          {/* Log */}
+          {log.length > 0 && (
+            <div className="mt-3 bg-zinc-950 rounded-xl p-3 space-y-0.5 max-h-40 overflow-y-auto">
+              {log.map((l, i) => (
+                <p key={i} className="text-xs font-mono text-zinc-400">{l}</p>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        {cards.length > 0 && !done && (
+          <div className="px-6 py-4 border-t border-zinc-800 flex justify-between items-center gap-3">
+            <p className="text-xs text-zinc-500">{enrichingAll ? 'Enriching from Jikan / MAL…' : `${cards.length} card${cards.length !== 1 ? 's' : ''} need data`}</p>
+            <button
+              onClick={handleEnrichAll}
+              disabled={enrichingAll || !!enrichingId}
+              className="px-4 py-2 rounded-lg bg-cyan-600 text-white text-sm font-medium hover:bg-cyan-500 disabled:opacity-40 transition-colors"
+            >
+              {enrichingAll ? '⟳ Enriching all…' : `⚡ Fix all ${cards.length}`}
+            </button>
+          </div>
+        )}
+        {done && (
+          <div className="px-6 py-4 border-t border-zinc-800 text-center text-sm text-emerald-400">
+            ✅ Enrichment complete — {manga.length} cards checked
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Mobile Menu ─────────────────────────────────────────────────────────────
+
+function MobileMenu({ onRecommend, onSync, onSignOut, onExportCSV, onExportMAL, onExportAniList, onShare, onCheckCards, loadingRec, syncing }: {
   onRecommend: () => void; onSync: () => void; onSignOut: () => void
   onExportCSV: () => void; onExportMAL: () => void; onExportAniList: () => void
-  onShare: () => void; loadingRec: boolean; syncing: boolean
+  onShare: () => void; onCheckCards: () => void; loadingRec: boolean; syncing: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
@@ -1264,6 +1489,10 @@ function MobileMenu({ onRecommend, onSync, onSignOut, onExportCSV, onExportMAL, 
                 </button>
               </>
             )}
+            <button onClick={() => { onCheckCards(); setOpen(false) }}
+              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
+              <span>🩺</span> Check cards
+            </button>
             <button onClick={() => { onShare(); setOpen(false) }}
               className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
               <span>🔗</span> Share list
@@ -1336,6 +1565,7 @@ export default function Home() {
   const [rereadCounts, setRereadCounts] = useState<Record<string, number>>({})
   const [expandedSynopsis, setExpandedSynopsis] = useState<Set<string>>(new Set())
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
+  const [showHealthCheck, setShowHealthCheck] = useState(false)
   const [dismissedPairs, setDismissedPairs] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem('yomu_dismissed_pairs') ?? '[]')) } catch { return new Set() }
   })
@@ -2040,6 +2270,10 @@ ${entries}
               className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white disabled:opacity-40 transition-colors">
               {syncing ? '⟳ Syncing…' : '⟳ Sync'}
             </button>
+            <button onClick={() => setShowHealthCheck(true)} aria-label="Check card health"
+              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
+              🩺 Check Cards
+            </button>
             <div className="relative group">
               <button aria-label="Export list"
                 className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
@@ -2076,6 +2310,7 @@ ${entries}
               onExportMAL={exportMALXML}
               onExportAniList={exportAniListJSON}
               onShare={() => setShareModal(true)}
+              onCheckCards={() => setShowHealthCheck(true)}
               loadingRec={loadingRec}
               syncing={syncing}
             />
@@ -2881,6 +3116,15 @@ ${entries}
       {/* Share modal */}
       {shareModal && (
         <ShareModal token={shareToken} enabled={shareEnabled} onToggle={toggleShare} onClose={() => setShareModal(false)} />
+      )}
+
+      {/* Health Check modal */}
+      {showHealthCheck && (
+        <HealthCheckModal
+          manga={manga}
+          onClose={() => setShowHealthCheck(false)}
+          onEnriched={(updated) => setManga(prev => prev.map(m => m.id === updated.id ? updated : m))}
+        />
       )}
 
       {/* Recommendation detail modal */}

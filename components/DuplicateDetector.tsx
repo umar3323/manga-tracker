@@ -217,7 +217,7 @@ export default function DuplicateDetector({
                         {isBusy ? '…' : (
                           <>
                             <span>⟷ Merge</span>
-                            <span className="text-zinc-600 text-center">best of both</span>
+                            <span className="text-zinc-600 text-center">Best Of Both</span>
                           </>
                         )}
                       </button>

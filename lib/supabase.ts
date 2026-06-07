@@ -29,6 +29,11 @@ export interface Manga {
   total_episodes: number | null
   created_at: string
   updated_at: string
+  // Sprint 5: public review
+  is_public_review: boolean | null
+  review_md: string | null
+  // Takeout import: content type
+  content_type: 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'anime' | 'novel' | 'other' | null
 }
 
 export interface SwipeRecord {

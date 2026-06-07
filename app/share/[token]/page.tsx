@@ -6,6 +6,7 @@ interface SharedManga {
   cover_url: string | null; total_chapters: number | null; genres: string[]
   has_anime: boolean; anime_title: string | null; episodes_watched: number
   total_episodes: number | null; last_read_at: string | null; user_rating: 'up' | 'down' | null
+  is_public_review?: boolean | null; review_md?: string | null
 }
 
 const STATUS_META: Record<string, { label: string; colour: string; dot: string }> = {
@@ -13,7 +14,7 @@ const STATUS_META: Record<string, { label: string; colour: string; dot: string }
   completed:    { label: 'Completed',    colour: 'text-emerald-400', dot: 'bg-emerald-400' },
   on_hold:      { label: 'On Hold',      colour: 'text-amber-400',   dot: 'bg-amber-400'   },
   dropped:      { label: 'Dropped',      colour: 'text-zinc-500',    dot: 'bg-zinc-500'    },
-  plan_to_read: { label: 'Plan to Read', colour: 'text-sky-400',     dot: 'bg-sky-400'     },
+  plan_to_read: { label: 'Plan To Read', colour: 'text-sky-400',     dot: 'bg-sky-400'     },
 }
 
 function pct(m: SharedManga) {
@@ -228,12 +229,55 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
           </section>
         )}
 
+        {/* Public reviews */}
+        {manga.filter(m => m.is_public_review && m.review_md?.trim()).length > 0 && (
+          <section>
+            <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-4">
+              Reviews
+            </h2>
+            <div className="space-y-4">
+              {manga.filter(m => m.is_public_review && m.review_md?.trim()).map(m => {
+                // Render [spoiler]...[/spoiler] as blurred text
+                const parts = (m.review_md ?? '').split(/(\[spoiler\][\s\S]*?\[\/spoiler\])/)
+                return (
+                  <div key={m.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      {m.cover_url && (
+                        <div className="relative w-7 h-9 rounded overflow-hidden bg-zinc-800 shrink-0">
+                          <Image src={m.cover_url} alt={m.title} fill className="object-cover" unoptimized />
+                        </div>
+                      )}
+                      <p className="text-sm font-medium text-zinc-200">{m.title}</p>
+                      {m.user_rating === 'up' && <span className="text-xs">👍</span>}
+                      {m.user_rating === 'down' && <span className="text-xs">👎</span>}
+                    </div>
+                    <p className="text-xs text-zinc-400 leading-relaxed">
+                      {parts.map((part, i) => {
+                        const spoilerMatch = part.match(/\[spoiler\]([\s\S]*?)\[\/spoiler\]/)
+                        if (spoilerMatch) {
+                          return (
+                            <span key={i} className="blur-sm hover:blur-none transition-all cursor-pointer select-none"
+                              title="Click to reveal spoiler">
+                              {spoilerMatch[1]}
+                            </span>
+                          )
+                        }
+                        return <span key={i}>{part}</span>
+                      })}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
         {/* Footer */}
         <div className="pt-6 border-t border-zinc-900 text-center">
           <p className="text-xs text-zinc-700">
             Created with{' '}
             <a href="https://manga-tracker-hazel.vercel.app" className="hover:text-zinc-500 transition-colors underline underline-offset-2">
-              Manga Tracker
+              YOMU
             </a>
           </p>
         </div>

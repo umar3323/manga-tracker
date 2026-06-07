@@ -10,7 +10,7 @@ export default function DiscoverPage() {
           <h1 className="text-xl font-bold">Discover</h1>
           <p className="text-zinc-500 text-xs mt-0.5">Find manga to read next</p>
         </div>
-        <DiscoverPanel defaultTab="similar" />
+        <DiscoverPanel defaultTab="new" />
       </div>
     </main>
   )

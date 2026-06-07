@@ -185,7 +185,7 @@ export default function Sidebar() {
           <div style={{ marginTop: 8, height: 3, background: 'var(--ink-500)', borderRadius: 99, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${goalPct}%`, background: goalPct >= 100 ? 'var(--cyan)' : 'var(--vermillion)', borderRadius: 99, transition: 'width 380ms ease' }} />
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--fg-4)', marginTop: 4 }}>goal: {goal}</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--fg-4)', marginTop: 4 }}>Goal: {goal}</div>
         </div>
         {streak > 0 && (
           <div style={{
@@ -195,7 +195,7 @@ export default function Sidebar() {
           }}>
             <div style={{ fontSize: 18 }}>🔥</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: 'var(--screen-yellow)', lineHeight: 1, marginTop: 3 }}>{streak}</div>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-4)', marginTop: 3 }}>streak</div>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-4)', marginTop: 3 }}>Streak</div>
           </div>
         )}
       </div>

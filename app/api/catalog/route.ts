@@ -35,6 +35,8 @@ interface CatalogCache {
   at: number
 }
 
+export const maxDuration = 60
+
 let _cache: CatalogCache | null = null
 const CACHE_MS = 2 * 60 * 60 * 1000
 

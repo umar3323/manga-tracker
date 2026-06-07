@@ -105,7 +105,7 @@ export default function WebtoonsFeed({ trackedTitles, onSelect }: WebtoonsFeedPr
 
   const STATUS_ADD_OPTIONS: { value: MangaStatus; label: string }[] = [
     { value: 'reading',      label: 'Reading' },
-    { value: 'plan_to_read', label: 'Plan to Read' },
+    { value: 'plan_to_read', label: 'Plan To Read' },
   ]
 
   const visible = filter === 'tracked' ? series.filter(isTracked) : series

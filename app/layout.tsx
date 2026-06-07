@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import Nav from '@/components/Nav'
 import Sidebar from '@/components/Sidebar'
 import { FeatureRequestButton } from '@/components/FeatureRequestModal'
+import ServiceWorkerRegistrar from '@/components/ServiceWorkerRegistrar'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           </main>
         </div>
         <FeatureRequestButton />
+        <ServiceWorkerRegistrar />
       </body>
     </html>
   )

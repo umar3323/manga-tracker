@@ -279,8 +279,8 @@ export default function AnimePage() {
         {/* Stats cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10">
           {([
-            { label: 'Series tracked', value: totalSeries,                 icon: <Tv size={18} strokeWidth={1.5} className="icon-primary" /> },
-            { label: 'Total hours',    value: `${totalHours.toFixed(0)}h`, icon: <Timer size={18} strokeWidth={1.5} className="icon-secondary" /> },
+            { label: 'Series Tracked', value: totalSeries,                 icon: <Tv size={18} strokeWidth={1.5} className="icon-primary" /> },
+            { label: 'Total Hours',    value: `${totalHours.toFixed(0)}h`, icon: <Timer size={18} strokeWidth={1.5} className="icon-secondary" /> },
             { label: 'Active',         value: activeCount,                 icon: <Play size={18} strokeWidth={1.5} className="icon-primary" /> },
             { label: 'Movies',         value: totalMovies,                 icon: <Clapperboard size={18} strokeWidth={1.5} className="icon-muted" /> },
           ] as { label: string; value: string | number; icon: React.ReactNode }[]).map(s => (
@@ -297,7 +297,7 @@ export default function AnimePage() {
           <section className="mb-10">
             <h2 className="text-base font-bold mb-4">
               Currently Watching
-              <span className="text-zinc-500 text-sm font-normal ml-2">last 90 days</span>
+              <span className="text-zinc-500 text-sm font-normal ml-2">Last 90 Days</span>
             </h2>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
               {activeEntries.map(entry => {
@@ -375,7 +375,7 @@ export default function AnimePage() {
                 { key: 'title',       label: 'Title' },
                 { key: null,          label: 'Episode' },
                 { key: 'hours',       label: 'Hours' },
-                { key: 'lastWatched', label: 'Last watched' },
+                { key: 'lastWatched', label: 'Last Watched' },
                 { key: null,          label: 'Status' },
                 { key: null,          label: 'Rating' },
                 { key: null,          label: '' },
