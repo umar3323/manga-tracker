@@ -2650,6 +2650,8 @@ ${entries}
         {/* Release calendar — anime airing this week + currently-releasing manga */}
         <ReleaseCalendar
           animeMalIds={manga.filter(m => m.anime_mal_id).map(m => m.anime_mal_id!)}
+          watchingMalIds={manga.filter(m => m.anime_mal_id && m.status === 'watching').map(m => m.anime_mal_id!)}
+          libraryMalIdSet={new Set(manga.filter(m => m.anime_mal_id).map(m => m.anime_mal_id!))}
           releasingManga={manga.filter(m => m.status === 'reading' && m.publishing_status === 'Publishing')}
         />
 

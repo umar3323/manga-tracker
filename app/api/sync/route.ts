@@ -38,7 +38,7 @@ export async function POST() {
     // Fetch all manga (with and without MAL ID — we still update what we can)
     const { data: mangaList, error } = await supabase
       .from('manga_list')
-      .select('id, mal_id, title, cover_url, total_chapters, has_anime, anime_mal_id, anime_title, total_episodes, status')
+      .select('id, mal_id, title, cover_url, synopsis, total_chapters, has_anime, anime_mal_id, anime_title, total_episodes, status, authors, genres')
 
     if (error) return NextResponse.json({ error: 'DB error' }, { status: 500 })
 
@@ -57,32 +57,52 @@ export async function POST() {
       if (!json?.data) continue
       const d = json.data
 
-      // Cover art
+      // Cover art — always refresh to latest high-res version
       const newCover = d.images?.jpg?.large_image_url ?? d.images?.jpg?.image_url
-      if (!m.cover_url && newCover) {
+      if (newCover && newCover !== m.cover_url) {
         updates.cover_url = newCover
-        changes.push('cover added')
+        changes.push(m.cover_url ? 'cover refreshed' : 'cover added')
       }
 
-      // Authors
+      // Authors — force-refresh from Jikan (always update if Jikan has data)
       const freshAuthors = (d.authors ?? []).map((a: { mal_id: number; name: string }) => ({
         id: a.mal_id, name: a.name,
       }))
       const currentAuthors = (m as Record<string, unknown>).authors as { id: number; name: string }[] ?? []
-      if (freshAuthors.length > 0 && currentAuthors.length === 0) {
-        updates.authors = freshAuthors
-        changes.push(`authors: ${freshAuthors.map((a: { name: string }) => a.name).join(', ')}`)
+      if (freshAuthors.length > 0) {
+        const freshNames = freshAuthors.map((a: { name: string }) => a.name).sort().join(',')
+        const currentNames = currentAuthors.map((a: { name: string }) => a.name).sort().join(',')
+        if (freshNames !== currentNames) {
+          updates.authors = freshAuthors
+          changes.push(currentAuthors.length === 0
+            ? `authors: ${freshAuthors.map((a: { name: string }) => a.name).join(', ')}`
+            : `authors updated`)
+        }
       }
 
-      // Genres
+      // Genres — force-refresh (merge manga genres + themes)
       const freshGenres = [
         ...((d.genres as { name: string }[]) ?? []),
         ...((d.themes as { name: string }[]) ?? []),
       ].map((g: { name: string }) => g.name)
       const currentGenres = (m as Record<string, unknown>).genres as string[] ?? []
-      if (freshGenres.length > 0 && currentGenres.length === 0) {
-        updates.genres = freshGenres
-        changes.push(`genres: ${freshGenres.slice(0, 3).join(', ')}`)
+      if (freshGenres.length > 0) {
+        const freshSorted = [...freshGenres].sort().join(',')
+        const currentSorted = [...currentGenres].sort().join(',')
+        if (freshSorted !== currentSorted) {
+          updates.genres = freshGenres
+          changes.push(currentGenres.length === 0
+            ? `genres: ${freshGenres.slice(0, 3).join(', ')}`
+            : `genres updated`)
+        }
+      }
+
+      // Synopsis — add when missing
+      const freshSynopsis = (d.synopsis as string | null) ?? null
+      const currentSynopsis = (m as Record<string, unknown>).synopsis as string | null ?? null
+      if (freshSynopsis && !currentSynopsis) {
+        updates.synopsis = freshSynopsis
+        changes.push('synopsis added')
       }
 
       // ── 2. Total / latest chapters ──────────────────────────────────────
