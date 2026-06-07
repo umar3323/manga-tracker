@@ -2898,12 +2898,23 @@ ${entries}
                             🔥 yt deep-dive
                           </span>
                         )}
-                        {(m.content_type === 'manhwa' || m.content_type === 'webtoon' || m.content_type === 'manhua') && (
-                          <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide font-medium whitespace-nowrap"
-                            style={{ background: 'rgba(167,139,250,0.12)', color: '#A78BFA', border: '1px solid rgba(167,139,250,0.25)' }}>
-                            {m.content_type}
-                          </span>
-                        )}
+                        {(() => {
+                          const ct = m.content_type ?? 'manga'
+                          const typeStyles: Record<string, { bg: string; color: string; border: string }> = {
+                            manga:   { bg: 'rgba(113,113,122,0.18)', color: '#a1a1aa', border: '1px solid rgba(113,113,122,0.35)' },
+                            manhwa:  { bg: 'rgba(167,139,250,0.12)', color: '#A78BFA', border: '1px solid rgba(167,139,250,0.3)' },
+                            webtoon: { bg: 'rgba(251,146,60,0.12)',  color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)' },
+                            manhua:  { bg: 'rgba(96,165,250,0.12)',  color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' },
+                            anime:   { bg: 'rgba(34,211,238,0.10)',  color: '#22d3ee', border: '1px solid rgba(34,211,238,0.3)' },
+                          }
+                          const s = typeStyles[ct] ?? typeStyles.manga
+                          return (
+                            <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide font-semibold whitespace-nowrap"
+                              style={{ background: s.bg, color: s.color, border: s.border }}>
+                              {ct}
+                            </span>
+                          )
+                        })()}
                       </div>
                       {m.authors?.length > 0 ? (
                         <div className="flex gap-1 flex-wrap mt-0.5">
