@@ -10,6 +10,7 @@ import ReleaseCalendar from '@/components/ReleaseCalendar'
 import ArcEditor from '@/components/ArcEditor'
 import SessionTimer, { type ActiveSession } from '@/components/SessionTimer'
 import RereadSection from '@/components/RereadSection'
+import RewatchSection from '@/components/RewatchSection'
 import type { Arc } from '@/components/ArcEditor'
 import type { Recommendation } from '@/app/api/recommend/route'
 import type { AniListMangaData, AniListAnimeData } from '@/lib/anilist'
@@ -709,6 +710,10 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
           )}
 
           <RereadSection mangaId={manga.id} />
+
+          {manga.has_anime && (
+            <RewatchSection mangaId={manga.id} animeTitle={manga.anime_title ?? null} />
+          )}
 
           <ArcEditor
             mangaId={manga.id}
@@ -1563,6 +1568,7 @@ export default function Home() {
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null)
   const [arcsMap, setArcsMap] = useState<Record<string, Arc[]>>({})
   const [rereadCounts, setRereadCounts] = useState<Record<string, number>>({})
+  const [rewatchCounts, setRewatchCounts] = useState<Record<string, number>>({})
   const [expandedSynopsis, setExpandedSynopsis] = useState<Set<string>>(new Set())
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
   const [showHealthCheck, setShowHealthCheck] = useState(false)
@@ -1634,6 +1640,16 @@ export default function Home() {
           counts[r.manga_id] = (counts[r.manga_id] ?? 0) + 1
         }
         setRereadCounts(counts)
+      })
+    // Re-watch counts per manga
+    supabase.from('rewatches').select('manga_id')
+      .then(({ data }) => {
+        if (!data) return
+        const counts: Record<string, number> = {}
+        for (const r of data as { manga_id: string }[]) {
+          counts[r.manga_id] = (counts[r.manga_id] ?? 0) + 1
+        }
+        setRewatchCounts(counts)
       })
   }, [])
 
@@ -2822,14 +2838,17 @@ ${entries}
                       {m.synopsis ?? 'No description available.'}
                     </p>
 
-                    {/* Arc / re-read */}
+                    {/* Arc / re-read / re-watch badges */}
                     {(() => {
-                      const arc = currentArc(m); const rereadCount = rereadCounts[m.id] ?? 0
-                      if (!arc && !rereadCount) return null
+                      const arc = currentArc(m)
+                      const rereadCount = rereadCounts[m.id] ?? 0
+                      const rewatchCount = rewatchCounts[m.id] ?? 0
+                      if (!arc && !rereadCount && !rewatchCount) return null
                       return (
                         <div className="flex items-center gap-2">
                           {arc && <span className="text-[11px] text-zinc-600 truncate flex items-center gap-1"><MapPin size={10} strokeWidth={1.5} /> {arc.label}</span>}
                           {rereadCount > 0 && <span className="text-[11px] text-violet-500 shrink-0">×{rereadCount} re-read</span>}
+                          {rewatchCount > 0 && <span className="text-[11px] text-cyan-600 shrink-0">×{rewatchCount} re-watch</span>}
                         </div>
                       )
                     })()}
