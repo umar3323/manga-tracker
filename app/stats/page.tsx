@@ -1,15 +1,21 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
 import { ThumbsUp, ThumbsDown, Sparkles, BookOpen } from 'lucide-react'
 import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
 import { getStatus, type AnimeRow } from '@/lib/anime-data'
 import AnimeLinker from '@/components/AnimeLinker'
 import DuplicateDetector from '@/components/DuplicateDetector'
+import AchievementsPanel from '@/components/AchievementsPanel'
+import { TAKEOUT_STATS } from '@/lib/data/takeout-series'
+import GenreProfile from '@/components/GenreProfile'
+import HeavyRotation from '@/components/HeavyRotation'
+import NarrativeInsights from '@/components/NarrativeInsights'
 
 const STATUS_LABELS: Record<MangaStatus, string> = {
   reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-  dropped: 'Dropped', plan_to_read: 'Plan to Read', watching: 'Watching',
+  dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching',
 }
 const STATUS_COLORS: Record<MangaStatus, string> = {
   reading: '#FF2D46', completed: '#2FCF7A',
@@ -19,7 +25,12 @@ const STATUS_COLORS: Record<MangaStatus, string> = {
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 const GOAL_KEY = 'manga_weekly_goal' // localStorage fallback key
 
-interface LogEntry { chapters_read: number; logged_at: string }
+interface LogEntry {
+  chapters_read: number
+  logged_at: string
+  progress_date?: string | null
+  date_precision?: 'exact' | 'year_only' | 'unknown' | null
+}
 interface SwipeEntry { genres: string[]; direction: string }
 
 const HEAT_COLORS = ['#30303D', '#5a0a18', '#a01c30', '#D11B33', '#FF2D46']
@@ -74,10 +85,10 @@ function ReadingHeatmap({ log }: { log: LogEntry[] }) {
   return (
     <div className="bg-zinc-900 rounded-xl p-5 mb-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold">Reading calendar</h2>
+        <h2 className="text-sm font-semibold">Reading Calendar</h2>
         <div className="flex gap-3 text-xs text-zinc-500">
-          <span>{totalCh} chapters</span>
-          <span>{activeDays} active days</span>
+          <span>{totalCh} Chapters</span>
+          <span>{activeDays} Active Days</span>
         </div>
       </div>
       <div className="overflow-x-auto">
@@ -113,6 +124,7 @@ function ReadingHeatmap({ log }: { log: LogEntry[] }) {
           <span className="text-[10px] text-zinc-600">Less</span>
           {HEAT_COLORS.map((c, i) => <div key={i} className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
           <span className="text-[10px] text-zinc-600">More</span>
+
         </div>
       </div>
     </div>
@@ -155,15 +167,15 @@ export default function StatsPage() {
 
   const load = useCallback(async () => {
     const oneYearAgo = new Date(Date.now() - 52 * 7 * 24 * 60 * 60 * 1000).toISOString()
-    const [{ data: ml }, { data: lg }, { data: sw }, { data: settings }, { data: al }] = await Promise.all([
+
+    // Load lightweight queries first so the page renders quickly
+    const [{ data: ml }, { data: sw }, { data: settings }, { data: al }] = await Promise.all([
       supabase.from('manga_list').select('*'),
-      supabase.from('reading_log').select('chapters_read, logged_at').gte('logged_at', oneYearAgo).order('logged_at', { ascending: false }).limit(5000),
       supabase.from('swipe_history').select('genres, direction').eq('direction', 'right').limit(300),
       supabase.from('user_settings').select('key, value'),
       supabase.from('anime_list').select('*'),
     ])
     if (ml) setManga(ml as Manga[])
-    if (lg) setLog(lg as LogEntry[])
     if (sw) setSwipes(sw as SwipeEntry[])
     if (al) setAnimeList(al as AnimeRow[])
     // Goal: prefer Supabase, fall back to localStorage
@@ -176,6 +188,16 @@ export default function StatsPage() {
       if (saved) setGoal(parseInt(saved, 10))
     }
     setLoading(false)
+
+    // Load the heavy reading-log query in the background after the page is visible.
+    // Capped at 2000 rows — enough for ~5+ years of daily logging.
+    const { data: lg } = await supabase
+      .from('reading_log')
+      .select('chapters_read, logged_at, progress_date, date_precision')
+      .gte('logged_at', oneYearAgo)
+      .order('logged_at', { ascending: false })
+      .limit(2000)
+    if (lg) setLog(lg as LogEntry[])
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -212,8 +234,17 @@ export default function StatsPage() {
   const weekStart = new Date(today)
   weekStart.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1))
   weekStart.setHours(0, 0, 0, 0)
+  // Use progress_date for attributed entries; fall back to logged_at for legacy rows
+  const logEntryDate = (l: LogEntry): Date => {
+    if (l.date_precision === 'exact' && l.progress_date) return new Date(l.progress_date)
+    if (!l.date_precision) return new Date(l.logged_at) // legacy row, trust logged_at
+    return new Date(0) // year_only or unknown — exclude from weekly stats
+  }
   const weekChapters = log
-    .filter(l => new Date(l.logged_at) >= weekStart)
+    .filter(l => {
+      if (l.date_precision === 'year_only' || l.date_precision === 'unknown') return false
+      return logEntryDate(l) >= weekStart
+    })
     .reduce((s, l) => s + l.chapters_read, 0)
   const goalPct = goal > 0 ? Math.round((weekChapters / goal) * 100) : 0
 
@@ -239,13 +270,18 @@ export default function StatsPage() {
       <div className="max-w-3xl lg:max-w-5xl mx-auto px-4 py-6">
         <h1 className="text-2xl md:text-3xl font-bold mb-6">Stats</h1>
 
+        <AchievementsPanel />
+
         {/* Hero stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <StatCard value={totalChapters.toLocaleString()} label="Chapters read" />
-          <StatCard value={manga.length} label="Titles tracked" />
-          <StatCard value={`${streak}d`} label="Reading streak" sub={streak > 0 ? 'keep it up!' : 'start today'} />
+          <StatCard value={totalChapters.toLocaleString()} label="Chapters Read" />
+          <StatCard value={manga.length} label="Titles Tracked" />
+          <StatCard value={`${streak}d`} label="Reading streak" sub={streak > 0 ? 'Keep It Up!' : 'Start Today'} />
           <StatCard value={completedCount} label="Completed" />
         </div>
+
+        {/* ── Narrative insights ── */}
+        <NarrativeInsights manga={manga} log={log} />
 
         {/* ── Anime stats ── */}
         {(() => {
@@ -284,9 +320,9 @@ export default function StatsPage() {
 
               {/* Hero cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <StatCard value={totalAnimeSeries} label="Series tracked" />
-                <StatCard value={`${totalAnimeHours.toFixed(0)}h`} label="Hours watched" />
-                <StatCard value={activeAnime} label="Currently active" sub="last 90 days" />
+                <StatCard value={totalAnimeSeries} label="Series Tracked" />
+                <StatCard value={`${totalAnimeHours.toFixed(0)}h`} label="Hours Watched" />
+                <StatCard value={activeAnime} label="Currently Active" sub="Last 90 Days" />
                 <StatCard value={totalAnimeMovies} label="Movies" />
               </div>
 
@@ -308,8 +344,8 @@ export default function StatsPage() {
                   </div>
                   {(likedAnime > 0 || dislikedAnime > 0) && (
                     <div className="mt-4 pt-4 border-t border-zinc-800 flex gap-4 text-xs text-zinc-500">
-                      <span className="flex items-center gap-1"><ThumbsUp size={11} strokeWidth={1.5} className="icon-success" /> {likedAnime} liked</span>
-                      <span className="flex items-center gap-1"><ThumbsDown size={11} strokeWidth={1.5} style={{color:'var(--danger)'}} /> {dislikedAnime} disliked</span>
+                      <span className="flex items-center gap-1"><ThumbsUp size={11} strokeWidth={1.5} className="icon-success" /> {likedAnime} Liked</span>
+                      <span className="flex items-center gap-1"><ThumbsDown size={11} strokeWidth={1.5} style={{color:'var(--danger)'}} /> {dislikedAnime} Disliked</span>
                     </div>
                   )}
                 </div>
@@ -370,7 +406,7 @@ export default function StatsPage() {
                   <div className="bg-zinc-900 rounded-xl p-5 mb-4">
                     <div className="flex items-center gap-2 mb-3">
                       <ThumbsUp size={14} strokeWidth={1.5} className="icon-success" />
-                      <h3 className="text-sm font-semibold text-emerald-400">{liked.length} liked</h3>
+                      <h3 className="text-sm font-semibold text-emerald-400">{liked.length} Liked</h3>
                     </div>
                     <div className="space-y-1 mb-3">
                       {liked.slice(0, 5).map(m => (
@@ -393,7 +429,7 @@ export default function StatsPage() {
                   <div className="bg-zinc-900 rounded-xl p-5 mb-4">
                     <div className="flex items-center gap-2 mb-3">
                       <ThumbsDown size={14} strokeWidth={1.5} style={{color:'var(--danger)'}} />
-                      <h3 className="text-sm font-semibold text-red-400">{disliked.length} disliked</h3>
+                      <h3 className="text-sm font-semibold text-red-400">{disliked.length} Disliked</h3>
                     </div>
                     <div className="space-y-1 mb-3">
                       {disliked.slice(0, 5).map(m => (
@@ -451,7 +487,11 @@ export default function StatsPage() {
             weekStart.setHours(0, 0, 0, 0)
             weekEnd.setHours(23, 59, 59, 999)
             const chapters = log
-              .filter(l => { const d = new Date(l.logged_at); return d >= weekStart && d <= weekEnd })
+              .filter(l => {
+                if (l.date_precision === 'year_only' || l.date_precision === 'unknown') return false
+                const d = logEntryDate(l)
+                return d >= weekStart && d <= weekEnd
+              })
               .reduce((s, l) => s + l.chapters_read, 0)
             return { label: `${weekStart.getDate()}/${weekStart.getMonth() + 1}`, chapters }
           }).reverse()
@@ -470,11 +510,11 @@ export default function StatsPage() {
             <div className="bg-zinc-900 rounded-xl p-5 mb-6">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h2 className="text-sm font-semibold">Reading velocity</h2>
-                  <p className="text-xs text-zinc-500 mt-0.5">Chapters per week — last 12 weeks</p>
+                  <h2 className="text-sm font-semibold">Reading Velocity</h2>
+                  <p className="text-xs text-zinc-500 mt-0.5">Chapters Per Week — Last 12 Weeks</p>
                 </div>
                 <span className="text-xs text-zinc-500">
-                  Peak: {maxW} ch
+                  Peak: {maxW} Ch
                 </span>
               </div>
               <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 60 }}>
@@ -517,9 +557,9 @@ export default function StatsPage() {
         <div className="bg-zinc-900 rounded-xl p-5 mb-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-sm font-semibold">Weekly reading goal</h2>
+              <h2 className="text-sm font-semibold">Weekly Reading Goal</h2>
               <p className="text-xs text-zinc-500 mt-0.5">
-                {weekChapters} / {goal} chapters this week
+                {weekChapters} / {goal} Chapters This Week
               </p>
             </div>
             {editingGoal ? (
@@ -528,12 +568,12 @@ export default function StatsPage() {
                   onKeyDown={e => { if (e.key === 'Enter') saveGoal(); if (e.key === 'Escape') setEditingGoal(false) }}
                   onBlur={saveGoal} type="number" min={1}
                   className="w-16 bg-zinc-800 border border-zinc-600 rounded-lg px-2 py-1 text-sm text-center outline-none" />
-                <span className="text-xs text-zinc-500">ch/week</span>
+                <span className="text-xs text-zinc-500">Ch/Week</span>
               </div>
             ) : (
               <button onClick={() => { setGoalDraft(String(goal)); setEditingGoal(true) }}
                 className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
-                Edit goal
+                Edit Goal
               </button>
             )}
           </div>
@@ -598,8 +638,8 @@ export default function StatsPage() {
         {/* Genre preferences */}
         {topGenres.length > 0 && (
           <div className="bg-zinc-900 rounded-xl p-5 mb-6">
-            <h2 className="text-sm font-semibold mb-1">Your taste</h2>
-            <p className="text-xs text-zinc-500 mb-4">From your Discover swipes</p>
+            <h2 className="text-sm font-semibold mb-1">Your Taste</h2>
+            <p className="text-xs text-zinc-500 mb-4">From Your Discover Swipes</p>
             <div className="flex flex-wrap gap-2">
               {topGenres.map(([genre, score]) => (
                 <span key={genre}
@@ -646,13 +686,13 @@ export default function StatsPage() {
 
           return (
             <div className="bg-zinc-900 rounded-xl p-5 mb-6">
-              <h2 className="text-sm font-semibold mb-1">Your reading DNA</h2>
+              <h2 className="text-sm font-semibold mb-1">Your Reading DNA</h2>
               <div className="flex items-center gap-3 mb-4">
                 <BookOpen size={22} strokeWidth={1.5} className="icon-primary shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-white">{personality[topGenre] ?? 'Avid reader'}</p>
+                  <p className="text-sm font-medium text-white">{personality[topGenre] ?? 'Avid Reader'}</p>
                   <p className="text-xs text-zinc-500">
-                    {avgPerActiveDay > 0 ? `${avgPerActiveDay} chapters per active day` : 'Start logging chapters to see pace'}
+                    {avgPerActiveDay > 0 ? `${avgPerActiveDay} Chapters Per Active Day` : 'Start Logging Chapters To See Pace'}
                   </p>
                 </div>
               </div>
@@ -719,71 +759,74 @@ export default function StatsPage() {
           if (!droppedOrHold.length && !genreRates.length && !log.length) return null
 
           return (
-            <div className="lg:grid lg:grid-cols-2 lg:gap-6">
-              {/* Drop-off histogram */}
-              {droppedOrHold.length > 0 && (
-                <div className="bg-zinc-900 rounded-xl p-5 mb-6">
-                  <h2 className="text-sm font-semibold mb-1">Where you stop reading</h2>
-                  <p className="text-xs text-zinc-500 mb-4">Chapter range when you dropped or paused ({droppedOrHold.length} titles)</p>
-                  <div className="space-y-2">
-                    {Object.entries(dropBuckets).map(([range, count]) => (
-                      <div key={range} className="flex items-center gap-3">
-                        <span className="text-xs text-zinc-500 w-16 shrink-0">Ch. {range}</span>
-                        <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                          <div className="h-full rounded-full" style={{ width: `${(count / maxDrop) * 100}%`, backgroundColor: 'rgba(255,71,87,0.7)' }} />
-                        </div>
-                        <span className="text-xs text-zinc-500 w-4 text-right shrink-0">{count}</span>
+            <>
+              {/* Two-column row: drop-off + genre completion — these pair naturally */}
+              {(droppedOrHold.length > 0 || genreRates.length > 0) && (
+                <div className="lg:grid lg:grid-cols-2 lg:gap-6">
+                  {droppedOrHold.length > 0 && (
+                    <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+                      <h2 className="text-sm font-semibold mb-1">Where You Stop Reading</h2>
+                      <p className="text-xs text-zinc-500 mb-4">Chapter range when you dropped or paused ({droppedOrHold.length} titles)</p>
+                      <div className="space-y-2">
+                        {Object.entries(dropBuckets).map(([range, count]) => (
+                          <div key={range} className="flex items-center gap-3">
+                            <span className="text-xs text-zinc-500 w-16 shrink-0">Ch. {range}</span>
+                            <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full" style={{ width: `${(count / maxDrop) * 100}%`, backgroundColor: 'rgba(255,71,87,0.7)' }} />
+                            </div>
+                            <span className="text-xs text-zinc-500 w-4 text-right shrink-0">{count}</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  )}
+
+                  {genreRates.length > 0 && (
+                    <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+                      <h2 className="text-sm font-semibold mb-1">Completion Rate By Genre</h2>
+                      <p className="text-xs text-zinc-500 mb-4">How Often You Finish What You Start</p>
+                      <div className="space-y-2">
+                        {genreRates.map(({ genre, rate, total }) => (
+                          <div key={genre} className="flex items-center gap-3">
+                            <span className="text-xs text-zinc-400 w-24 shrink-0 truncate">{genre}</span>
+                            <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full"
+                                style={{ width: `${rate}%`, backgroundColor: rate >= 70 ? 'var(--success)' : rate >= 40 ? 'var(--screen-yellow)' : 'var(--danger)' }} />
+                            </div>
+                            <span className="text-xs text-zinc-500 w-14 text-right shrink-0">{rate}% / {total}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Genre completion rates */}
-              {genreRates.length > 0 && (
-                <div className="bg-zinc-900 rounded-xl p-5 mb-6">
-                  <h2 className="text-sm font-semibold mb-1">Completion rate by genre</h2>
-                  <p className="text-xs text-zinc-500 mb-4">How often you finish what you start</p>
-                  <div className="space-y-2">
-                    {genreRates.map(({ genre, rate, total }) => (
-                      <div key={genre} className="flex items-center gap-3">
-                        <span className="text-xs text-zinc-400 w-24 shrink-0 truncate">{genre}</span>
-                        <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                          <div className="h-full rounded-full"
-                            style={{ width: `${rate}%`, backgroundColor: rate >= 70 ? 'var(--success)' : rate >= 40 ? 'var(--screen-yellow)' : 'var(--danger)' }} />
-                        </div>
-                        <span className="text-xs text-zinc-500 w-14 text-right shrink-0">{rate}% / {total}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Session stats */}
+              {/* Session stats — full width, never orphaned in a half-empty row */}
               {log.length > 0 && (
                 <div className="bg-zinc-900 rounded-xl p-5 mb-6">
-                  <h2 className="text-sm font-semibold mb-4">Reading sessions</h2>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
+                  <h2 className="text-sm font-semibold mb-4">Reading Sessions</h2>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                     <div className="bg-zinc-800 rounded-xl p-3 text-center">
                       <div className="text-2xl font-bold">{avgSession}</div>
-                      <div className="text-xs text-zinc-500 mt-1">Avg ch per day</div>
+                      <div className="text-xs text-zinc-500 mt-1">Avg Ch Per Day</div>
                     </div>
                     <div className="bg-zinc-800 rounded-xl p-3 text-center">
                       <div className="text-2xl font-bold">{maxSession}</div>
-                      <div className="text-xs text-zinc-500 mt-1">Best single day</div>
+                      <div className="text-xs text-zinc-500 mt-1">Best Single Day</div>
                     </div>
                     <div className="bg-zinc-800 rounded-xl p-3 text-center">
                       <div className="text-2xl font-bold">{Object.keys(byDay).length}</div>
-                      <div className="text-xs text-zinc-500 mt-1">Reading days (yr)</div>
+                      <div className="text-xs text-zinc-500 mt-1">Reading Days (Yr)</div>
                     </div>
                     <div className="bg-zinc-800 rounded-xl p-3 text-center">
                       <div className="text-2xl font-bold">{droppedOrHold.length}</div>
-                      <div className="text-xs text-zinc-500 mt-1">Abandoned titles</div>
+                      <div className="text-xs text-zinc-500 mt-1">Abandoned Titles</div>
                     </div>
                   </div>
                 </div>
               )}
-            </div>
+            </>
           )
         })()}
 
@@ -795,26 +838,103 @@ export default function StatsPage() {
 
         {/* All-time totals */}
         <div className="bg-zinc-900 rounded-xl p-5">
-          <h2 className="text-sm font-semibold mb-4">All time</h2>
+          <h2 className="text-sm font-semibold mb-4">All Time</h2>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div className="flex justify-between">
-              <span className="text-zinc-500">Chapters read</span>
+              <span className="text-zinc-500">Chapters Read</span>
               <span className="font-medium">{totalChapters.toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-zinc-500">Avg per title</span>
+              <span className="text-zinc-500">Avg Per Title</span>
               <span className="font-medium">{manga.length > 0 ? Math.round(totalChapters / manga.length) : 0}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-zinc-500">Longest manga</span>
+              <span className="text-zinc-500">Longest Manga</span>
               <span className="font-medium">{manga.length > 0 ? Math.max(...manga.map(m => m.current_chapter)) : 0} ch</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-zinc-500">Swipes logged</span>
+              <span className="text-zinc-500">Swipes Logged</span>
               <span className="font-medium">{swipes.length}</span>
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Heavy rotation — 12 YouTube deep-dive series */}
+      <div className="mt-6">
+        <HeavyRotation />
+      </div>
+
+      {/* YouTube Takeout data */}
+      <div className="bg-zinc-900 rounded-xl p-5 mt-6">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h2 className="text-sm font-semibold">YouTube watch history</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              Imported from {TAKEOUT_STATS.dataSource} · {TAKEOUT_STATS.exportDate}
+            </p>
+          </div>
+          <span className="text-[10px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-500">Data Source</span>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+          <div className="bg-zinc-800 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold text-white">{TAKEOUT_STATS.totalWatchHistoryEntries.toLocaleString()}</div>
+            <div className="text-xs text-zinc-500 mt-1">Watch history entries</div>
+          </div>
+          <div className="bg-zinc-800 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold" style={{ color: 'var(--vermillion)' }}>~{TAKEOUT_STATS.animeRelatedEntries.toLocaleString()}</div>
+            <div className="text-xs text-zinc-500 mt-1">Anime/manga entries</div>
+            <div className="text-[10px] mt-0.5" style={{ color: 'var(--cyan)' }}>≈{TAKEOUT_STATS.animeRelatedPct}% of all</div>
+          </div>
+          <div className="bg-zinc-800 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold text-white">{TAKEOUT_STATS.distinctSeriesIdentified}</div>
+            <div className="text-xs text-zinc-500 mt-1">Series identified</div>
+          </div>
+          <div className="bg-zinc-800 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold text-white">{TAKEOUT_STATS.animeSearches}</div>
+            <div className="text-xs text-zinc-500 mt-1">Anime searches</div>
+          </div>
+          <div className="bg-zinc-800 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold text-white">{TAKEOUT_STATS.dedicatedChannelSubscriptions}</div>
+            <div className="text-xs text-zinc-500 mt-1">Channel subscriptions</div>
+          </div>
+          <div className="bg-zinc-800 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold text-white">{TAKEOUT_STATS.playlistEntries}</div>
+            <div className="text-xs text-zinc-500 mt-1">{TAKEOUT_STATS.playlistName}</div>
+            <div className="text-[10px] mt-0.5 text-zinc-600">{TAKEOUT_STATS.playlistDateRange}</div>
+          </div>
+        </div>
+        <div>
+          <p className="text-xs text-zinc-500 mb-2">Top 3 by watch volume</p>
+          <div className="space-y-1">
+            {TAKEOUT_STATS.top3ByVolume.map((t, i) => (
+              <div key={t} className="flex items-center gap-2">
+                <span className="text-xs font-mono text-zinc-600 w-4">{i + 1}.</span>
+                <span className="text-xs text-zinc-300">{t}</span>
+                {i === 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-800 border border-zinc-700" style={{ color: 'var(--vermillion)' }}>🔥 Dominant</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Genre profile from Takeout data */}
+      <div className="mt-6">
+        <GenreProfile />
+      </div>
+
+      {/* YOMU Wrapped CTA */}
+      <div className="mt-6 mb-2">
+        <Link href={`/wrapped/${new Date().getFullYear()}`}
+          className="flex items-center justify-between px-5 py-4 rounded-xl bg-gradient-to-r from-zinc-900 to-zinc-800 border border-zinc-700 hover:border-zinc-600 transition-colors group">
+          <div>
+            <div className="text-sm font-semibold text-white group-hover:text-[#FF2D46] transition-colors">
+              🎁 YOMU Wrapped {new Date().getFullYear()}
+            </div>
+            <div className="text-xs text-zinc-500 mt-0.5">Your year in reading, visualised</div>
+          </div>
+          <span className="text-zinc-600 group-hover:text-zinc-400 transition-colors">→</span>
+        </Link>
       </div>
     </main>
   )

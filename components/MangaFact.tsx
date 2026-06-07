@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 
 const FACTS = [
   "The word \"manga\" (漫画) was coined by artist Hokusai in 1814 — it literally means \"whimsical pictures\".",
@@ -42,8 +42,13 @@ function pickRandom(exclude: number, length: number): number {
 }
 
 export default function MangaFact() {
-  const [index, setIndex] = useState(() => Math.floor(Math.random() * FACTS.length))
+  // Start at 0 to match SSR; randomise after mount to avoid hydration mismatch (#418)
+  const [index, setIndex] = useState(0)
   const [animating, setAnimating] = useState(false)
+
+  useEffect(() => {
+    setIndex(Math.floor(Math.random() * FACTS.length))
+  }, [])
 
   const refresh = useCallback(() => {
     if (animating) return
