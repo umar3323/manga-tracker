@@ -1773,14 +1773,29 @@ export default function Home() {
   const commitChapterProgress = async (id: string, delta: number, current: number, attr: DateAttribution) => {
     const next = Math.max(0, current + delta)
     const now = new Date().toISOString()
-    setManga(prev => prev.map(m => m.id === id ? { ...m, current_chapter: next, last_read_at: now } : m))
-    const { error } = await supabase
-      .from('manga_list')
-      .update({ current_chapter: next, last_read_at: now })
-      .eq('id', id)
+
+    // Auto-sync episode gauge when both totals are known
+    const m = manga.find(x => x.id === id)
+    const syncEp =
+      m?.has_anime && m.total_chapters && m.total_chapters > 0 && m.total_episodes
+        ? Math.min(m.total_episodes, Math.round((next / m.total_chapters) * m.total_episodes))
+        : null
+
+    const patch: Record<string, unknown> = { current_chapter: next, last_read_at: now }
+    if (syncEp != null) patch.episodes_watched = syncEp
+
+    setManga(prev => prev.map(x =>
+      x.id === id ? { ...x, current_chapter: next, last_read_at: now, ...(syncEp != null ? { episodes_watched: syncEp } : {}) } : x,
+    ))
+    setSelectedManga(prev =>
+      prev?.id === id ? { ...prev, current_chapter: next, last_read_at: now, ...(syncEp != null ? { episodes_watched: syncEp } : {}) } : prev,
+    )
+
+    const { error } = await supabase.from('manga_list').update(patch).eq('id', id)
     if (error) {
       showToast('Failed To Update Chapter')
-      setManga(prev => prev.map(m => m.id === id ? { ...m, current_chapter: current } : m))
+      setManga(prev => prev.map(x => x.id === id ? { ...x, current_chapter: current, ...(syncEp != null && m ? { episodes_watched: m.episodes_watched } : {}) } : x))
+      setSelectedManga(prev => prev?.id === id ? { ...prev, current_chapter: current, ...(syncEp != null && m ? { episodes_watched: m.episodes_watched } : {}) } : prev)
       return
     }
     if (delta > 0) {
@@ -2021,11 +2036,29 @@ ${entries}
 
   const commitEpisodeProgress = async (id: string, delta: number, current: number, attr: DateAttribution) => {
     const next = Math.max(0, current + delta)
-    setManga(prev => prev.map(m => m.id === id ? { ...m, episodes_watched: next } : m))
-    const { error } = await supabase.from('manga_list').update({ episodes_watched: next }).eq('id', id)
+
+    // Auto-sync chapter gauge when both totals are known
+    const m = manga.find(x => x.id === id)
+    const syncCh =
+      m?.has_anime && m.total_episodes && m.total_episodes > 0 && m.total_chapters
+        ? Math.min(m.total_chapters, Math.round((next / m.total_episodes) * m.total_chapters))
+        : null
+
+    const patch: Record<string, unknown> = { episodes_watched: next }
+    if (syncCh != null) patch.current_chapter = syncCh
+
+    setManga(prev => prev.map(x =>
+      x.id === id ? { ...x, episodes_watched: next, ...(syncCh != null ? { current_chapter: syncCh } : {}) } : x,
+    ))
+    setSelectedManga(prev =>
+      prev?.id === id ? { ...prev, episodes_watched: next, ...(syncCh != null ? { current_chapter: syncCh } : {}) } : prev,
+    )
+
+    const { error } = await supabase.from('manga_list').update(patch).eq('id', id)
     if (error) {
       showToast('Failed To Update Episodes')
-      setManga(prev => prev.map(m => m.id === id ? { ...m, episodes_watched: current } : m))
+      setManga(prev => prev.map(x => x.id === id ? { ...x, episodes_watched: current, ...(syncCh != null && m ? { current_chapter: m.current_chapter } : {}) } : x))
+      setSelectedManga(prev => prev?.id === id ? { ...prev, episodes_watched: current, ...(syncCh != null && m ? { current_chapter: m.current_chapter } : {}) } : prev)
       return
     }
     if (delta > 0) {
@@ -2965,13 +2998,21 @@ ${entries}
                             <button onClick={() => updateEpisodes(m.id, 1, m.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
                           </div>
                         </div>
-                        {/* Episode → manga chapter equivalent */}
-                        {m.total_episodes && m.total_chapters && m.episodes_watched > 0 && (
-                          <p className="text-[10px] text-zinc-600 pl-4 tabular-nums">
-                            ≈ Ch.&nbsp;{Math.round((m.episodes_watched / m.total_episodes) * m.total_chapters)}&nbsp;Manga Equivalent
-                            <span className="text-zinc-700"> ({m.total_chapters} Ch Total)</span>
-                          </p>
-                        )}
+                        {/* Episode → manga chapter sync indicator */}
+                        {m.total_episodes && m.total_chapters && m.episodes_watched > 0 && (() => {
+                          const syncedCh = Math.min(m.total_chapters, Math.round((m.episodes_watched / m.total_episodes) * m.total_chapters))
+                          const isInSync = m.current_chapter === syncedCh
+                          return (
+                            <p className="text-[10px] pl-4 tabular-nums flex items-center gap-1">
+                              <span className={isInSync ? 'text-emerald-600' : 'text-zinc-600'}>
+                                {isInSync ? '⟳' : '→'} Ch.&nbsp;{syncedCh}&nbsp;
+                              </span>
+                              <span className={isInSync ? 'text-emerald-700' : 'text-zinc-700'}>
+                                {isInSync ? 'synced' : 'manga equivalent'}
+                              </span>
+                            </p>
+                          )
+                        })()}
                       </div>
                     )}
 
@@ -2996,13 +3037,21 @@ ${entries}
                         <div className="h-full bg-violet-500 rounded-full transition-all"
                           style={{ width: m.total_chapters ? `${Math.min(100, Math.round((m.current_chapter / m.total_chapters) * 100))}%` : '0%' }} />
                       </div>
-                      {/* Chapter → anime episode equivalent */}
-                      {m.has_anime && m.total_chapters && m.total_episodes && m.current_chapter > 0 && (
-                        <p className="text-[10px] text-zinc-600 mt-0.5 tabular-nums">
-                          ≈ Ep.&nbsp;{Math.round((m.current_chapter / m.total_chapters) * m.total_episodes)}&nbsp;Anime Equivalent
-                          <span className="text-zinc-700"> ({m.total_episodes} Ep Total)</span>
-                        </p>
-                      )}
+                      {/* Chapter → anime episode sync indicator */}
+                      {m.has_anime && m.total_chapters && m.total_episodes && m.current_chapter > 0 && (() => {
+                        const syncedEp = Math.min(m.total_episodes, Math.round((m.current_chapter / m.total_chapters) * m.total_episodes))
+                        const isInSync = m.episodes_watched === syncedEp
+                        return (
+                          <p className="text-[10px] mt-0.5 tabular-nums flex items-center gap-1">
+                            <span className={isInSync ? 'text-cyan-700' : 'text-zinc-600'}>
+                              {isInSync ? '⟳' : '→'} Ep.&nbsp;{syncedEp}&nbsp;
+                            </span>
+                            <span className={isInSync ? 'text-cyan-800' : 'text-zinc-700'}>
+                              {isInSync ? 'synced' : 'anime equivalent'}
+                            </span>
+                          </p>
+                        )
+                      })()}
                     </div>
 
                     {/* 5. Genre tags */}
