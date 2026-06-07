@@ -15,6 +15,7 @@ interface Props {
   watchingMalIds: number[]    // anime MAL IDs where status === 'watching'
   libraryMalIdSet: Set<number>
   releasingManga?: Manga[]
+  onAddToLibrary?: (entry: GlobalAiringEntry) => Promise<void>
 }
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -36,7 +37,18 @@ export default function ReleaseCalendar({
   watchingMalIds,
   libraryMalIdSet,
   releasingManga = [],
+  onAddToLibrary,
 }: Props) {
+  const [addingId, setAddingId] = useState<number | null>(null)
+  const [justAdded, setJustAdded] = useState<Set<number>>(new Set())
+
+  const handleAdd = async (entry: GlobalAiringEntry) => {
+    if (!onAddToLibrary) return
+    setAddingId(entry.mal_id)
+    await onAddToLibrary(entry)
+    setJustAdded(prev => new Set([...prev, entry.mal_id]))
+    setAddingId(null)
+  }
   // Library schedule (AniList — exact times)
   const [schedule, setSchedule] = useState<AiringEntry[]>([])
   // Global schedule (Jikan — by day, no exact time)
@@ -250,7 +262,7 @@ export default function ReleaseCalendar({
                     <div className="flex items-center gap-2 py-1">
                       <Tv size={13} strokeWidth={1.5} style={{ color: 'var(--fg-4)' }} />
                       <p className="text-xs" style={{ color: 'var(--fg-4)' }}>
-                        No anime scheduled on {DAY_LONG[selectedDay]}.
+                        No Anime Scheduled On {DAY_LONG[selectedDay]}.
                       </p>
                     </div>
                   ) : (
@@ -294,6 +306,22 @@ export default function ReleaseCalendar({
                                   In Library
                                 </span>
                               )}
+                              {!inLibrary && !justAdded.has(entry.mal_id) && onAddToLibrary && (
+                                <button
+                                  onClick={() => handleAdd(entry)}
+                                  disabled={addingId === entry.mal_id}
+                                  className="text-[10px] px-2 py-0.5 rounded-full font-semibold transition-opacity disabled:opacity-50"
+                                  style={{ background: 'var(--cyan)', color: '#000' }}
+                                >
+                                  {addingId === entry.mal_id ? '…' : '+ Add'}
+                                </button>
+                              )}
+                              {justAdded.has(entry.mal_id) && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                                  style={{ background: 'rgba(34,211,238,0.15)', color: 'var(--cyan)', border: '1px solid rgba(34,211,238,0.3)' }}>
+                                  ✓ Added
+                                </span>
+                              )}
                             </div>
                           </div>
                         )
@@ -308,7 +336,7 @@ export default function ReleaseCalendar({
                     <div className="flex items-center gap-2 py-1">
                       <Tv size={13} strokeWidth={1.5} style={{ color: 'var(--fg-4)' }} />
                       <p className="text-xs" style={{ color: 'var(--fg-4)' }}>
-                        Nothing airing from your library on {DAY_LONG[selectedDay]}.
+                        Nothing Airing From Your Library On {DAY_LONG[selectedDay]}.
                       </p>
                     </div>
                   ) : (
@@ -322,7 +350,7 @@ export default function ReleaseCalendar({
                     <div className="flex items-center gap-2 py-1">
                       <Tv size={13} strokeWidth={1.5} style={{ color: 'var(--fg-4)' }} />
                       <p className="text-xs" style={{ color: 'var(--fg-4)' }}>
-                        No watching-status anime airing on {DAY_LONG[selectedDay]}.
+                        No Watching-Status Anime Airing On {DAY_LONG[selectedDay]}.
                       </p>
                     </div>
                   ) : (
@@ -339,7 +367,7 @@ export default function ReleaseCalendar({
               {releasingManga.length === 0 ? (
                 <div className="flex items-center gap-2 py-1">
                   <BookOpen size={13} strokeWidth={1.5} style={{ color: 'var(--fg-4)' }} />
-                  <p className="text-xs" style={{ color: 'var(--fg-4)' }}>No actively releasing manga in your reading list.</p>
+                  <p className="text-xs" style={{ color: 'var(--fg-4)' }}>No Actively Releasing Manga In Your Reading List.</p>
                 </div>
               ) : releasingManga.map(m => (
                 <div key={m.id} className="flex items-center gap-3">
@@ -361,7 +389,7 @@ export default function ReleaseCalendar({
                   </div>
                   <div className="shrink-0 flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    <span className="text-[10px]" style={{ color: 'var(--fg-4)' }}>Serialising</span>
+                    <span className="text-[10px]" style={{ color: 'var(--fg-4)' }}>Serialising</span> {/* already title-case */}
                   </div>
                 </div>
               ))}

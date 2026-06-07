@@ -510,7 +510,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
               <Tv size={13} strokeWidth={1.5} className="text-violet-400 shrink-0" />
               <div>
                 <span className="text-xs font-medium text-violet-300">
-                  Ep. {alAnime.nextAiringEpisode.episode} airing in {formatCountdown(alAnime.nextAiringEpisode.timeUntilAiring)}
+                  Ep. {alAnime.nextAiringEpisode.episode} Airing In {formatCountdown(alAnime.nextAiringEpisode.timeUntilAiring)}
                 </span>
                 <span className="text-xs text-zinc-500 ml-2">
                   {new Date(alAnime.nextAiringEpisode.airingAt * 1000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
@@ -2653,6 +2653,29 @@ ${entries}
           watchingMalIds={manga.filter(m => m.anime_mal_id && m.status === 'watching').map(m => m.anime_mal_id!)}
           libraryMalIdSet={new Set(manga.filter(m => m.anime_mal_id).map(m => m.anime_mal_id!))}
           releasingManga={manga.filter(m => m.status === 'reading' && m.publishing_status === 'Publishing')}
+          onAddToLibrary={async (entry) => {
+            const payload = {
+              title: entry.title,
+              current_chapter: 0,
+              episodes_watched: 0,
+              status: 'watching' as const,
+              content_type: 'anime',
+              mal_id: null,
+              anime_mal_id: entry.mal_id,
+              anime_title: entry.title,
+              cover_url: entry.cover ?? null,
+              total_episodes: entry.episodes ?? null,
+              genres: entry.genres ?? [],
+              has_anime: true,
+            }
+            const { data, error } = await supabase.from('manga_list').insert(payload).select().single()
+            if (error?.code === '23505') { showToast(`"${entry.title}" Is Already In Your Library`); return }
+            if (error) { showToast('Failed To Add To Library'); return }
+            if (data) {
+              setManga(prev => [...prev, data as Manga])
+              showToast(`"${entry.title}" Added To Library`)
+            }
+          }}
         />
 
         {/* Trending section — reads excluded genres from localStorage (set on Search page) */}
