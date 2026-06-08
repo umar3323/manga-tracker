@@ -33,7 +33,17 @@ export interface Manga {
   is_public_review: boolean | null
   review_md: string | null
   // Takeout import: content type
-  content_type: 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'anime' | 'novel' | 'other' | null
+  content_type: 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'anime' | 'novel' | 'other' | 'movie' | null
+  // Series grouping
+  series_id: string | null
+  series_primary: boolean | null
+  // MAL/Jikan score and publication dates (added session 4)
+  score: number | null
+  published_from: string | null
+  published_to: string | null
+  // Watch tracking (populated by browser extension)
+  total_watch_time_minutes: number
+  auto_tracked: boolean
 }
 
 export interface SwipeRecord {
