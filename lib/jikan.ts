@@ -1,3 +1,4 @@
+// Module version: 2026-06-08
 export interface JikanManga {
   coverUrl: string | null
   totalChapters: number | null
@@ -24,7 +25,7 @@ export interface JikanSearchResult {
   source?: string            // originating source: 'jikan' | 'mangadex' | 'comick' | 'kitsu' | 'anilist' | 'webtoons'
   country?: 'jp' | 'kr' | 'cn' | 'other'
   published_from?: string    // ISO date string for start of publication
-  media_type?: 'manga' | 'anime'  // explicitly set when result comes from anime endpoint
+  media_type?: 'manga' | 'anime' | 'movie'  // explicitly set when result comes from anime endpoint
   episodes?: number | null        // anime only — parallel to total_chapters for manga
 }
 
@@ -183,7 +184,7 @@ function mapAnimeResult(a: any): JikanSearchResult {
     status:         a.status ?? null,
     authors:        (a.studios ?? []).slice(0, 2).map((s: { mal_id: number; name: string }) => ({ id: s.mal_id, name: s.name })),
     source:         'jikan',
-    media_type:     'anime',
+    media_type:     a.type === 'Movie' ? 'movie' : 'anime',
   }
 }
 
@@ -513,7 +514,11 @@ export async function getSeriesEntryDetail(
   type: 'manga' | 'anime',
 ): Promise<SeriesEntryDetail | null> {
   try {
-    const res = await fetch(`https://api.jikan.moe/v4/${type}/${malId}`)
+    let res = await fetch(`https://api.jikan.moe/v4/${type}/${malId}`)
+    if (res.status === 429) {
+      await new Promise(r => setTimeout(r, 1200))
+      res = await fetch(`https://api.jikan.moe/v4/${type}/${malId}`)
+    }
     if (!res.ok) return null
     const d = (await res.json()).data
     if (!d) return null
@@ -535,6 +540,103 @@ export async function getSeriesEntryDetail(
   }
 }
 
+export async function searchAnimeByProducer(producerId: number): Promise<JikanSearchResult[]> {
+  try {
+    const res = await jikanGet(`/anime?producers=${producerId}&limit=12&order_by=score&sort=desc`)
+    if (!res.ok) return []
+    const json = await res.json()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (json.data ?? []).map((a: any) => mapAnimeResult(a))
+  } catch {
+    return []
+  }
+}
+
+export async function getJikanRecommendations(malId: number, type: 'anime' | 'manga'): Promise<JikanSearchResult[]> {
+  try {
+    const res = await jikanGet(`/${type}/${malId}/recommendations`)
+    if (!res.ok) return []
+    const json = await res.json()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (json.data ?? []).slice(0, 8).map((rec: { entry: any }) => ({
+      mal_id: rec.entry.mal_id,
+      title: rec.entry.title,
+      cover_url: rec.entry.images?.jpg?.image_url ?? null,
+      synopsis: null,
+      genres: [],
+      total_chapters: null,
+      total_episodes: null,
+      media_type: type,
+      score: null,
+      publishing_status: null,
+      authors: [],
+    }))
+  } catch {
+    return []
+  }
+}
+
+export interface JikanEpisode {
+  mal_id: number
+  title: string | null
+  aired: string | null
+  score: number | null
+  filler: boolean
+  recap: boolean
+}
+
+export async function getJikanEpisodes(malId: number, page = 1): Promise<{ episodes: JikanEpisode[]; hasNext: boolean }> {
+  try {
+    const res = await fetch(`https://api.jikan.moe/v4/anime/${malId}/episodes?page=${page}`)
+    if (res.status === 429) {
+      await new Promise(r => setTimeout(r, 1200))
+      const retry = await fetch(`https://api.jikan.moe/v4/anime/${malId}/episodes?page=${page}`)
+      if (!retry.ok) return { episodes: [], hasNext: false }
+      const json = await retry.json()
+      return parseEpisodesResponse(json)
+    }
+    if (!res.ok) return { episodes: [], hasNext: false }
+    const json = await res.json()
+    return parseEpisodesResponse(json)
+  } catch {
+    return { episodes: [], hasNext: false }
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseEpisodesResponse(json: any): { episodes: JikanEpisode[]; hasNext: boolean } {
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    episodes: (json.data ?? []).map((e: any): JikanEpisode => ({
+      mal_id: e.mal_id,
+      title: e.title_romanji ?? e.title ?? null,
+      aired: e.aired ?? null,
+      score: e.score ?? null,
+      filler: e.filler ?? false,
+      recap: e.recap ?? false,
+    })),
+    hasNext: json.pagination?.has_next_page ?? false,
+  }
+}
+
+export async function getJikanEpisodeSynopsis(malId: number, episodeId: number): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.jikan.moe/v4/anime/${malId}/episodes/${episodeId}`)
+    if (res.status === 429) {
+      await new Promise(r => setTimeout(r, 1200))
+      const retry = await fetch(`https://api.jikan.moe/v4/anime/${malId}/episodes/${episodeId}`)
+      if (!retry.ok) return null
+      const json = await retry.json()
+      return json.data?.synopsis ?? null
+    }
+    if (!res.ok) return null
+    const json = await res.json()
+    return json.data?.synopsis ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function getAuthorInfo(personId: number): Promise<{ name: string; about: string | null } | null> {
   try {
     const res = await jikanGet(`/people/${personId}/full`)
@@ -547,4 +649,77 @@ export async function getAuthorInfo(personId: number): Promise<{ name: string; a
   } catch {
     return null
   }
+}
+
+// ── MangaDex chapter listing ─────────────────────────────────────────────────
+
+export interface MangaDexChapter {
+  id: string
+  chapter: string | null   // chapter number string e.g. "42"
+  title: string | null     // chapter title if set
+  volume: string | null
+  publishedAt: string | null
+  pages: number | null
+}
+
+/** Proxy fetch through our Next.js route to avoid CORS on MangaDex. */
+async function mdxFetch(mdxPath: string): Promise<Response> {
+  return fetch(`/api/mangadex?path=${encodeURIComponent(mdxPath)}`)
+}
+
+/** Search MangaDex for a manga by title and return the first result's ID. */
+async function getMangaDexId(title: string): Promise<string | null> {
+  try {
+    const res = await mdxFetch(
+      `/manga?title=${encodeURIComponent(title)}&limit=1&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica&contentRating[]=pornographic`,
+    )
+    if (!res.ok) return null
+    const json = await res.json()
+    return json.data?.[0]?.id ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Fetch English chapter list for a MangaDex manga ID (paginated). */
+async function getMangaDexChaptersByMangaId(mangaDexId: string, offset = 0): Promise<{ chapters: MangaDexChapter[]; total: number }> {
+  try {
+    const params = new URLSearchParams({
+      'translatedLanguage[]': 'en',
+      limit: '96',
+      offset: String(offset),
+      'order[chapter]': 'asc',
+      'order[updatedAt]': 'desc',
+    })
+    const res = await mdxFetch(`/manga/${mangaDexId}/feed?${params}`)
+    if (!res.ok) return { chapters: [], total: 0 }
+    const json = await res.json()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chapters: MangaDexChapter[] = (json.data ?? []).map((c: any): MangaDexChapter => ({
+      id: c.id,
+      chapter: c.attributes?.chapter ?? null,
+      title: c.attributes?.title ?? null,
+      volume: c.attributes?.volume ?? null,
+      publishedAt: c.attributes?.publishAt ?? null,
+      pages: c.attributes?.pages ?? null,
+    }))
+    // Dedupe by chapter number (keep first occurrence)
+    const seen = new Set<string>()
+    const deduped = chapters.filter(c => {
+      const key = c.chapter ?? c.id
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    return { chapters: deduped, total: json.total ?? deduped.length }
+  } catch {
+    return { chapters: [], total: 0 }
+  }
+}
+
+/** Public: search by title then return chapters. Returns null if no match found. */
+export async function getMangaDexChapters(title: string, offset = 0): Promise<{ chapters: MangaDexChapter[]; total: number } | null> {
+  const id = await getMangaDexId(title)
+  if (!id) return null
+  return getMangaDexChaptersByMangaId(id, offset)
 }

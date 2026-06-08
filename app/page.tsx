@@ -630,7 +630,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
     const omdbKey = (() => { try { return localStorage.getItem('yomu_omdb_key') } catch { return null } })()
     if (omdbKey && manga.title) {
       const q = encodeURIComponent(manga.title)
-      fetch(`https://www.omdbapi.com/?t=${q}&apikey=${omdbKey}&type=series`)
+      fetch(`https://www.omdbapi.com/?t=${q}&apikey=${omdbKey}&type=${manga.content_type === 'movie' ? 'movie' : 'series'}`)
         .then(r => r.json())
         .then(j => {
           if (j.Response === 'True') {
@@ -864,7 +864,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
                         setShowOmdbInput(false)
                         if (k) {
                           const q = encodeURIComponent(manga.title)
-                          fetch(`https://www.omdbapi.com/?t=${q}&apikey=${k}&type=series`)
+                          fetch(`https://www.omdbapi.com/?t=${q}&apikey=${k}&type=${manga.content_type === 'movie' ? 'movie' : 'series'}`)
                             .then(r => r.json()).then(j => { if (j.Response === 'True') { setImdbRating(j.imdbRating ?? null); setImdbId(j.imdbID ?? null) } }).catch(() => {})
                         }
                       }
@@ -879,7 +879,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
                       setShowOmdbInput(false)
                       if (k) {
                         const q = encodeURIComponent(manga.title)
-                        fetch(`https://www.omdbapi.com/?t=${q}&apikey=${k}&type=series`)
+                        fetch(`https://www.omdbapi.com/?t=${q}&apikey=${k}&type=${manga.content_type === 'movie' ? 'movie' : 'series'}`)
                           .then(r => r.json()).then(j => { if (j.Response === 'True') { setImdbRating(j.imdbRating ?? null); setImdbId(j.imdbID ?? null) } }).catch(() => {})
                       }
                     }}
