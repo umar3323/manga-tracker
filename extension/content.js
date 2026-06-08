@@ -308,8 +308,17 @@ function accum() {
 function startHeartbeat() {
   stopHeartbeat()
   heartbeat = setInterval(() => {
-    accum()
-    send(false) // progress ping every 30 s
+    // Guard: extension may have been reloaded — context becomes invalid
+    // If so, stop the interval silently instead of throwing
+    try {
+      if (!chrome.runtime?.id) { stopHeartbeat(); return }
+      accum()
+      send(false) // progress ping every 30 s
+    } catch (e) {
+      if (String(e).includes('Extension context invalidated') || String(e).includes('runtime.id')) {
+        stopHeartbeat()
+      }
+    }
   }, 30_000)
 }
 
@@ -321,6 +330,8 @@ function send(isComplete) {
   if (!session) return
   if (isComplete && session.reportedComplete) return
   if (isComplete) session.reportedComplete = true
+  // Bail out silently if extension context was invalidated (e.g. after reload)
+  try { if (!chrome.runtime?.id) return } catch { return }
 
   const payload = {
     title:            session.title,
