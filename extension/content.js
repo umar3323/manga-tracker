@@ -15,13 +15,20 @@ const PARSERS = [
     parse(url, title) {
       // URL patterns: /watch/one-piece-episode-1100
       //               /anime/one-piece/1/1100
+      // Episode from /ep-N path segment (aniwaves uses /watch/slug-ID/ep-N)
+      const epPath = url.match(/\/ep-(\d+(?:\.\d+)?)/i)
+      const epFromPath = epPath ? +epPath[1] : null
+
       let m = url.match(/\/watch\/([^/?#]+)/i)
       if (m) {
         const slug = m[1]
-        const epM  = slug.match(/-episode-(\d+(?:\.\d+)?)/i)
-        const ep   = epM ? +epM[1] : null
+        // Old pattern: slug itself contains -episode-N
+        const epSlug = slug.match(/-episode-(\d+(?:\.\d+)?)/i)
+        const ep = epSlug ? +epSlug[1] : epFromPath
+        // Strip trailing numeric ID (e.g. -79380) and -episode-N
         const name = slug
           .replace(/-episode-\d+(?:\.\d+)?$/i, '')
+          .replace(/-\d+$/i, '')                  // strip aniwaves show ID
           .replace(/-/g, ' ').trim()
         if (name.length > 1) return { title: tc(name), episode: ep, season: null }
       }
@@ -29,16 +36,15 @@ const PARSERS = [
       m = url.match(/\/anime\/([^/?#]+)\/(\d+)\/(\d+)/i)
       if (m) return { title: tc(m[1].replace(/-/g, ' ')), episode: +m[3], season: +m[2] }
 
-      // Tab title fallback: "Aniwave - Show Name (Year) — : Episode Name"
-      // Strip site prefix, strip episode name after " — "
+      // Tab title fallback: "Aniwave - Show Name (Year) — Episode N: Episode Title"
       if (title) {
         let t = title
           .replace(/^aniwave\s*[-–]\s*/i, '')      // strip "Aniwave - " prefix
-          .replace(/\s*[—–]\s*:?.*/i, '')           // strip " — : Episode Name"
+          .replace(/\s*[—–]\s*.*$/i, '')            // strip " — Episode N: Title"
           .replace(/\s*\(\d{4}\)\s*$/i, '')         // strip trailing " (2003)"
           .trim()
-        const epM2 = title.match(/episode\s*(\d+)/i) || title.match(/ep\.?\s*(\d+)/i)
-        const ep2  = epM2 ? +epM2[1] : null
+        const epM2 = title.match(/episode\s*(\d+)/i) || title.match(/\/ep-(\d+)/i)
+        const ep2  = epM2 ? +epM2[1] : epFromPath
         if (t.length > 1) return { title: t, episode: ep2, season: null }
       }
       return fromTitle(title)
