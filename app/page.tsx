@@ -4208,11 +4208,22 @@ ${entries}
                             movie:   { bg: 'rgba(251,191,36,0.12)',  color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' },
                           }
                           const s = typeStyles[ct] ?? typeStyles.manga
+                          const animeS = typeStyles.anime
+                          // Show both badges when entry has an anime AND is not already purely anime/movie
+                          const showAnimeBadge = m.has_anime && ct !== 'anime' && ct !== 'movie'
                           return (
-                            <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide font-semibold whitespace-nowrap"
-                              style={{ background: s.bg, color: s.color, border: s.border }}>
-                              {ct}
-                            </span>
+                            <>
+                              <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide font-semibold whitespace-nowrap"
+                                style={{ background: s.bg, color: s.color, border: s.border }}>
+                                {ct}
+                              </span>
+                              {showAnimeBadge && (
+                                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide font-semibold whitespace-nowrap"
+                                  style={{ background: animeS.bg, color: animeS.color, border: animeS.border }}>
+                                  anime
+                                </span>
+                              )}
+                            </>
                           )
                         })()}
                       </div>
