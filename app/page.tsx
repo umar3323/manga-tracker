@@ -736,19 +736,8 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
   const mergeDuplicate = async () => {
     if (!duplicateCandidate) return
     setMerging(true)
-    // Keep the one with more reading progress; use the other's data to fill gaps
-    const keeper = manga.current_chapter >= duplicateCandidate.current_chapter ? manga : duplicateCandidate
-    const removed = keeper.id === manga.id ? duplicateCandidate : manga
-    await supabase.from('manga_list').update({
-      current_chapter: Math.max(manga.current_chapter, duplicateCandidate.current_chapter),
-      total_chapters: manga.total_chapters ?? duplicateCandidate.total_chapters,
-      genres: manga.genres?.length ? manga.genres : duplicateCandidate.genres,
-      authors: manga.authors?.length ? manga.authors : duplicateCandidate.authors,
-      notes: manga.notes ?? duplicateCandidate.notes,
-    }).eq('id', keeper.id)
-    await supabase.from('manga_list').delete().eq('id', removed.id)
+    await onMergeMultiple([duplicateCandidate.id])
     setMerging(false)
-    onMerge(removed.id)  // parent removes the deleted entry from allManga state immediately
     onClose()
   }
 
@@ -3435,49 +3424,107 @@ ${entries}
     })
   }
 
+  // Status rank: higher = more progress made
+  const STATUS_RANK: Record<string, number> = {
+    completed: 6, reading: 4, watching: 4, on_hold: 3, dropped: 2, plan_to_read: 1, unwatched: 1,
+  }
+
+  /** Pick the entry with the best overall progress to keep as the primary card. */
+  const pickKeeper = (entries: Manga[]): Manga => {
+    return entries.reduce((best, m) => {
+      const bScore = (STATUS_RANK[best.status] ?? 0) * 1000
+        + (best.current_chapter ?? 0) + (best.episodes_watched ?? 0)
+      const mScore = (STATUS_RANK[m.status] ?? 0) * 1000
+        + (m.current_chapter ?? 0) + (m.episodes_watched ?? 0)
+      return mScore > bScore ? m : best
+    })
+  }
+
   /** Merge any number of entries into `keep`. Best-of-all logic across every field. */
   const mergeMultiple = async (keep: Manga, toRemove: Manga[]) => {
-    // Walk all removed entries accumulating the best values
-    let bestChapter   = keep.current_chapter
-    let bestTotal     = keep.total_chapters
-    let bestGenres    = keep.genres
-    let bestAuthors   = keep.authors
-    let bestSynopsis  = keep.synopsis
-    let bestCover     = keep.cover_url
-    let bestHasAnime  = keep.has_anime
-    let bestAnimeMal  = keep.anime_mal_id
-    let bestAnimeTitle= keep.anime_title
-    let bestRating    = keep.user_rating
-    let notes         = keep.notes ?? ''
+    const all = [keep, ...toRemove]
 
-    for (const r of toRemove) {
-      bestChapter    = Math.max(bestChapter, r.current_chapter)
-      bestTotal      = bestTotal ?? r.total_chapters
-      bestGenres     = bestGenres?.length ? bestGenres : r.genres
-      bestAuthors    = bestAuthors?.length ? bestAuthors : r.authors
-      bestSynopsis   = bestSynopsis ?? r.synopsis
-      bestCover      = bestCover ?? r.cover_url
-      bestHasAnime   = bestHasAnime || r.has_anime
-      bestAnimeMal   = bestAnimeMal ?? r.anime_mal_id
-      bestAnimeTitle = bestAnimeTitle ?? r.anime_title
-      bestRating     = bestRating ?? r.user_rating
-      if (r.notes?.trim() && !notes.includes(r.notes.trim())) {
-        notes = notes ? `${notes}\n---\n${r.notes.trim()}` : r.notes.trim()
+    // ── Progress fields (take max) ─────────────────────────────────────────
+    const bestChapter    = Math.max(...all.map(m => m.current_chapter ?? 0))
+    const bestEpisodes   = Math.max(...all.map(m => m.episodes_watched ?? 0))
+    const bestWatchTime  = all.reduce((s, m) => s + (m.total_watch_time_minutes ?? 0), 0)
+
+    // ── Status (most advanced) ─────────────────────────────────────────────
+    const bestStatus = all.reduce((best, m) =>
+      (STATUS_RANK[m.status] ?? 0) > (STATUS_RANK[best.status] ?? 0) ? m : best
+    ).status
+
+    // ── Timestamps (most recent) ───────────────────────────────────────────
+    const lastReadDates = all.map(m => m.last_read_at).filter(Boolean) as string[]
+    const bestLastRead  = lastReadDates.length
+      ? lastReadDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0]
+      : keep.last_read_at
+
+    // ── Scalar fields (first non-null wins, prefer keeper) ─────────────────
+    const firstOf = <T,>(field: keyof Manga): T | null =>
+      (all.map(m => m[field]).find(v => v != null) ?? null) as T | null
+
+    const bestTotal       = firstOf<number>('total_chapters')
+    const bestTotalEp     = firstOf<number>('total_episodes')
+    const bestSynopsis    = firstOf<string>('synopsis')
+    const bestCover       = firstOf<string>('cover_url')
+    const bestMalId       = firstOf<number>('mal_id')
+    const bestAnimeMal    = firstOf<number>('anime_mal_id')
+    const bestAnimeTitle  = firstOf<string>('anime_title')
+    const bestRating      = firstOf<'up'|'down'>('user_rating')
+    const bestScore       = firstOf<number>('score')
+    const bestContentType = firstOf<string>('content_type')
+    const bestPubStatus   = firstOf<string>('publishing_status')
+    const bestSeriesId    = firstOf<string>('series_id')
+    const bestSeriesPrim  = all.some(m => m.series_primary)
+    const bestReviewMd    = firstOf<string>('review_md')
+    const bestPublicRev   = firstOf<boolean>('is_public_review')
+
+    // ── Array fields (union) ───────────────────────────────────────────────
+    const genreSet  = new Set(all.flatMap(m => m.genres ?? []))
+    const authorSet = new Set(all.flatMap(m => (m.authors ?? []).map((a: { name: string }) => JSON.stringify(a))))
+    const bestGenres  = [...genreSet]
+    const bestAuthors = [...authorSet].map(s => JSON.parse(s))
+
+    // ── Booleans (OR) ─────────────────────────────────────────────────────
+    const bestHasAnime   = all.some(m => m.has_anime)
+    const bestAutoTracked = all.some(m => m.auto_tracked)
+
+    // ── Notes (concat unique) ──────────────────────────────────────────────
+    const notesParts: string[] = []
+    for (const m of all) {
+      if (m.notes?.trim() && !notesParts.some(p => p.includes(m.notes!.trim()))) {
+        notesParts.push(m.notes.trim())
       }
     }
+    const bestNotes = notesParts.join('\n---\n') || null
 
     const updates = {
-      current_chapter: bestChapter,
-      total_chapters:  bestTotal,
-      genres:          bestGenres,
-      authors:         bestAuthors,
-      synopsis:        bestSynopsis,
-      cover_url:       bestCover,
-      has_anime:       bestHasAnime,
-      anime_mal_id:    bestAnimeMal,
-      anime_title:     bestAnimeTitle,
-      user_rating:     bestRating,
-      notes:           notes || null,
+      current_chapter:         bestChapter,
+      episodes_watched:        bestEpisodes,
+      total_watch_time_minutes: bestWatchTime,
+      status:                  bestStatus,
+      last_read_at:            bestLastRead,
+      total_chapters:          bestTotal,
+      total_episodes:          bestTotalEp,
+      synopsis:                bestSynopsis,
+      cover_url:               bestCover,
+      mal_id:                  bestMalId,
+      anime_mal_id:            bestAnimeMal,
+      anime_title:             bestAnimeTitle,
+      user_rating:             bestRating,
+      score:                   bestScore,
+      content_type:            bestContentType,
+      publishing_status:       bestPubStatus,
+      series_id:               bestSeriesId,
+      series_primary:          bestSeriesPrim,
+      review_md:               bestReviewMd,
+      is_public_review:        bestPublicRev,
+      has_anime:               bestHasAnime,
+      auto_tracked:            bestAutoTracked,
+      genres:                  bestGenres,
+      authors:                 bestAuthors,
+      notes:                   bestNotes,
     }
 
     const removeIds = toRemove.map(r => r.id)
@@ -3490,12 +3537,16 @@ ${entries}
         .map(m => m.id === keep.id ? { ...m, ...updates } : m)
     )
     showToast(toRemove.length === 1
-      ? 'Merged — Best Progress Kept'
-      : `Merged ${toRemove.length + 1} Entries — Best Progress Kept`)
+      ? 'Merged — All Data Integrated'
+      : `Merged ${toRemove.length + 1} Entries — All Data Integrated`)
   }
 
-  /** Convenience wrapper for the old pair-merge used by the duplicates view */
-  const mergePair = (keep: Manga, remove: Manga) => mergeMultiple(keep, [remove])
+  /** Auto-pick the best keeper and merge the rest into it. */
+  const mergePair = (a: Manga, b: Manga) => {
+    const keep = pickKeeper([a, b])
+    const remove = keep.id === a.id ? b : a
+    return mergeMultiple(keep, [remove])
+  }
 
   const counts = manga.reduce((acc, m) => {
     acc[m.status] = (acc[m.status] ?? 0) + 1
@@ -4067,12 +4118,9 @@ ${entries}
                   </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => mergePair(
-                        a.current_chapter >= b.current_chapter ? a : b,
-                        a.current_chapter >= b.current_chapter ? b : a,
-                      )}
+                      onClick={() => mergePair(a, b)}
                       className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium rounded-lg transition-colors">
-                      <GitMerge size={12} strokeWidth={1.5} /> Merge (keep best progress)
+                      <GitMerge size={12} strokeWidth={1.5} /> Merge &amp; Integrate All Data
                     </button>
                     <button onClick={() => dismissPair(a, b)}
                       className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs rounded-lg transition-colors">
@@ -4587,9 +4635,12 @@ ${entries}
             setManga(prev => prev.filter(m => m.id !== removedId))
           }}
           onMergeMultiple={async (removeIds) => {
-            const keep = selectedManga
-            const toRemove = manga.filter(m => removeIds.includes(m.id))
+            const candidates = [selectedManga!, ...manga.filter(m => removeIds.includes(m.id))]
+            const keep = pickKeeper(candidates)
+            const toRemove = candidates.filter(m => m.id !== keep.id)
             await mergeMultiple(keep, toRemove)
+            // If the kept entry is different from the selected one, navigate to it
+            if (keep.id !== selectedManga!.id) setSelectedManga(keep)
           }}
           onNavigate={(m) => setSelectedManga(m)}
           onChapterReset={(chapterAtStart) => {
