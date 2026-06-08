@@ -32,6 +32,18 @@ interface LogEntry {
   date_precision?: 'exact' | 'year_only' | 'unknown' | null
 }
 interface SwipeEntry { genres: string[]; direction: string }
+interface WatchSession {
+  id: string
+  manga_id: string | null
+  title_raw: string
+  episode: number | null
+  season: number | null
+  site: string
+  duration_seconds: number
+  watched_seconds: number
+  is_complete: boolean
+  watched_at: string
+}
 
 const HEAT_COLORS = ['#30303D', '#5a0a18', '#a01c30', '#D11B33', '#FF2D46']
 
@@ -160,10 +172,12 @@ export default function StatsPage() {
   const [animeList, setAnimeList] = useState<AnimeRow[]>([])
   const [log, setLog] = useState<LogEntry[]>([])
   const [swipes, setSwipes] = useState<SwipeEntry[]>([])
+  const [watchSessions, setWatchSessions] = useState<WatchSession[]>([])
   const [goal, setGoal] = useState(10)
   const [editingGoal, setEditingGoal] = useState(false)
   const [goalDraft, setGoalDraft] = useState('')
   const [loading, setLoading] = useState(true)
+  const [showAllSessions, setShowAllSessions] = useState(false)
 
   const load = useCallback(async () => {
     const oneYearAgo = new Date(Date.now() - 52 * 7 * 24 * 60 * 60 * 1000).toISOString()
@@ -198,6 +212,14 @@ export default function StatsPage() {
       .order('logged_at', { ascending: false })
       .limit(2000)
     if (lg) setLog(lg as LogEntry[])
+
+    // Load watch sessions from the browser extension
+    const { data: ws } = await supabase
+      .from('watch_sessions')
+      .select('id, manga_id, title_raw, episode, season, site, duration_seconds, watched_seconds, is_complete, watched_at')
+      .order('watched_at', { ascending: false })
+      .limit(500)
+    if (ws) setWatchSessions(ws as WatchSession[])
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -370,6 +392,181 @@ export default function StatsPage() {
                       ))}
                     </div>
                   </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+
+        <hr className="border-zinc-800 mb-6" />
+
+        {/* ── Watch History (extension-tracked) ── */}
+        {watchSessions.length > 0 && (() => {
+          const completed   = watchSessions.filter(s => s.is_complete)
+          const totalWatchSec = watchSessions.reduce((s, w) => s + (w.watched_seconds ?? 0), 0)
+          const totalHours  = Math.floor(totalWatchSec / 3600)
+          const totalMins   = Math.floor((totalWatchSec % 3600) / 60)
+
+          // Most-watched titles
+          const titleCount: Record<string, number> = {}
+          const titleTime:  Record<string, number> = {}
+          for (const s of watchSessions) {
+            const t = s.title_raw
+            titleCount[t] = (titleCount[t] ?? 0) + (s.is_complete ? 1 : 0)
+            titleTime[t]  = (titleTime[t]  ?? 0) + (s.watched_seconds ?? 0)
+          }
+          const topTitles = Object.entries(titleTime)
+            .sort((a, b) => b[1] - a[1]).slice(0, 5)
+
+          // Last-7-days episode count
+          const now = new Date()
+          const last7eps = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(now); d.setDate(now.getDate() - (6 - i))
+            const ds = d.toDateString()
+            return {
+              label: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],
+              isToday: i === 6,
+              count: watchSessions.filter(s => s.is_complete && new Date(s.watched_at).toDateString() === ds).length,
+            }
+          })
+          const maxEpDay = Math.max(...last7eps.map(d => d.count), 1)
+
+          // Build manga cover lookup
+          const coverMap: Record<string, string | null> = {}
+          for (const m of manga) coverMap[m.id] = m.cover_url
+
+          const fmtDuration = (sec: number) => {
+            const h = Math.floor(sec / 3600)
+            const m = Math.floor((sec % 3600) / 60)
+            const s = sec % 60
+            if (h > 0) return `${h}h ${m}m`
+            if (m > 0) return `${m}m ${s}s`
+            return `${s}s`
+          }
+          const fmtDate = (iso: string) => {
+            const d = new Date(iso)
+            return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) +
+              ' · ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+          }
+
+          const visibleSessions = showAllSessions ? watchSessions : watchSessions.slice(0, 15)
+
+          return (
+            <div className="mb-6">
+              <h2 className="text-lg font-bold mb-3">Watch History</h2>
+              <p className="text-xs text-zinc-500 mb-4">Tracked automatically by the YOMU Chrome extension</p>
+
+              {/* Hero stats */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <StatCard value={completed.length} label="Episodes Completed" />
+                <StatCard value={totalHours > 0 ? `${totalHours}h ${totalMins}m` : `${totalMins}m`} label="Total Watch Time" />
+                <StatCard value={Object.keys(titleCount).length} label="Titles Tracked" />
+                <StatCard value={watchSessions.length} label="Sessions Logged" />
+              </div>
+
+              <div className="lg:grid lg:grid-cols-2 lg:gap-4 mb-4">
+                {/* 7-day episode bar chart */}
+                <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+                  <h3 className="text-sm font-semibold mb-4">Episodes This Week</h3>
+                  <div className="flex items-end gap-2 h-24">
+                    {last7eps.map((d, i) => (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                        <div className="w-full flex items-end justify-center" style={{ height: 72 }}>
+                          <div className="w-full rounded-t-md transition-all"
+                            style={{ height: `${Math.max((d.count / maxEpDay) * 72, d.count > 0 ? 4 : 0)}px`, backgroundColor: d.isToday ? 'var(--cyan)' : 'var(--ink-500)' }} />
+                        </div>
+                        <span className="text-xs" style={{ color: d.isToday ? 'var(--cyan)' : 'var(--fg-3)' }}>{d.label}</span>
+                        {d.count > 0 && <span className="text-[10px] text-zinc-500">{d.count}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Most watched */}
+                <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+                  <h3 className="text-sm font-semibold mb-4">Most Watched</h3>
+                  <div className="space-y-3">
+                    {topTitles.map(([title, secs], i) => {
+                      const h = Math.floor(secs / 3600)
+                      const m = Math.floor((secs % 3600) / 60)
+                      const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`
+                      const eps = titleCount[title] ?? 0
+                      return (
+                        <div key={title} className="flex items-center gap-3">
+                          <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
+                          <span className="text-xs text-zinc-300 flex-1 truncate">{title}</span>
+                          <span className="text-[10px] text-zinc-500 shrink-0">{eps} ep</span>
+                          <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden shrink-0">
+                            <div className="h-full rounded-full" style={{ width: `${(secs / topTitles[0][1]) * 100}%`, backgroundColor: 'var(--cyan)' }} />
+                          </div>
+                          <span className="text-[10px] text-zinc-500 w-12 text-right shrink-0">{timeStr}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Session log */}
+              <div className="bg-zinc-900 rounded-xl p-5">
+                <h3 className="text-sm font-semibold mb-4">Session Log</h3>
+                <div className="space-y-0">
+                  {/* Header */}
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 pb-2 border-b border-zinc-800 text-[10px] text-zinc-600 uppercase tracking-wide">
+                    <span>Title / Episode</span>
+                    <span className="text-right">Watched</span>
+                    <span className="text-right">Date &amp; Time</span>
+                    <span className="text-right">Site</span>
+                  </div>
+                  {visibleSessions.map(s => {
+                    const cover = s.manga_id ? coverMap[s.manga_id] : null
+                    const pct   = s.duration_seconds > 0 ? Math.round((s.watched_seconds / s.duration_seconds) * 100) : null
+                    return (
+                      <div key={s.id} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 py-2.5 border-b border-zinc-800/50 items-center">
+                        {/* Title + episode */}
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {cover
+                            ? <img src={cover} alt="" className="w-7 h-9 object-cover rounded shrink-0 opacity-80" />
+                            : <div className="w-7 h-9 bg-zinc-800 rounded shrink-0 flex items-center justify-center text-zinc-600 text-[8px]">▷</div>
+                          }
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-zinc-200 truncate">{s.title_raw}</p>
+                            <p className="text-[10px] text-zinc-500">
+                              {s.episode != null ? `Ep. ${s.episode}` : '—'}
+                              {s.season != null ? ` · S${s.season}` : ''}
+                              {s.is_complete
+                                ? <span className="ml-1.5 text-emerald-500">✓</span>
+                                : pct != null ? <span className="ml-1.5 text-zinc-600">{pct}%</span> : null
+                              }
+                            </p>
+                          </div>
+                        </div>
+                        {/* Duration watched */}
+                        <div className="text-right">
+                          <p className="text-xs text-zinc-300 whitespace-nowrap">{fmtDuration(s.watched_seconds)}</p>
+                          {s.duration_seconds > 0 && (
+                            <p className="text-[10px] text-zinc-600">/ {fmtDuration(s.duration_seconds)}</p>
+                          )}
+                        </div>
+                        {/* Date & time */}
+                        <div className="text-right">
+                          <p className="text-[10px] text-zinc-400 whitespace-nowrap">{fmtDate(s.watched_at)}</p>
+                        </div>
+                        {/* Site */}
+                        <div className="text-right">
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-500 whitespace-nowrap">
+                            {s.site?.replace('www.', '').replace('.ru', '').replace('.com', '') ?? '—'}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                {watchSessions.length > 15 && (
+                  <button onClick={() => setShowAllSessions(v => !v)}
+                    className="mt-3 text-xs text-zinc-500 hover:text-zinc-300 transition-colors w-full text-center">
+                    {showAllSessions ? 'Show Less ↑' : `Show All ${watchSessions.length} Sessions ↓`}
+                  </button>
                 )}
               </div>
             </div>
