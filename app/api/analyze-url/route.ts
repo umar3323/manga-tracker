@@ -49,12 +49,18 @@ export async function POST(req: NextRequest) {
 
   const sourceHost = (() => { try { return new URL(url).hostname } catch { return url } })()
 
-  const message = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1024,
-    messages: [{
-      role: 'user',
-      content: `You are extracting manga/anime series metadata from a webpage.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return NextResponse.json({ error: 'ANTHROPIC_API_KEY is not configured on the server.' }, { status: 503 })
+  }
+
+  let text = '{}'
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: `You are extracting manga/anime series metadata from a webpage.
 Source URL: ${url}
 Page text (truncated):
 ---
@@ -78,10 +84,12 @@ Extract and return ONLY a JSON object with these fields (use null if unknown):
 }
 
 Reply with ONLY the JSON object, no extra text.`,
-    }],
-  })
-
-  const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '{}'
+      }],
+    })
+    text = message.content[0].type === 'text' ? message.content[0].text.trim() : '{}'
+  } catch (e) {
+    return NextResponse.json({ error: `AI analysis failed: ${e instanceof Error ? e.message : 'unknown'}` }, { status: 502 })
+  }
   let parsed: Partial<UrlAnalysisResult> = {}
   try {
     const match = text.match(/\{[\s\S]*\}/)
