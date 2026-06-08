@@ -22,6 +22,7 @@ export default function Sidebar() {
   const [reading, setReading] = useState<Manga[]>([])
   const [streak, setStreak] = useState(0)
   const [weekChapters, setWeekChapters] = useState(0)
+  const [weekEpisodes, setWeekEpisodes] = useState(0)
   const [goal, setGoal] = useState(10)
 
   useEffect(() => {
@@ -44,6 +45,15 @@ export default function Sidebar() {
       .gte('logged_at', weekStart.toISOString())
       .then(({ data }) => {
         if (data) setWeekChapters(data.reduce((s, l) => s + l.chapters_read, 0))
+      })
+
+    // Count distinct completed episodes this week from watch_sessions
+    supabase.from('watch_sessions')
+      .select('episode, manga_id')
+      .eq('is_complete', true)
+      .gte('watched_at', weekStart.toISOString())
+      .then(({ data }) => {
+        if (data) setWeekEpisodes(data.length)
       })
 
     supabase.from('reading_log').select('logged_at')
@@ -175,27 +185,44 @@ export default function Sidebar() {
       </nav>
 
       {/* ── STATS ROW ── */}
-      <div style={{ margin: '18px 14px 0', display: 'flex', gap: 8 }}>
-        <div style={{
-          flex: 1, background: 'var(--ink-700)', border: '1px solid var(--ink-600)',
-          borderRadius: 10, padding: '10px 12px',
-        }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: 'var(--fg-1)', lineHeight: 1 }}>{weekChapters}</div>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-4)', marginTop: 4 }}>Ch. this week</div>
-          <div style={{ marginTop: 8, height: 3, background: 'var(--ink-500)', borderRadius: 99, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${goalPct}%`, background: goalPct >= 100 ? 'var(--cyan)' : 'var(--vermillion)', borderRadius: 99, transition: 'width 380ms ease' }} />
+      <div style={{ margin: '18px 14px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* Row 1: chapters + streak */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{
+            flex: 1, background: 'var(--ink-700)', border: '1px solid var(--ink-600)',
+            borderRadius: 10, padding: '10px 12px',
+          }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: 'var(--fg-1)', lineHeight: 1 }}>{weekChapters}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-4)', marginTop: 4 }}>Ch. this week</div>
+            <div style={{ marginTop: 8, height: 3, background: 'var(--ink-500)', borderRadius: 99, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${goalPct}%`, background: goalPct >= 100 ? 'var(--cyan)' : 'var(--vermillion)', borderRadius: 99, transition: 'width 380ms ease' }} />
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--fg-4)', marginTop: 4 }}>Goal: {goal}</div>
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--fg-4)', marginTop: 4 }}>Goal: {goal}</div>
+          {streak > 0 && (
+            <div style={{
+              background: 'var(--ink-700)', border: '1px solid var(--ink-600)',
+              borderRadius: 10, padding: '10px 12px',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minWidth: 64,
+            }}>
+              <div style={{ fontSize: 18 }}>🔥</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: 'var(--screen-yellow)', lineHeight: 1, marginTop: 3 }}>{streak}</div>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-4)', marginTop: 3 }}>Streak</div>
+            </div>
+          )}
         </div>
-        {streak > 0 && (
+
+        {/* Row 2: episodes watched this week (only shown when > 0) */}
+        {weekEpisodes > 0 && (
           <div style={{
             background: 'var(--ink-700)', border: '1px solid var(--ink-600)',
             borderRadius: 10, padding: '10px 12px',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minWidth: 64,
           }}>
-            <div style={{ fontSize: 18 }}>🔥</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: 'var(--screen-yellow)', lineHeight: 1, marginTop: 3 }}>{streak}</div>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-4)', marginTop: 3 }}>Streak</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: 'var(--cyan)', lineHeight: 1 }}>{weekEpisodes}</div>
+              <div style={{ fontSize: 10, color: 'var(--fg-4)' }}>▷</div>
+            </div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-4)', marginTop: 4 }}>Ep. this week</div>
           </div>
         )}
       </div>
