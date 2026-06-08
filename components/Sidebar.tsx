@@ -47,13 +47,13 @@ export default function Sidebar() {
         if (data) setWeekChapters(data.reduce((s, l) => s + l.chapters_read, 0))
       })
 
-    // Count distinct completed episodes this week from watch_sessions
+    // Count completed episodes this week from watch_sessions
     supabase.from('watch_sessions')
-      .select('episode, manga_id')
+      .select('id', { count: 'exact', head: true })
       .eq('is_complete', true)
       .gte('watched_at', weekStart.toISOString())
-      .then(({ data }) => {
-        if (data) setWeekEpisodes(data.length)
+      .then(({ count, error }) => {
+        if (!error) setWeekEpisodes(count ?? 0)
       })
 
     supabase.from('reading_log').select('logged_at')
@@ -212,19 +212,17 @@ export default function Sidebar() {
           )}
         </div>
 
-        {/* Row 2: episodes watched this week (only shown when > 0) */}
-        {weekEpisodes > 0 && (
-          <div style={{
-            background: 'var(--ink-700)', border: '1px solid var(--ink-600)',
-            borderRadius: 10, padding: '10px 12px',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: 'var(--cyan)', lineHeight: 1 }}>{weekEpisodes}</div>
-              <div style={{ fontSize: 10, color: 'var(--fg-4)' }}>▷</div>
-            </div>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-4)', marginTop: 4 }}>Ep. this week</div>
+        {/* Row 2: episodes watched this week */}
+        <div style={{
+          background: 'var(--ink-700)', border: '1px solid var(--ink-600)',
+          borderRadius: 10, padding: '10px 12px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: 'var(--cyan)', lineHeight: 1 }}>{weekEpisodes}</div>
+            <div style={{ fontSize: 10, color: 'var(--fg-4)' }}>▷</div>
           </div>
-        )}
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-4)', marginTop: 4 }}>Ep. this week</div>
+        </div>
       </div>
 
       {/* ── UP NEXT ── */}
