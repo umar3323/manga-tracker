@@ -171,7 +171,10 @@ function tc(s) {
 }
 
 function getBestParser() {
-  return PARSERS.find(p => p.match.test(location.href))
+  // When inside an iframe, match parsers against the parent page URL (which
+  // has the recognisable site hostname), not the iframe's CDN URL.
+  const testUrl = (isIframe() && _parentContext?.url) ? _parentContext.url : location.href
+  return PARSERS.find(p => p.match.test(testUrl))
     || { parse: (u, t) => fromTitle(t) }
 }
 
