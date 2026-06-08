@@ -2190,7 +2190,9 @@ function ShelfPicker({ manga, onClose }: { manga: Manga; onClose: () => void }) 
 function ShareModal({ token, enabled, onToggle, onClose }: {
   token: string | null; enabled: boolean; onToggle: () => void; onClose: () => void
 }) {
-  const shareUrl = token ? `${typeof window !== 'undefined' ? window.location.origin : ''}/share/${token}` : null
+  const [origin, setOrigin] = useState('')
+  useEffect(() => { setOrigin(window.location.origin) }, [])
+  const shareUrl = token ? `${origin}/share/${token}` : null
   const copy = () => { if (shareUrl) { navigator.clipboard.writeText(shareUrl); } }
   return (
     <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center" onClick={onClose}>
