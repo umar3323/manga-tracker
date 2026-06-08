@@ -529,14 +529,17 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
   // Dismiss flags persisted in localStorage so banners don't reappear on re-open
   const dupKey   = `yomu_dismissed_dup_${manga.id}`
   const animeKey = `yomu_dismissed_anime_${manga.mal_id ?? manga.id}`
-  const [animeSuggestionDismissed, setAnimeSuggestionDismissed] = useState(
-    () => { try { return !!localStorage.getItem(animeKey) } catch { return false } }
-  )
+  // Always start false (safe for SSR); sync from localStorage after mount to avoid hydration mismatch
+  const [animeSuggestionDismissed, setAnimeSuggestionDismissed] = useState(false)
   const [animeSuggestionConfirmed, setAnimeSuggestionConfirmed] = useState(false)
   // duplicateCandidate is derived via useMemo below (not state) to avoid setState-in-effect
-  const [duplicateDismissed, setDuplicateDismissed] = useState(
-    () => { try { return !!localStorage.getItem(dupKey) } catch { return false } }
-  )
+  const [duplicateDismissed, setDuplicateDismissed] = useState(false)
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(animeKey)) setAnimeSuggestionDismissed(true)
+      if (localStorage.getItem(dupKey))   setDuplicateDismissed(true)
+    } catch { /* localStorage unavailable */ }
+  }, [animeKey, dupKey])
   const [merging, setMerging] = useState(false)
   const [muData, setMuData] = useState<MUSeriesData | null>(null)
   const [annAnime, setAnnAnime] = useState<ANNRelatedWork[]>([])
