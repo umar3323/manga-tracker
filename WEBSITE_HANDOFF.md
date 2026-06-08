@@ -10,6 +10,26 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+- `app/page.tsx` — **Code review fixes (session 10)**:
+  - AbortController on all 6 DetailModal `useEffect` fetches (AniList ×2, MangaUpdates, ANN, Jikan recs, OMDB) — cancelled on cleanup.
+  - `updateNotes` now calls `supabase.auth.getUser()` and adds `.eq('user_id', user.id)` to the update query (defence-in-depth over RLS).
+  - `filtered`/`typeCounts` wrapped in `useMemo`; `endSession` in `useCallback`.
+  - Cover-fetch `useEffect` concurrency guard via `fetchRunning` ref.
+  - Toast timer stored in `toastTimer` ref; cleared on unmount.
+  - `fetchManga` error path calls `setLoading(false)` before returning.
+  - `recMalId` dead ternary fixed (was using `mal_id` twice; now correctly uses `anime_mal_id` for second branch).
+  - `triggerDownload` properly appends/removes anchor element.
+  - Both duplicate `STATUS_LABELS` declarations inside components removed.
+  - `endSession` useCallback deps corrected.
+- `app/api/watch-event/route.ts` — Comprehensive input sanitisation: `safeTitle` (255 chars), `safeSite` (100 chars), `safeEpisode`/`safeSeason`/`safeDuration`/`safeWatched` bounds-checked; timestamp validated (rejects NaN, >1hr future, >10yr past).
+- `app/stats/page.tsx` — Auth guard in `load()`: checks `supabase.auth.getUser()` before any DB queries; shows empty page instead of silent failure.
+- `extension/background.js` — `SET_AUTH_TOKEN` validates sender origin (must be `YOMU_HOST`) and JWT format before storing; `recentKeys` Map pruned every 30 min.
+- `extension/content.js` — MutationObserver debounced with `requestAnimationFrame`; `setInterval` polling replaced with Navigation API (`navigation.addEventListener('navigate', ...)`); `tc()` skips connectives (of/and/the/a/an/…) mid-title.
+- `lib/data/takeout-series.ts` *(new)* — 33-entry `TAKEOUT_ENTRIES` array extracted from `app/page.tsx` (was inline in the client bundle with personal viewing notes); notes stripped.
+- `lib/jikan.ts` — `mapMangaResult` null-coalesces `mal_id`; `getJikanRecommendations` field names corrected (`episodes` not `total_episodes`); version comment to bust Vercel build cache.
+
+### Previous Latest Changes (sessions 8–9)
+
 - `app/stats/page.tsx` — **Graphs throughout Stats tab** (session 9):
   - `DonutChart` component (multi-segment SVG arcs) — reused in Status Breakdown and Reading DNA
   - `WatchHeatmap` component — 52-week episode calendar (cyan palette), mirrors `ReadingHeatmap`
@@ -56,9 +76,18 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 - [ ] **Feature request button** — code is correct (`app/api/feature-request/route.ts` already handles `GOOGLE_SERVICE_ACCOUNT_JSON`). Blocked on Vercel env var only — user must add `GOOGLE_SERVICE_ACCOUNT_JSON` (full service account credentials JSON as a single-line string) in Vercel dashboard. Also ensure `GOOGLE_SHEET_ID` is set.
 
+- [ ] **Stats page inline IIFEs** (M-4) — `app/stats/page.tsx` has ~8 large `{(() => { ... })()}` JSX IIFEs (lines ~427, 519, 641, 821, 890, 919, 1110, 1188). These recompute on every render. To fix: move the `if (loading) return` guard to after all `useMemo` declarations, then extract each IIFE's body into a named `const` wrapped in `useMemo`. Complex restructure; safe to defer.
+
+- [ ] **Watch-event API fuzzy match at scale** (H-4) — `app/api/watch-event/route.ts` loads the entire user library in JS on every POST to fuzzy-match the title. Fast for small libraries; degrades at scale. Long-term fix: `pg_trgm` extension + DB-level similarity search via Supabase RPC. Low urgency for personal use.
+
+- [ ] **`onMergeMultiple` transaction safety** (H-6) — `app/page.tsx` `onMergeMultiple` fires two separate `supabase` calls (delete one entry, update another) without a transaction. A crash between the two leaves the DB in a half-merged state. Fix: create a Supabase RPC function `merge_entries(keep_id, drop_id)` that does both atomically.
+
+- [ ] **Jikan direct browser calls** (M-1) — several `lib/jikan.ts` functions (`getAnimeAdaptations`, `getMangaAllRelations`, `getSeriesEntryDetail`, `getJikanEpisodes`, etc.) call `https://api.jikan.moe/v4/...` directly from the browser, bypassing the `/api/jikan` proxy. This is fine for now (Jikan has permissive CORS) but means no server-side rate-limit caching. Fix: route all Jikan calls through `/api/jikan`.
+
 - [x] **OMDB IMDb rating — movie type search** — fixed in session 9 (`d7b1f13`)
 - [x] **Stats tab graphs** — added in session 9 (`e2406da`): donuts, trend line, heatmap, hour-of-day
 - [x] **Vercel alternating Error/Ready builds** — fixed in session 9 by busting jikan.ts cache (`d7b1f13`)
+- [x] **Code review critical/high/medium/low findings** — fixed in session 10 (`8c4dd46`)
 
 ---
 
@@ -104,6 +133,14 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ## Session Log
 
+### Session — 2026-06-08 (session 10)
+- Full code review performed; all Critical, High, Medium, and most Low findings fixed in one commit (`8c4dd46`).
+- Key security fixes: watch-event API now sanitises all 6 input fields; extension `SET_AUTH_TOKEN` validates sender origin + JWT format before storing; `updateNotes` adds explicit `user_id` guard.
+- Key perf fixes: AbortController on DetailModal's 6 concurrent fetches (cancelled on close); MutationObserver debounced with rAF; 1s polling replaced with Navigation API.
+- Key correctness fixes: `recMalId` dead ternary; `tc()` connective words; `fetchManga` early return now calls `setLoading(false)`; `TAKEOUT_ENTRIES` extracted from public bundle.
+- 4 findings deferred as noted in Outstanding Tasks: M-4 (stats IIFEs), H-4 (DB-level fuzzy match), H-6 (merge transaction), M-1 (Jikan proxy coverage).
+- Deployed to `manga-tracker-hazel.vercel.app` via `git push` (`3673140`).
+
 ### Session — 2026-06-08 (session 9)
 - Added graphs throughout Stats tab: DonutChart + WatchHeatmap components; completion ring, 8-week watch trend, hour-of-day histogram, episode calendar in Watch History; donut in Status Breakdown; donut + coloured bars in Reading DNA. All pure inline SVG.
 - Fixed OMDB fetching `type=series` for movies — now uses `type=movie` when `content_type === 'movie'`.
@@ -143,9 +180,9 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 ## Change History
 
 ### 2026-06-08 — Sessions 8–9
-- `app/stats/page.tsx` — DonutChart + WatchHeatmap components; graphs in Watch History (completion ring, trend, heatmap, hour-of-day), Status Breakdown (donut), Reading DNA (donut + coloured bars)
-- `app/page.tsx` — OMDB fetch uses `type=movie` for movies
-- `lib/jikan.ts` — version comment to bust Vercel build cache
+- `app/stats/page.tsx` — DonutChart + WatchHeatmap; graphs in Watch History, Status Breakdown, Reading DNA
+- `app/page.tsx` — OMDB `type=movie` for movies
+- `lib/jikan.ts` — cache-bust version comment
 - `extension/content.js` — YOMU-domain token harvesting block
 - `extension/background.js` — `SET_AUTH_TOKEN` handler
 - `extension/popup.js` — removed `window.close()`; polls for connection status
