@@ -167,6 +167,121 @@ function ProgressRing({ pct, size = 80 }: { pct: number; size?: number }) {
   )
 }
 
+// ── Multi-segment donut chart (pure SVG arcs) ─────────────────────────────────
+function DonutChart({ data, size = 140 }: {
+  data: { label: string; value: number; color: string }[]
+  size?: number
+}) {
+  const total = data.reduce((s, d) => s + d.value, 0)
+  if (!total) return null
+  const r = (size - 20) / 2, ri = r * 0.58
+  const cx = size / 2, cy = size / 2
+  let start = -Math.PI / 2
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {data.map((seg, idx) => {
+        if (!seg.value) return null
+        const sweep = (seg.value / total) * 2 * Math.PI
+        const end = start + sweep
+        const x1o = cx + r * Math.cos(start), y1o = cy + r * Math.sin(start)
+        const x2o = cx + r * Math.cos(end),   y2o = cy + r * Math.sin(end)
+        const x1i = cx + ri * Math.cos(end),  y1i = cy + ri * Math.sin(end)
+        const x2i = cx + ri * Math.cos(start), y2i = cy + ri * Math.sin(start)
+        const large = sweep > Math.PI ? 1 : 0
+        const path = `M ${x1o} ${y1o} A ${r} ${r} 0 ${large} 1 ${x2o} ${y2o} L ${x1i} ${y1i} A ${ri} ${ri} 0 ${large} 0 ${x2i} ${y2i} Z`
+        start = end
+        return <path key={idx} d={path} fill={seg.color} opacity={0.88} />
+      })}
+    </svg>
+  )
+}
+
+// ── Watch Episode Heatmap ─────────────────────────────────────────────────────
+const WATCH_HEAT = ['#1a2a2a', '#0e4a4a', '#0a7a7a', '#06b6b6', '#2BE6DC']
+
+function WatchHeatmap({ sessions }: { sessions: WatchSession[] }) {
+  const activityMap: Record<string, number> = {}
+  sessions.forEach(s => {
+    if (!s.is_complete) return
+    const d = new Date(s.watched_at).toISOString().slice(0, 10)
+    activityMap[d] = (activityMap[d] ?? 0) + 1
+  })
+
+  const today = new Date()
+  const origin = new Date(today)
+  origin.setDate(today.getDate() - 52 * 7)
+  origin.setDate(origin.getDate() - origin.getDay())
+
+  const weeks: { date: string; count: number }[][] = []
+  for (let w = 0; w < 53; w++) {
+    const week: { date: string; count: number }[] = []
+    for (let d = 0; d < 7; d++) {
+      const dt = new Date(origin); dt.setDate(origin.getDate() + w * 7 + d)
+      if (dt > today) break
+      const ds = dt.toISOString().slice(0, 10)
+      week.push({ date: ds, count: activityMap[ds] ?? 0 })
+    }
+    if (week.length) weeks.push(week)
+  }
+
+  const maxC = Math.max(...Object.values(activityMap), 1)
+  const level = (c: number) => !c ? 0 : c / maxC < 0.25 ? 1 : c / maxC < 0.5 ? 2 : c / maxC < 0.75 ? 3 : 4
+
+  const monthLabels: { label: string; col: number }[] = []
+  let lastMonth = -1
+  weeks.forEach((week, wi) => {
+    const m = new Date(week[0].date).getMonth()
+    if (m !== lastMonth) {
+      monthLabels.push({ label: new Date(week[0].date).toLocaleDateString('en', { month: 'short' }), col: wi })
+      lastMonth = m
+    }
+  })
+
+  const totalEps = Object.values(activityMap).reduce((s, v) => s + v, 0)
+  const activeDays = Object.values(activityMap).filter(Boolean).length
+
+  return (
+    <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold">Episode Calendar</h3>
+        <div className="flex gap-3 text-xs text-zinc-500">
+          <span>{totalEps} Episodes</span>
+          <span>{activeDays} Active Days</span>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <div className="flex gap-[3px] mb-1 pl-5 text-[10px] text-zinc-600">
+          {weeks.map((_, wi) => {
+            const ml = monthLabels.find(m => m.col === wi)
+            return <div key={wi} className="w-3 shrink-0">{ml?.label ?? ''}</div>
+          })}
+        </div>
+        <div className="flex gap-[3px]">
+          <div className="flex flex-col gap-[3px] mr-1 text-[9px] text-zinc-700">
+            {['S','M','T','W','T','F','S'].map((lbl, i) => (
+              <div key={i} className={`h-3 flex items-center ${i % 2 ? '' : 'invisible'}`}>{lbl}</div>
+            ))}
+          </div>
+          {weeks.map((week, wi) => (
+            <div key={wi} className="flex flex-col gap-[3px]">
+              {week.map((day, di) => (
+                <div key={di} className="w-3 h-3 rounded-sm transition-colors"
+                  style={{ backgroundColor: WATCH_HEAT[level(day.count)] }}
+                  title={`${day.date}: ${day.count} episode${day.count !== 1 ? 's' : ''}`} />
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 mt-2 justify-end">
+          <span className="text-[10px] text-zinc-600">Less</span>
+          {WATCH_HEAT.map((c, i) => <div key={i} className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
+          <span className="text-[10px] text-zinc-600">More</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function StatsPage() {
   const [manga, setManga] = useState<Manga[]>([])
   const [animeList, setAnimeList] = useState<AnimeRow[]>([])
@@ -451,6 +566,30 @@ export default function StatsPage() {
 
           const visibleSessions = showAllSessions ? watchSessions : watchSessions.slice(0, 15)
 
+          // Completion rate
+          const completionPct = watchSessions.length > 0
+            ? Math.round((completed.length / watchSessions.length) * 100)
+            : 0
+
+          // 8-week watch time trend (newest = index 7)
+          const weeklyTrend = Array.from({ length: 8 }, (_, i) => {
+            const end = new Date(now); end.setDate(now.getDate() - (7 - i) * 7); end.setHours(23,59,59,999)
+            const start = new Date(end); start.setDate(end.getDate() - 6); start.setHours(0,0,0,0)
+            const mins = watchSessions
+              .filter(s => { const d = new Date(s.watched_at); return d >= start && d <= end })
+              .reduce((sum, w) => sum + Math.round((w.watched_seconds ?? 0) / 60), 0)
+            return { label: i === 7 ? 'Now' : `${7 - i}w`, mins }
+          })
+          const maxWeekMins = Math.max(...weeklyTrend.map(w => w.mins), 1)
+
+          // Hour-of-day distribution (0–23)
+          const hourData = Array.from({ length: 24 }, (_, h) => ({
+            hour: h,
+            label: h === 0 ? '12a' : h < 12 ? `${h}a` : h === 12 ? '12p' : `${h - 12}p`,
+            count: watchSessions.filter(s => s.is_complete && new Date(s.watched_at).getHours() === h).length,
+          }))
+          const maxHourCount = Math.max(...hourData.map(h => h.count), 1)
+
           return (
             <div className="mb-6">
               <h2 className="text-lg font-bold mb-3">Watch History</h2>
@@ -462,6 +601,69 @@ export default function StatsPage() {
                 <StatCard value={totalHours > 0 ? `${totalHours}h ${totalMins}m` : `${totalMins}m`} label="Total Watch Time" />
                 <StatCard value={Object.keys(titleCount).length} label="Titles Tracked" />
                 <StatCard value={watchSessions.length} label="Sessions Logged" />
+              </div>
+
+              {/* Completion ring + 8-week trend */}
+              <div className="lg:grid lg:grid-cols-2 lg:gap-4 mb-4">
+                {/* Completion rate */}
+                <div className="bg-zinc-900 rounded-xl p-5 mb-4 flex items-center gap-6">
+                  <div className="relative shrink-0">
+                    <svg width={96} height={96} className="-rotate-90">
+                      <circle cx={48} cy={48} r={40} fill="none" stroke="#27272a" strokeWidth="8" />
+                      <circle cx={48} cy={48} r={40} fill="none" stroke="#2BE6DC" strokeWidth="8"
+                        strokeDasharray={`${(completionPct / 100) * 2 * Math.PI * 40} ${2 * Math.PI * 40}`}
+                        strokeLinecap="round"
+                        style={{ transition: 'stroke-dasharray 0.6s ease' }} />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-lg font-bold text-white" style={{ transform: 'rotate(90deg) translateX(-2px)' }}>{completionPct}%</span>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white mb-1">Completion Rate</p>
+                    <p className="text-xs text-zinc-500">{completed.length} of {watchSessions.length} sessions fully watched</p>
+                    <p className="text-[10px] text-zinc-600 mt-1">Episodes you watched end-to-end</p>
+                  </div>
+                </div>
+
+                {/* 8-week watch time trend */}
+                <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+                  <h3 className="text-sm font-semibold mb-4">Watch Time Trend <span className="text-zinc-600 font-normal text-[10px]">last 8 weeks</span></h3>
+                  <div className="relative h-24">
+                    <svg width="100%" height="100%" viewBox="0 0 280 80" preserveAspectRatio="none" className="overflow-visible">
+                      {/* Area fill */}
+                      <defs>
+                        <linearGradient id="wt-grad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#2BE6DC" stopOpacity="0.25" />
+                          <stop offset="100%" stopColor="#2BE6DC" stopOpacity="0.02" />
+                        </linearGradient>
+                      </defs>
+                      {weeklyTrend.length > 1 && (() => {
+                        const pts = weeklyTrend.map((w, i) => ({
+                          x: (i / (weeklyTrend.length - 1)) * 280,
+                          y: 80 - (w.mins / maxWeekMins) * 68 - 4,
+                        }))
+                        const lineD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+                        const areaD = lineD + ` L ${pts[pts.length-1].x} 80 L 0 80 Z`
+                        return (
+                          <>
+                            <path d={areaD} fill="url(#wt-grad)" />
+                            <path d={lineD} fill="none" stroke="#2BE6DC" strokeWidth="1.5" strokeLinejoin="round" />
+                            {pts.map((p, i) => (
+                              <circle key={i} cx={p.x} cy={p.y} r="2.5" fill={i === pts.length-1 ? '#2BE6DC' : '#0d0d0d'} stroke="#2BE6DC" strokeWidth="1.5" />
+                            ))}
+                          </>
+                        )
+                      })()}
+                    </svg>
+                    {/* X-axis labels */}
+                    <div className="flex justify-between mt-1 text-[9px] text-zinc-600">
+                      {weeklyTrend.map((w, i) => (
+                        <span key={i} style={{ color: i === weeklyTrend.length-1 ? 'var(--cyan)' : undefined }}>{w.label}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="lg:grid lg:grid-cols-2 lg:gap-4 mb-4">
@@ -569,6 +771,46 @@ export default function StatsPage() {
                   </button>
                 )}
               </div>
+
+              {/* Episode calendar heatmap */}
+              <WatchHeatmap sessions={watchSessions} />
+
+              {/* Hour-of-day histogram */}
+              {completed.length > 0 && (
+                <div className="bg-zinc-900 rounded-xl p-5">
+                  <h3 className="text-sm font-semibold mb-1">When You Watch</h3>
+                  <p className="text-xs text-zinc-500 mb-4">Episodes completed by hour of day</p>
+                  <div className="flex items-end gap-[3px] h-16">
+                    {hourData.map((h, i) => (
+                      <div key={i} className="flex-1 flex flex-col items-center" title={`${h.label}: ${h.count} ep`}>
+                        <div className="w-full rounded-t-sm transition-all"
+                          style={{
+                            height: `${Math.max((h.count / maxHourCount) * 56, h.count > 0 ? 3 : 0)}px`,
+                            backgroundColor: h.count > 0
+                              ? (h.hour >= 22 || h.hour <= 5 ? '#a78bfa'   // late night: purple
+                                : h.hour >= 18 ? '#2BE6DC'                  // evening: cyan
+                                : h.hour >= 12 ? '#FF2D46'                  // afternoon: red
+                                : '#FFB02E')                                 // morning: amber
+                              : '#27272a',
+                          }} />
+                      </div>
+                    ))}
+                  </div>
+                  {/* X-axis: every 3 hours */}
+                  <div className="flex mt-1.5 text-[9px] text-zinc-600">
+                    {hourData.map((h, i) => (
+                      <div key={i} className="flex-1 text-center">{i % 3 === 0 ? h.label : ''}</div>
+                    ))}
+                  </div>
+                  {/* Legend */}
+                  <div className="flex gap-3 mt-2 text-[9px] text-zinc-600 flex-wrap">
+                    <span><span style={{ color: '#FFB02E' }}>■</span> Morning</span>
+                    <span><span style={{ color: '#FF2D46' }}>■</span> Afternoon</span>
+                    <span><span style={{ color: '#2BE6DC' }}>■</span> Evening</span>
+                    <span><span style={{ color: '#a78bfa' }}>■</span> Late Night</span>
+                  </div>
+                </div>
+              )}
             </div>
           )
         })()}
@@ -815,20 +1057,33 @@ export default function StatsPage() {
         {/* Status breakdown */}
         <div className="bg-zinc-900 rounded-xl p-5 mb-6">
           <h2 className="text-sm font-semibold mb-4">Status breakdown</h2>
-          <div className="space-y-3">
-            {(Object.keys(STATUS_LABELS) as MangaStatus[]).map(s => {
-              const n = counts[s] ?? 0
-              if (n === 0) return null
-              return (
-                <div key={s} className="flex items-center gap-3">
-                  <span className="text-xs text-zinc-400 w-24 shrink-0">{STATUS_LABELS[s]}</span>
-                  <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all" style={{ backgroundColor: STATUS_COLORS[s], width: `${(n / maxStatus) * 100}%` }} />
+          <div className="flex gap-4 items-start">
+            {/* Donut */}
+            <div className="shrink-0 flex flex-col items-center">
+              <DonutChart
+                size={110}
+                data={(Object.keys(STATUS_LABELS) as MangaStatus[])
+                  .map(s => ({ label: STATUS_LABELS[s], value: counts[s] ?? 0, color: STATUS_COLORS[s] }))
+                  .filter(d => d.value > 0)}
+              />
+              <p className="text-[9px] text-zinc-600 mt-1">{manga.length} total</p>
+            </div>
+            {/* Bars */}
+            <div className="flex-1 space-y-3">
+              {(Object.keys(STATUS_LABELS) as MangaStatus[]).map(s => {
+                const n = counts[s] ?? 0
+                if (n === 0) return null
+                return (
+                  <div key={s} className="flex items-center gap-3">
+                    <span className="text-xs text-zinc-400 w-24 shrink-0">{STATUS_LABELS[s]}</span>
+                    <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all" style={{ backgroundColor: STATUS_COLORS[s], width: `${(n / maxStatus) * 100}%` }} />
+                    </div>
+                    <span className="text-xs text-zinc-500 w-6 text-right shrink-0">{n}</span>
                   </div>
-                  <span className="text-xs text-zinc-500 w-6 text-right shrink-0">{n}</span>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
         </div>
 
@@ -881,6 +1136,9 @@ export default function StatsPage() {
             ? Math.round(log.reduce((s, l) => s + l.chapters_read, 0) / activeDaysCount)
             : 0
 
+          // Genre donut colors (cycle through a palette)
+          const GENRE_PALETTE = ['#FF2D46','#FF8C42','#FFB02E','#2FCF7A','#2BE6DC','#818CF8']
+
           return (
             <div className="bg-zinc-900 rounded-xl p-5 mb-6">
               <h2 className="text-sm font-semibold mb-1">Your Reading DNA</h2>
@@ -893,19 +1151,34 @@ export default function StatsPage() {
                   </p>
                 </div>
               </div>
-              <div className="space-y-2">
-                {topGenres.map(([genre, chapters]) => (
-                  <div key={genre} className="flex items-center gap-3">
-                    <span className="text-xs text-zinc-400 w-28 shrink-0 truncate">{genre}</span>
-                    <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all"
-                        style={{ width: `${(chapters / maxG) * 100}%`, backgroundColor: 'var(--vermillion)' }} />
+              <div className="flex gap-4 items-start">
+                {/* Genre donut */}
+                <div className="shrink-0">
+                  <DonutChart
+                    size={110}
+                    data={topGenres.map(([genre, chapters], i) => ({
+                      label: genre,
+                      value: chapters,
+                      color: GENRE_PALETTE[i % GENRE_PALETTE.length],
+                    }))}
+                  />
+                </div>
+                {/* Bars + legend */}
+                <div className="flex-1 space-y-2">
+                  {topGenres.map(([genre, chapters], i) => (
+                    <div key={genre} className="flex items-center gap-3">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: GENRE_PALETTE[i % GENRE_PALETTE.length] }} />
+                      <span className="text-xs text-zinc-400 w-24 shrink-0 truncate">{genre}</span>
+                      <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all"
+                          style={{ width: `${(chapters / maxG) * 100}%`, backgroundColor: GENRE_PALETTE[i % GENRE_PALETTE.length] }} />
+                      </div>
+                      <span className="text-xs text-zinc-500 w-16 text-right shrink-0">
+                        {chapters.toLocaleString()} ch
+                      </span>
                     </div>
-                    <span className="text-xs text-zinc-500 w-16 text-right shrink-0">
-                      {chapters.toLocaleString()} ch
-                    </span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </div>
           )
