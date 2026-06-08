@@ -2709,12 +2709,13 @@ export default function Home() {
   const [deepSelectMode, setDeepSelectMode] = useState(false)
   const [deepSelected, setDeepSelected] = useState<Set<string>>(new Set())
   const [deepSearchTarget, setDeepSearchTarget] = useState<Manga | null>(null)
-  const [dismissedPairs, setDismissedPairs] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('yomu_dismissed_pairs') ?? '[]')) } catch { return new Set() }
-  })
+  const [dismissedPairs, setDismissedPairs] = useState<Set<string>>(new Set())
 
-  // Sync dismissedPairs from Supabase user metadata on mount (cross-device persistence)
+  // Sync dismissedPairs from localStorage + Supabase user metadata on mount
   useEffect(() => {
+    let local: Set<string> = new Set()
+    try { local = new Set(JSON.parse(localStorage.getItem('yomu_dismissed_pairs') ?? '[]')) } catch {}
+    if (local.size > 0) setDismissedPairs(local)
     supabase.auth.getUser().then(({ data }) => {
       const remote: string[] = data?.user?.user_metadata?.dismissed_pairs ?? []
       if (remote.length === 0) return
