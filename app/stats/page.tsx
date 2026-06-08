@@ -295,6 +295,9 @@ export default function StatsPage() {
   const [showAllSessions, setShowAllSessions] = useState(false)
 
   const load = useCallback(async () => {
+    const { data: { user }, error: authErr } = await supabase.auth.getUser()
+    if (authErr || !user) { setLoading(false); return }
+
     const oneYearAgo = new Date(Date.now() - 52 * 7 * 24 * 60 * 60 * 1000).toISOString()
 
     // Load lightweight queries first so the page renders quickly

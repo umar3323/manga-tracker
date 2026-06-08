@@ -78,8 +78,29 @@ export async function POST(req: NextRequest) {
   const { title, episode, season, site, duration_seconds, watched_seconds, is_complete, timestamp } = body
   if (!title?.trim()) return NextResponse.json({ error: 'title required' }, { status: 400 })
 
-  const watchedAt = timestamp || new Date().toISOString()
-  const watchMinutes = Math.max(0, Math.round((watched_seconds ?? 0) / 60))
+  // ── Input validation & sanitisation ──────────────────────────────────────
+  // Clamp strings to safe lengths
+  const safeTitle = String(title).trim().slice(0, 255)
+  const safeSite  = String(site ?? '').trim().slice(0, 100)
+
+  // Validate numeric fields — reject non-finite, negative, or unreasonably large values
+  const safeEpisode  = Number.isFinite(episode)  && episode  >= 0 && episode  <= 50000 ? Math.round(episode)  : null
+  const safeSeason   = Number.isFinite(season)   && season   >= 0 && season   <= 9999  ? Math.round(season)   : null
+  const safeDuration = Number.isFinite(duration_seconds) && duration_seconds >= 0 && duration_seconds <= 86400 ? Math.round(duration_seconds) : 0
+  const safeWatched  = Number.isFinite(watched_seconds)  && watched_seconds  >= 0 && watched_seconds  <= 86400 ? Math.round(watched_seconds)  : 0
+
+  // Validate timestamp — must parse as a real date, not more than 1 hour in the future,
+  // not more than 10 years in the past. Fallback to server time on invalid input.
+  const nowMs = Date.now()
+  let watchedAt = new Date().toISOString()
+  if (timestamp) {
+    const parsed = new Date(timestamp)
+    const parsedMs = parsed.getTime()
+    if (!isNaN(parsedMs) && parsedMs <= nowMs + 3_600_000 && parsedMs >= nowMs - 10 * 365 * 24 * 3_600_000) {
+      watchedAt = parsed.toISOString()
+    }
+  }
+  const watchMinutes = Math.max(0, Math.round(safeWatched / 60))
 
   // ── Load user library ───────────────────────────────────────────────────
   const { data: library, error: libErr } = await supabase
@@ -95,7 +116,7 @@ export async function POST(req: NextRequest) {
   let best: LibraryEntry | null = null
   let bestScore = 0
   for (const entry of library as LibraryEntry[]) {
-    const score = matchScore(title, entry.title)
+    const score = matchScore(safeTitle, entry.title)
     if (score > bestScore) { bestScore = score; best = entry }
   }
   const MATCH_THRESHOLD = 0.65
@@ -104,13 +125,13 @@ export async function POST(req: NextRequest) {
   await supabase.from('watch_sessions').insert({
     user_id: user.id,
     manga_id: best && bestScore >= MATCH_THRESHOLD ? best.id : null,
-    title_raw: title,
-    episode: episode ?? null,
-    season: season ?? null,
-    site,
-    duration_seconds: duration_seconds ?? 0,
-    watched_seconds: watched_seconds ?? 0,
-    is_complete,
+    title_raw: safeTitle,
+    episode: safeEpisode,
+    season: safeSeason,
+    site: safeSite,
+    duration_seconds: safeDuration,
+    watched_seconds: safeWatched,
+    is_complete: !!is_complete,
     watched_at: watchedAt,
   })
 
@@ -122,17 +143,17 @@ export async function POST(req: NextRequest) {
       auto_tracked: true,
     }
 
-    if (is_complete && episode != null) {
+    if (is_complete && safeEpisode != null) {
       // Only advance episode counter — never go backwards
-      if (episode > (best.episodes_watched ?? 0)) {
-        updates.episodes_watched = episode
+      if (safeEpisode > (best.episodes_watched ?? 0)) {
+        updates.episodes_watched = safeEpisode
       }
       // Auto-promote status: plan_to_read / unwatched → watching
       if (best.status === 'plan_to_read' || best.status === 'unwatched') {
         updates.status = 'watching'
       }
       // Auto-complete: if we just watched the last episode
-      if (best.total_episodes && episode >= best.total_episodes && best.status === 'watching') {
+      if (best.total_episodes && safeEpisode >= best.total_episodes && best.status === 'watching') {
         updates.status = 'completed'
       }
     }
@@ -154,15 +175,15 @@ export async function POST(req: NextRequest) {
       .from('manga_list')
       .insert({
         user_id: user.id,
-        title: title.trim(),
+        title: safeTitle,
         status: 'watching',
         content_type: 'anime',
         has_anime: true,
-        episodes_watched: episode ?? 0,
+        episodes_watched: safeEpisode ?? 0,
         total_watch_time_minutes: watchMinutes,
         last_read_at: watchedAt,
         auto_tracked: true,
-        notes: `[auto-tracked] First seen on ${site}`,
+        notes: `[auto-tracked] First seen on ${safeSite}`,
       })
       .select('id')
       .single()

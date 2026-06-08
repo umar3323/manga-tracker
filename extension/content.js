@@ -166,8 +166,13 @@ function fromTitle(title) {
   return { title: show, episode: ep, season: sn }
 }
 
+const TC_LOWER = new Set(['of','and','the','a','an','in','on','at','to','for','nor','but','or','yet','so','with','by'])
 function tc(s) {
-  return s.replace(/\b\w/g, c => c.toUpperCase())
+  return s.replace(/\b\w+/g, (w, offset) => {
+    // Always capitalise the first word; lowercase connectives elsewhere
+    if (offset === 0) return w[0].toUpperCase() + w.slice(1)
+    return TC_LOWER.has(w.toLowerCase()) ? w.toLowerCase() : w[0].toUpperCase() + w.slice(1)
+  })
 }
 
 function getBestParser() {
@@ -361,21 +366,33 @@ function scanForVideos() {
   })
 }
 
-// Watch for dynamically injected video elements (most SPA streaming sites)
-const domObserver = new MutationObserver(scanForVideos)
+// Watch for dynamically injected video elements (most SPA streaming sites).
+// Debounced via rAF so rapid DOM mutations don't spam querySelectorAll.
+let _scanPending = false
+function scheduleScan() {
+  if (_scanPending) return
+  _scanPending = true
+  requestAnimationFrame(() => { _scanPending = false; scanForVideos() })
+}
+const domObserver = new MutationObserver(scheduleScan)
 domObserver.observe(document.documentElement, { childList: true, subtree: true })
 scanForVideos()
 
 // ── SPA navigation detection ──────────────────────────────────────────────
-setInterval(() => {
+// Use the Navigation API where available (Chrome 102+), fall back to polling.
+function handleNavigation() {
   if (location.href !== lastUrlCheck) {
     lastUrlCheck = location.href
-    // New page / episode — reset but keep video detection running
     session = null
     detachVideo()
-    setTimeout(scanForVideos, 500) // slight delay for SPA render
+    setTimeout(scanForVideos, 500)
   }
-}, 1000)
+}
+if (typeof navigation !== 'undefined' && navigation.addEventListener) {
+  navigation.addEventListener('navigate', handleNavigation)
+} else {
+  setInterval(handleNavigation, 1000)
+}
 
 // ── YOMU auth token harvesting ────────────────────────────────────────────
 // @supabase/ssr (used by this project) stores the session in COOKIES, not

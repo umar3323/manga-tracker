@@ -25,7 +25,7 @@ import DeepSearchModal from '@/components/DeepSearchModal'
 import UrlImportModal from '@/components/UrlImportModal'
 import NotificationBell from '@/components/NotificationBell'
 import { getStatus as getAnimeStatus, type AnimeRow } from '@/lib/anime-data'
-import { deepDiveSeries } from '@/lib/data/takeout-series'
+import { deepDiveSeries, TAKEOUT_ENTRIES } from '@/lib/data/takeout-series'
 import {
   Tv, Timer, Play, Clapperboard, BookOpen, PenLine, ThumbsUp, ThumbsDown,
   Folder, MapPin, Flag, Zap, Sword, Cloud, Moon, Flame, Heart, Search,
@@ -576,8 +576,11 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
   const [mdxChaptersTotal, setMdxChaptersTotal] = useState(0)
 
   useEffect(() => {
+    const ac = new AbortController()
+    const { signal } = ac
+
     if (manga.mal_id) {
-      fetch(`/api/anilist?mal_id=${manga.mal_id}&type=MANGA`)
+      fetch(`/api/anilist?mal_id=${manga.mal_id}&type=MANGA`, { signal })
         .then(r => r.json()).then(j => {
           if (j.data) {
             setAlManga(j.data)
@@ -591,21 +594,21 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
               }
             }
           }
-        })
+        }).catch(() => {})
     }
     if (manga.anime_mal_id) {
-      fetch(`/api/anilist?mal_id=${manga.anime_mal_id}&type=ANIME`)
-        .then(r => r.json()).then(j => { if (j.data) setAlAnime(j.data) })
+      fetch(`/api/anilist?mal_id=${manga.anime_mal_id}&type=ANIME`, { signal })
+        .then(r => r.json()).then(j => { if (j.data) setAlAnime(j.data) }).catch(() => {})
     }
     // MangaUpdates: fetch adaptation depth + community recommendations (non-blocking)
     if (manga.title) {
-      fetch(`/api/mangaupdates?title=${encodeURIComponent(manga.title)}`)
+      fetch(`/api/mangaupdates?title=${encodeURIComponent(manga.title)}`, { signal })
         .then(r => r.json()).then(j => { if (j.data) setMuData(j.data) })
         .catch(() => {/* non-critical */})
     }
     // ANN: fallback anime adaptation signal when AniList hasn't updated yet (non-blocking)
     if (manga.title && !manga.has_anime) {
-      fetch(`/api/ann?title=${encodeURIComponent(manga.title)}`)
+      fetch(`/api/ann?title=${encodeURIComponent(manga.title)}`, { signal })
         .then(r => r.json())
         .then(j => {
           if (j.related_anime?.length) {
@@ -619,10 +622,10 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
         .catch(() => {/* non-critical */})
     }
     // Jikan recommendations (non-blocking)
-    const recMalId = (manga.content_type === 'anime' || manga.content_type === 'movie') ? manga.mal_id : manga.mal_id
+    const recMalId = (manga.content_type === 'anime' || manga.content_type === 'movie') ? manga.mal_id : manga.anime_mal_id
     const recType: 'anime' | 'manga' = (manga.content_type === 'anime' || manga.content_type === 'movie') ? 'anime' : 'manga'
     if (recMalId) {
-      getJikanRecommendations(recMalId, recType).then(recs => setJikanRecs(recs)).catch(() => {})
+      getJikanRecommendations(recMalId, recType).then(recs => { if (!signal.aborted) setJikanRecs(recs) }).catch(() => {})
     }
     // OMDB / IMDb rating (non-blocking, requires user-stored API key)
     setImdbRating(null)
@@ -630,7 +633,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
     const omdbKey = (() => { try { return localStorage.getItem('yomu_omdb_key') } catch { return null } })()
     if (omdbKey && manga.title) {
       const q = encodeURIComponent(manga.title)
-      fetch(`https://www.omdbapi.com/?t=${q}&apikey=${omdbKey}&type=${manga.content_type === 'movie' ? 'movie' : 'series'}`)
+      fetch(`https://www.omdbapi.com/?t=${q}&apikey=${omdbKey}&type=${manga.content_type === 'movie' ? 'movie' : 'series'}`, { signal })
         .then(r => r.json())
         .then(j => {
           if (j.Response === 'True') {
@@ -640,6 +643,8 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
         })
         .catch(() => {})
     }
+
+    return () => ac.abort()
   }, [manga.mal_id, manga.anime_mal_id, manga.has_anime, manga.title, manga.content_type])
 
   // Fetch Jikan relations for Related Anime section + Series Map button
@@ -794,10 +799,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
     setEpisodeSynopsisLoading(null)
   }
 
-  const STATUS_LABELS: Record<MangaStatus, string> = {
-    reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-    dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching', unwatched: 'Unwatched',
-  }
+  // STATUS_LABELS defined at module scope — no need to redeclare here
   return (
     <div className="fixed inset-0 z-50 flex items-end lg:items-stretch lg:justify-end" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
@@ -1973,11 +1975,6 @@ function RecommendationModal({ rec, onClose }: { rec: Recommendation; onClose: (
   const [selectedStatus, setSelectedStatus] = useState<MangaStatus>('plan_to_read')
   const [toast, setToast] = useState('')
 
-  const STATUS_LABELS: Record<MangaStatus, string> = {
-    reading: 'Reading', completed: 'Completed', on_hold: 'On Hold',
-    dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Watching', unwatched: 'Unwatched',
-  }
-
   useEffect(() => {
     if (!rec.mal_id) { Promise.resolve().then(() => setLoading(false)); return }
     getMangaById(rec.mal_id).then(d => { setDetail(d); setLoading(false) })
@@ -2254,45 +2251,7 @@ function computeHealth(manga: Manga[]): CardHealth[] {
 }
 
 // ── Google Takeout Import ────────────────────────────────────────────────────
-
-const TAKEOUT_ENTRIES: Array<{
-  title: string; status: string; genres: string[]; notes: string
-  current_chapter: number; total_chapters: number | null
-  episodes_watched: number; total_episodes: number | null
-  has_anime: boolean; content_type: 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'anime' | 'novel' | 'other'
-}> = [
-  { title: "Frieren: Beyond Journey's End", status: 'watching', genres: ['Fantasy','Adventure','Slice of Life','Drama'], notes: '[youtube_takeout_import] Most-watched series in YouTube history. Season 2 ongoing.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Bleach: Thousand-Year Blood War', status: 'watching', genres: ['Action','Supernatural','Shounen'], notes: '[youtube_takeout_import] Second most-watched. TYBW arc focus.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Jujutsu Kaisen', status: 'watching', genres: ['Action','Dark Fantasy','Supernatural','Shounen'], notes: '[youtube_takeout_import] Season 3 and manga continuation covered.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Black Clover', status: 'watching', genres: ['Action','Fantasy','Magic','Shounen'], notes: '[youtube_takeout_import] Anime + manga continuation.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'My Hero Academia', status: 'completed', genres: ['Action','Superhero','Shounen','School'], notes: '[youtube_takeout_import] Manga ending and epilogue covered.', current_chapter: 0, total_chapters: 430, episodes_watched: 0, total_episodes: 138, has_anime: true, content_type: 'manga' },
-  { title: 'One Piece', status: 'watching', genres: ['Action','Adventure','Fantasy','Shounen'], notes: '[youtube_takeout_import] Devil fruit lore and Poneglyph analysis.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Demon Slayer: Kimetsu no Yaiba', status: 'watching', genres: ['Action','Supernatural','Shounen'], notes: '[youtube_takeout_import] Infinity Castle arc coverage.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Hunter x Hunter', status: 'on_hold', genres: ['Action','Adventure','Shounen'], notes: '[youtube_takeout_import] Character analysis, Nen breakdowns. Manga on hiatus.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Delicious in Dungeon', status: 'completed', genres: ['Fantasy','Comedy','Adventure','Slice of Life'], notes: '[youtube_takeout_import] Marcille/Laios focus. Food recreation content.', current_chapter: 0, total_chapters: 97, episodes_watched: 0, total_episodes: 24, has_anime: true, content_type: 'manga' },
-  { title: 'Attack on Titan', status: 'completed', genres: ['Action','Dark Fantasy','Mystery','Psychological'], notes: '[youtube_takeout_import] Titan transformations, foreshadowing analysis.', current_chapter: 0, total_chapters: 139, episodes_watched: 0, total_episodes: 87, has_anime: true, content_type: 'manga' },
-  { title: 'Chainsaw Man', status: 'watching', genres: ['Action','Dark Fantasy','Horror','Supernatural'], notes: '[youtube_takeout_import] Anime + manga. Reze Arc film.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Naruto Shippuden', status: 'completed', genres: ['Action','Adventure','Shounen'], notes: '[youtube_takeout_import] Clip-based. Chunin exams, Minato, Kakashi, Itachi moments.', current_chapter: 0, total_chapters: 700, episodes_watched: 0, total_episodes: 500, has_anime: true, content_type: 'manga' },
-  { title: 'Tower of God', status: 'plan_to_read', genres: ['Action','Adventure','Fantasy','Mystery'], notes: '[youtube_takeout_import] Both anime seasons. WEBTOON origin.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'webtoon' },
-  { title: 'That Time I Got Reincarnated as a Slime', status: 'plan_to_read', genres: ['Isekai','Fantasy','Action','Comedy'], notes: '[youtube_takeout_import] Seasons 2 & 3. Rimuru Demon Lord arc.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Mushoku Tensei: Jobless Reincarnation', status: 'plan_to_read', genres: ['Isekai','Fantasy','Adventure','Drama'], notes: '[youtube_takeout_import] Season 2 focus.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Apothecary Diaries', status: 'plan_to_read', genres: ['Mystery','Historical','Drama','Slice of Life'], notes: '[youtube_takeout_import] Maomao character moments.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Fairy Tail', status: 'plan_to_read', genres: ['Action','Fantasy','Magic','Shounen'], notes: '[youtube_takeout_import] Lucy and Wendy clips. 100 Years Quest continuation.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Dandadan', status: 'plan_to_read', genres: ['Action','Comedy','Supernatural','Romance'], notes: '[youtube_takeout_import] Season 2 trailer and OP watched.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Sakamoto Days', status: 'plan_to_read', genres: ['Action','Comedy','Thriller'], notes: '[youtube_takeout_import] Netflix Anime clips.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Tokyo Ghoul', status: 'plan_to_read', genres: ['Action','Horror','Psychological'], notes: '[youtube_takeout_import] Opening Unravel. Kaneki vs Jason.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'One Punch Man', status: 'plan_to_read', genres: ['Action','Comedy','Superhero','Parody'], notes: '[youtube_takeout_import] Boros, King, Saitama analysis.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Soul Eater', status: 'plan_to_read', genres: ['Action','Fantasy','Shounen'], notes: '[youtube_takeout_import] Demon weapons ranked. Canon manga ending.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Spy x Family', status: 'plan_to_read', genres: ['Action','Comedy','Family'], notes: '[youtube_takeout_import] Anya clips.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Witch Hat Atelier', status: 'plan_to_read', genres: ['Fantasy','Magic','Slice of Life'], notes: '[youtube_takeout_import] Crunchyroll trailer. Power system analysis.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: "Hell's Paradise", status: 'plan_to_read', genres: ['Action','Dark Fantasy','Historical'], notes: '[youtube_takeout_import] Sagiri vs Gabimaru fight clip.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Undead Unluck', status: 'plan_to_read', genres: ['Action','Supernatural','Comedy'], notes: '[youtube_takeout_import] Andy Victor personality.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Death Note', status: 'plan_to_read', genres: ['Thriller','Psychological','Mystery','Supernatural'], notes: "[youtube_takeout_import] L's realisation clips.", current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Berserk', status: 'plan_to_read', genres: ['Dark Fantasy','Action','Psychological'], notes: '[youtube_takeout_import] Manga read content. Idea of Evil, Griffith analysis.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Gachiakuta', status: 'plan_to_read', genres: ['Action','Fantasy','Shounen'], notes: '[youtube_takeout_import] Strongest Raiders / Vital Instrument analysis.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: false, content_type: 'manga' },
-  { title: 'The Seven Deadly Sins', status: 'plan_to_read', genres: ['Action','Fantasy','Adventure'], notes: '[youtube_takeout_import] Meliodas and Escanor clips.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
-  { title: 'Solo Leveling', status: 'plan_to_read', genres: ['Action','Fantasy','Dungeon'], notes: '[youtube_takeout_import] Manhwa origin. Anime Season 2.', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manhwa' },
-]
+// TAKEOUT_ENTRIES is imported from lib/data/takeout-series.ts
 
 function TakeoutImportModal({ existingTitles, onClose, onImported }: {
   existingTitles: Set<string>
@@ -2767,10 +2726,20 @@ export default function Home() {
   const fetchedIds = useRef<Set<string>>(new Set())
   // Notes debounce timers
   const notesTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const toastTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Cancel pending notes saves and toast on unmount
+  useEffect(() => {
+    return () => {
+      notesTimers.current.forEach(t => clearTimeout(t))
+      if (toastTimer.current) clearTimeout(toastTimer.current)
+    }
+  }, [])
 
   const showToast = (msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
     setToast(msg)
-    setTimeout(() => setToast(''), 3000)
+    toastTimer.current = setTimeout(() => setToast(''), 3000)
   }
 
   const [animeList, setAnimeList] = useState<AnimeRow[]>([])
@@ -2780,7 +2749,7 @@ export default function Home() {
       supabase.from('manga_list').select('*'),
       supabase.from('anime_list').select('id,title,total_watch_hours,last_watched,is_movie'),
     ])
-    if (error) { showToast('Failed To Load Manga List'); return }
+    if (error) { showToast('Failed To Load Manga List'); setLoading(false); return }
     if (data) setManga(data as Manga[])
     if (al) setAnimeList(al as AnimeRow[])
     setLoading(false)
@@ -2840,12 +2809,14 @@ export default function Home() {
       })
   }, [])
 
-  // Fetch missing covers — tracks fetched IDs in ref to avoid re-fetching
+  // Fetch missing covers — guard against concurrent runs with a ref flag
+  const fetchRunning = useRef(false)
   useEffect(() => {
     const missing = manga.filter(m => (!m.cover_url || !m.synopsis) && !fetchedIds.current.has(m.id))
-    if (missing.length === 0) return
+    if (missing.length === 0 || fetchRunning.current) return
 
-    const run = async () => {
+    fetchRunning.current = true
+    ;(async () => {
       for (const m of missing) {
         fetchedIds.current.add(m.id)
         const info = await fetchMangaInfo(m.title)
@@ -2859,8 +2830,8 @@ export default function Home() {
         }
         await new Promise(r => setTimeout(r, 400))
       }
-    }
-    run()
+      fetchRunning.current = false
+    })()
   }, [manga])
 
   const commitChapterProgress = async (id: string, delta: number, current: number, attr: DateAttribution) => {
@@ -2954,7 +2925,9 @@ export default function Home() {
     const existing = notesTimers.current.get(id)
     if (existing) clearTimeout(existing)
     const timer = setTimeout(async () => {
-      const { error } = await supabase.from('manga_list').update({ notes }).eq('id', id)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Failed To Save Note'); return }
+      const { error } = await supabase.from('manga_list').update({ notes }).eq('id', id).eq('user_id', user.id)
       if (error) showToast('Failed To Save Note')
       notesTimers.current.delete(id)
     }, 500)
@@ -2984,8 +2957,12 @@ export default function Home() {
 
   const triggerDownload = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = filename; a.click(); URL.revokeObjectURL(url)
+    const a = document.createElement('a')
+    a.href = url; a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   const exportCSV = () => {
@@ -3095,7 +3072,7 @@ ${entries}
     })
   }
 
-  const endSession = async (chaptersRead: number, durationMinutes: number) => {
+  const endSession = useCallback(async (chaptersRead: number, durationMinutes: number) => {
     if (!activeSession) return
     const now = new Date().toISOString()
     const todayDate = now.slice(0, 10)
@@ -3116,7 +3093,7 @@ ${entries}
     })
     showToast(`Session Logged — ${chaptersRead} Ch In ${durationMinutes} Min`)
     setActiveSession(null)
-  }
+  }, [activeSession, manga, commitChapterProgress, showToast])
 
   const dismissNotifications = async () => {
     const ids = notifications.map(n => n.id)
@@ -3588,20 +3565,21 @@ ${entries}
     return map
   }, [manga])
 
-  const filtered = manga
+  const filtered = useMemo(() => manga
     .filter(m => !m.series_id || !!m.series_primary) // hide non-primary grouped entries
     .filter(m => filter === 'all' || filter === 'duplicates' || m.status === filter)
     .filter(m => typeFilter === 'all' || (m.content_type ?? 'manga') === typeFilter)
     .filter(m => !search || m.title.toLowerCase().includes(search.toLowerCase()))
     .filter(m => !mood || MOODS.find(mo => mo.id === mood)?.test(m))
-    .sort(sortFn)
+    .sort(sortFn),
+  [manga, filter, typeFilter, search, mood, sortFn])
 
   // Count per type for badge labels
-  const typeCounts = manga.reduce((acc, m) => {
+  const typeCounts = useMemo(() => manga.reduce((acc, m) => {
     const t = m.content_type ?? 'manga'
     acc[t] = (acc[t] ?? 0) + 1
     return acc
-  }, {} as Record<string, number>)
+  }, {} as Record<string, number>), [manga])
 
   return (
     <main className="min-h-screen bg-[#0d0d0d] text-white">

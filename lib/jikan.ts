@@ -404,7 +404,7 @@ function mapMangaResult(item: Record<string, unknown>): JikanSearchResult {
     : undefined
 
   return {
-    mal_id: item.mal_id as number,
+    mal_id: (item.mal_id as number | null | undefined) ?? null,
     title: (item.title as string) ?? 'Unknown',
     synopsis: (item.synopsis as string | null) ?? null,
     cover_url: (item.images as { jpg?: { image_url?: string } })?.jpg?.image_url ?? null,
@@ -559,16 +559,16 @@ export async function getJikanRecommendations(malId: number, type: 'anime' | 'ma
     const json = await res.json()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (json.data ?? []).slice(0, 8).map((rec: { entry: any }) => ({
-      mal_id: rec.entry.mal_id,
-      title: rec.entry.title,
+      mal_id: rec.entry.mal_id ?? null,
+      title: rec.entry.title ?? 'Unknown',
       cover_url: rec.entry.images?.jpg?.image_url ?? null,
       synopsis: null,
       genres: [],
       total_chapters: null,
-      total_episodes: null,
+      episodes: rec.entry.episodes ?? null,
       media_type: type,
       score: null,
-      publishing_status: null,
+      status: null,
       authors: [],
     }))
   } catch {

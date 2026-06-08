@@ -454,3 +454,53 @@ export const TAKEOUT_STATS = {
   dataSource: 'Google Takeout',
   exportDate: 'June 2025',
 } as const
+
+// ── Takeout import entries ────────────────────────────────────────────────────
+// Used by TakeoutImportModal in app/page.tsx.
+// Notes intentionally kept generic — personal viewing annotations removed.
+export interface TakeoutImportEntry {
+  title: string
+  status: string
+  genres: string[]
+  notes: string
+  current_chapter: number
+  total_chapters: number | null
+  episodes_watched: number
+  total_episodes: number | null
+  has_anime: boolean
+  content_type: 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'anime' | 'novel' | 'other'
+}
+
+export const TAKEOUT_ENTRIES: TakeoutImportEntry[] = [
+  { title: "Frieren: Beyond Journey's End", status: 'watching', genres: ['Fantasy','Adventure','Slice of Life','Drama'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Bleach: Thousand-Year Blood War', status: 'watching', genres: ['Action','Supernatural','Shounen'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Jujutsu Kaisen', status: 'watching', genres: ['Action','Dark Fantasy','Supernatural','Shounen'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Black Clover', status: 'watching', genres: ['Action','Fantasy','Magic','Shounen'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'My Hero Academia', status: 'completed', genres: ['Action','Superhero','Shounen','School'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: 430, episodes_watched: 0, total_episodes: 138, has_anime: true, content_type: 'manga' },
+  { title: 'One Piece', status: 'watching', genres: ['Action','Adventure','Fantasy','Shounen'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Demon Slayer: Kimetsu no Yaiba', status: 'watching', genres: ['Action','Supernatural','Shounen'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Hunter x Hunter', status: 'on_hold', genres: ['Action','Adventure','Shounen'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Delicious in Dungeon', status: 'completed', genres: ['Fantasy','Comedy','Adventure','Slice of Life'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: 97, episodes_watched: 0, total_episodes: 24, has_anime: true, content_type: 'manga' },
+  { title: 'Attack on Titan', status: 'completed', genres: ['Action','Dark Fantasy','Mystery','Psychological'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: 139, episodes_watched: 0, total_episodes: 87, has_anime: true, content_type: 'manga' },
+  { title: 'Chainsaw Man', status: 'watching', genres: ['Action','Dark Fantasy','Horror','Supernatural'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Naruto Shippuden', status: 'completed', genres: ['Action','Adventure','Shounen'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: 700, episodes_watched: 0, total_episodes: 500, has_anime: true, content_type: 'manga' },
+  { title: 'Tower of God', status: 'plan_to_read', genres: ['Action','Adventure','Fantasy','Mystery'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'webtoon' },
+  { title: 'That Time I Got Reincarnated as a Slime', status: 'plan_to_read', genres: ['Isekai','Fantasy','Action','Comedy'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Mushoku Tensei: Jobless Reincarnation', status: 'plan_to_read', genres: ['Isekai','Fantasy','Adventure','Drama'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Apothecary Diaries', status: 'plan_to_read', genres: ['Mystery','Historical','Drama','Slice of Life'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Fairy Tail', status: 'plan_to_read', genres: ['Action','Fantasy','Magic','Shounen'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Dandadan', status: 'plan_to_read', genres: ['Action','Comedy','Supernatural','Romance'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Sakamoto Days', status: 'plan_to_read', genres: ['Action','Comedy','Thriller'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Tokyo Ghoul', status: 'plan_to_read', genres: ['Action','Horror','Psychological'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'One Punch Man', status: 'plan_to_read', genres: ['Action','Comedy','Superhero','Parody'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Soul Eater', status: 'plan_to_read', genres: ['Action','Fantasy','Shounen'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Spy x Family', status: 'plan_to_read', genres: ['Action','Comedy','Family'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Witch Hat Atelier', status: 'plan_to_read', genres: ['Fantasy','Magic','Slice of Life'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: "Hell's Paradise", status: 'plan_to_read', genres: ['Action','Dark Fantasy','Historical'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Undead Unluck', status: 'plan_to_read', genres: ['Action','Supernatural','Comedy'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Death Note', status: 'plan_to_read', genres: ['Thriller','Psychological','Mystery','Supernatural'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Berserk', status: 'plan_to_read', genres: ['Dark Fantasy','Action','Psychological'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Gachiakuta', status: 'plan_to_read', genres: ['Action','Fantasy','Shounen'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: false, content_type: 'manga' },
+  { title: 'The Seven Deadly Sins', status: 'plan_to_read', genres: ['Action','Fantasy','Adventure'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manga' },
+  { title: 'Solo Leveling', status: 'plan_to_read', genres: ['Action','Fantasy','Dungeon'], notes: '[youtube_takeout_import]', current_chapter: 0, total_chapters: null, episodes_watched: 0, total_episodes: null, has_anime: true, content_type: 'manhwa' },
+]

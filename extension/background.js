@@ -64,7 +64,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       },
     })
 
-    const token = results?.[0]?.result
+    // Accept only valid-looking JWTs (3 base64url segments) — never full session objects
+    const raw = results?.[0]?.result
+    const token = (typeof raw === 'string' && /^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$/.test(raw)) ? raw : null
     if (token && token !== authToken) {
       authToken = token
       chrome.storage.local.set({ yomu_auth_token: token })
@@ -80,6 +82,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 // ── Dedup map: same title+episode = don't send more than once per 5 min ──
 const recentKeys = new Map()   // key → timestamp
+// Prune entries older than 10 minutes every 30 minutes to prevent unbounded growth
+setInterval(() => {
+  const cutoff = Date.now() - 600_000
+  for (const [k, ts] of recentKeys) { if (ts < cutoff) recentKeys.delete(k) }
+}, 1_800_000)
 
 // ── Message handler ───────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -87,22 +94,26 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     case 'WATCH_EVENT':
       handleEvent(msg.payload)
       break
-    case 'SET_AUTH_TOKEN':
-      // Content script on YOMU page sends us the token directly via localStorage
-      if (msg.token && typeof msg.token === 'string' && msg.token.length > 100) {
-        if (msg.token !== authToken) {
-          authToken = msg.token
-          chrome.storage.local.set({ yomu_auth_token: authToken })
-          flushPending()
-          chrome.action.setBadgeText({ text: '✓' })
-          chrome.action.setBadgeBackgroundColor({ color: '#22c55e' })
-          setTimeout(() => chrome.action.setBadgeText({ text: '' }), 3000)
-        }
-        sendResponse({ ok: true, connected: true })
-      } else {
-        sendResponse({ ok: false })
+    case 'SET_AUTH_TOKEN': {
+      // Only accept tokens sent from our own YOMU origin — reject any other page
+      const senderHost = (() => { try { return new URL(_sender.tab?.url ?? _sender.url ?? '').hostname } catch { return '' } })()
+      const isYomu = senderHost === YOMU_HOST || senderHost.endsWith('.' + YOMU_HOST)
+      if (!isYomu) { sendResponse({ ok: false, reason: 'untrusted origin' }); return true }
+
+      // Accept only plausible JWTs (3 dot-separated base64 segments)
+      const looksLikeJwt = typeof msg.token === 'string' && /^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$/.test(msg.token)
+      if (looksLikeJwt && msg.token !== authToken) {
+        authToken = msg.token
+        // Store only the access token — never the full session object
+        chrome.storage.local.set({ yomu_auth_token: authToken })
+        flushPending()
+        chrome.action.setBadgeText({ text: '✓' })
+        chrome.action.setBadgeBackgroundColor({ color: '#22c55e' })
+        setTimeout(() => chrome.action.setBadgeText({ text: '' }), 3000)
       }
+      sendResponse({ ok: looksLikeJwt, connected: !!authToken })
       return true
+    }
     case 'GET_STATUS':
       sendResponse({ connected: !!authToken })
       return true
