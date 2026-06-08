@@ -57,7 +57,10 @@ export default function ReleaseCalendar({
   const [globalLoading, setGlobalLoading] = useState(false)
 
   const [libraryLoading, setLibraryLoading] = useState(true)
-  const [selectedDay, setSelectedDay] = useState<number>(new Date().getDay())
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const n = new Date()
+    return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`
+  })
   const [collapsed, setCollapsed] = useState(false)
   const [activeTab, setActiveTab] = useState<'anime' | 'manga'>('anime')
   const [animeFilter, setAnimeFilter] = useState<AnimeFilter>('library')
@@ -90,52 +93,63 @@ export default function ReleaseCalendar({
   }, [globalDay])
 
   useEffect(() => {
-    if (animeFilter === 'all') fetchGlobal(selectedDay)
-  }, [animeFilter, selectedDay, fetchGlobal])
+    if (animeFilter === 'all') fetchGlobal(new Date(selectedDate).getDay())
+  }, [animeFilter, selectedDate, fetchGlobal])
 
-  // Build a 7-day window starting from today
+
+  function localDateKey(d: Date) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  }
+
+  // Build a 14-day window: yesterday + today (visible) + 12 future
   const today = startOfDay(new Date())
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today); d.setDate(today.getDate() + i)
+  const todayKey = localDateKey(today)
+  const days = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(today); d.setDate(today.getDate() - 1 + i)
     return d
   })
 
-  // Group library entries by day-of-week
-  const byDay = new Map<number, AiringEntry[]>()
-  for (const day of days) byDay.set(day.getDay(), [])
+  // Group library entries by absolute date key (YYYY-MM-DD local) so past/future days are distinct
+  const byDate = new Map<string, AiringEntry[]>()
+  for (const day of days) byDate.set(localDateKey(day), [])
   for (const entry of schedule) {
     const d = new Date(entry.airingAt * 1000)
-    const startD = startOfDay(d)
-    const diffDays = Math.round((startD.getTime() - today.getTime()) / 86400000)
-    if (diffDays >= 0 && diffDays < 7) {
-      const dow = d.getDay()
-      byDay.get(dow)?.push(entry)
-    }
+    const key = localDateKey(startOfDay(d))
+    if (byDate.has(key)) byDate.get(key)!.push(entry)
+  }
+
+  // Legacy byDay map (by day-of-week) kept for dot counts
+  const byDay = new Map<number, AiringEntry[]>()
+  for (const day of days) {
+    const key = localDateKey(day)
+    byDay.set(day.getDay(), [...(byDay.get(day.getDay()) ?? []), ...(byDate.get(key) ?? [])])
   }
 
   // What to show depends on filter
-  const selectedLibraryEntries = byDay.get(selectedDay) ?? []
+  const selectedLibraryEntries = byDate.get(selectedDate) ?? []
 
   const watchingMalIdSet = new Set(watchingMalIds)
   const selectedWatchingEntries = selectedLibraryEntries.filter(e => watchingMalIdSet.has(e.mal_id))
 
+  const selectedDow = new Date(selectedDate + 'T12:00:00').getDay()
+
   // Dot counts per day for the day strip
-  function getDotCount(dow: number): number {
+  function getDotCount(dateKey: string): number {
     if (animeFilter === 'all') {
-      // We only have global data for the currently-selected day
-      if (dow === selectedDay) return globalEntries.length
-      return byDay.get(dow)?.length ?? 0 // fallback to library count for other days
+      if (dateKey === selectedDate) return globalEntries.length
+      return byDate.get(dateKey)?.length ?? 0
     }
     if (animeFilter === 'watching') {
-      return (byDay.get(dow) ?? []).filter(e => watchingMalIdSet.has(e.mal_id)).length
+      return (byDate.get(dateKey) ?? []).filter(e => watchingMalIdSet.has(e.mal_id)).length
     }
-    return byDay.get(dow)?.length ?? 0
+    return byDate.get(dateKey)?.length ?? 0
   }
 
-  const totalAiring = schedule.length
+  const nowSec = Math.floor(Date.now() / 1000)
+  const totalAiring = schedule.filter(e => e.timeUntilAiring > 0).length
   const isLoading = animeFilter === 'all' ? (libraryLoading || globalLoading) : libraryLoading
 
-  if (!libraryLoading && totalAiring === 0 && releasingManga.length === 0) return null
+  if (!libraryLoading && schedule.length === 0 && releasingManga.length === 0) return null
 
   return (
     <div className="mb-5 rounded-2xl overflow-hidden" style={{ background: 'var(--ink-700)', border: 'var(--border-hair)' }}>
@@ -206,21 +220,27 @@ export default function ReleaseCalendar({
                 ))}
               </div>
 
-              {/* Day strip */}
-              <div className="flex" style={{ borderBottom: 'var(--border-hair)' }}>
+              {/* Day strip — 14-day scrollable window */}
+              <div className="flex overflow-x-auto scrollbar-none" style={{ borderBottom: 'var(--border-hair)' }}>
                 {days.map((day, i) => {
+                  const dateKey = localDateKey(day)
                   const dow = day.getDay()
-                  const isToday = i === 0
-                  const isSelected = dow === selectedDay
-                  const count = getDotCount(dow)
+                  const isToday = dateKey === todayKey
+                  const isPast = day < today
+                  const isSelected = dateKey === selectedDate
+                  const count = getDotCount(dateKey)
                   return (
                     <button
-                      key={dow}
-                      onClick={() => setSelectedDay(dow)}
-                      className="flex-1 flex flex-col items-center py-2.5 transition-colors relative"
+                      key={dateKey}
+                      data-today={isToday ? 'true' : undefined}
+                      onClick={() => setSelectedDate(dateKey)}
+                      className="flex shrink-0 flex-col items-center py-2.5 transition-colors relative"
                       style={{
+                        width: `${100 / 7}%`,
+                        minWidth: 40,
                         background: isSelected ? 'var(--vermillion-tint)' : 'transparent',
-                        borderRight: i < 6 ? 'var(--border-hair)' : 'none',
+                        borderRight: i < 13 ? 'var(--border-hair)' : 'none',
+                        opacity: isPast && !isSelected ? 0.6 : 1,
                       }}
                     >
                       <span className="text-[10px] font-bold uppercase tracking-wide"
@@ -233,7 +253,7 @@ export default function ReleaseCalendar({
                       </span>
                       {count > 0 && (
                         <span className="mt-1 w-1.5 h-1.5 rounded-full"
-                          style={{ background: isToday ? 'var(--vermillion)' : 'var(--cyan)' }} />
+                          style={{ background: isPast ? 'var(--fg-4)' : isToday ? 'var(--vermillion)' : 'var(--cyan)' }} />
                       )}
                     </button>
                   )
@@ -262,7 +282,7 @@ export default function ReleaseCalendar({
                     <div className="flex items-center gap-2 py-1">
                       <Tv size={13} strokeWidth={1.5} style={{ color: 'var(--fg-4)' }} />
                       <p className="text-xs" style={{ color: 'var(--fg-4)' }}>
-                        No Anime Scheduled On {DAY_LONG[selectedDay]}.
+                        No Anime Scheduled On {DAY_LONG[selectedDow]}.
                       </p>
                     </div>
                   ) : (
@@ -336,11 +356,11 @@ export default function ReleaseCalendar({
                     <div className="flex items-center gap-2 py-1">
                       <Tv size={13} strokeWidth={1.5} style={{ color: 'var(--fg-4)' }} />
                       <p className="text-xs" style={{ color: 'var(--fg-4)' }}>
-                        Nothing Airing From Your Library On {DAY_LONG[selectedDay]}.
+                        Nothing Airing From Your Library On {DAY_LONG[selectedDow]}.
                       </p>
                     </div>
                   ) : (
-                    <LibraryEntryList entries={selectedLibraryEntries} today={today} />
+                    <LibraryEntryList entries={selectedLibraryEntries} today={today} nowSec={nowSec} />
                   )
                 )}
 
@@ -350,11 +370,11 @@ export default function ReleaseCalendar({
                     <div className="flex items-center gap-2 py-1">
                       <Tv size={13} strokeWidth={1.5} style={{ color: 'var(--fg-4)' }} />
                       <p className="text-xs" style={{ color: 'var(--fg-4)' }}>
-                        No Watching-Status Anime Airing On {DAY_LONG[selectedDay]}.
+                        No Watching-Status Anime Airing On {DAY_LONG[selectedDow]}.
                       </p>
                     </div>
                   ) : (
-                    <LibraryEntryList entries={selectedWatchingEntries} today={today} />
+                    <LibraryEntryList entries={selectedWatchingEntries} today={today} nowSec={nowSec} />
                   )
                 )}
               </div>
@@ -401,15 +421,16 @@ export default function ReleaseCalendar({
   )
 }
 
-function LibraryEntryList({ entries, today }: { entries: AiringEntry[]; today: Date }) {
+function LibraryEntryList({ entries, today, nowSec }: { entries: AiringEntry[]; today: Date; nowSec: number }) {
   return (
     <div className="flex flex-col gap-3">
       {entries.map(entry => {
         const airingDate = new Date(entry.airingAt * 1000)
         const isToday = startOfDay(airingDate).getTime() === today.getTime()
+        const hasAired = entry.airingAt < nowSec
         const timeStr = airingDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
         return (
-          <div key={entry.mal_id} className="flex items-center gap-3">
+          <div key={`${entry.mal_id}-${entry.episode}`} className="flex items-center gap-3" style={{ opacity: hasAired ? 0.65 : 1 }}>
             {entry.cover ? (
               <div className="relative w-9 h-12 rounded overflow-hidden shrink-0" style={{ background: 'var(--ink-600)' }}>
                 <Image src={entry.cover} alt={entry.title} fill className="object-cover" unoptimized />
@@ -422,13 +443,16 @@ function LibraryEntryList({ entries, today }: { entries: AiringEntry[]; today: D
             )}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold truncate" style={{ color: 'var(--fg-1)' }}>{entry.title}</p>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--fg-3)' }}>Episode {entry.episode}</p>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--fg-3)' }}>
+                Episode {entry.episode}
+                {hasAired && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--ink-600)', color: 'var(--fg-4)' }}>Aired</span>}
+              </p>
             </div>
             <div className="text-right shrink-0">
               <p className="text-xs font-mono" style={{ color: 'var(--fg-3)' }}>{timeStr}</p>
-              {isToday && entry.timeUntilAiring > 0 && (
+              {isToday && !hasAired && (
                 <p className="text-[10px] mt-0.5" style={{ color: 'var(--vermillion)' }}>
-                  in {formatCountdown(entry.timeUntilAiring)}
+                  in {formatCountdown(entry.airingAt - nowSec)}
                 </p>
               )}
               {!isToday && (

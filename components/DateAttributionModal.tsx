@@ -12,7 +12,7 @@ interface Props {
   title: string
   delta: number
   type: 'chapter' | 'episode'
-  onConfirm: (attr: DateAttribution) => void
+  onConfirm: (attr: DateAttribution, applyToAll: boolean) => void
   onDismiss: () => void  // treated as unknown
 }
 
@@ -27,15 +27,18 @@ export default function DateAttributionModal({ title, delta, type, onConfirm, on
   const [tab, setTab] = useState<Tab>('exact')
   const [date, setDate] = useState(todayISO)
   const [year, setYear] = useState(currentYear)
+  const [applyToAll, setApplyToAll] = useState(false)
 
   const label = type === 'chapter'
     ? `+${delta} chapter${delta !== 1 ? 's' : ''}`
     : `+${delta} episode${delta !== 1 ? 's' : ''}`
 
   const confirm = () => {
-    if (tab === 'exact')     onConfirm({ precision: 'exact', date })
-    else if (tab === 'year_only') onConfirm({ precision: 'year_only', year })
-    else                     onConfirm({ precision: 'unknown' })
+    let attr: DateAttribution
+    if (tab === 'exact')          attr = { precision: 'exact', date }
+    else if (tab === 'year_only') attr = { precision: 'year_only', year }
+    else                          attr = { precision: 'unknown' }
+    onConfirm(attr, applyToAll)
   }
 
   const TAB_OPTIONS: { id: Tab; label: string; icon: React.ReactNode; desc: string }[] = [
@@ -122,6 +125,19 @@ export default function DateAttributionModal({ title, delta, type, onConfirm, on
           <p className="text-xs text-zinc-500 mb-4 leading-relaxed">
             Progress will be saved without a date. It won't appear in weekly or timeline stats, but counts toward your total.
           </p>
+        )}
+
+        {/* Apply to all toggle */}
+        {tab !== 'unknown' && (
+          <label className="flex items-center gap-2 mb-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={applyToAll}
+              onChange={e => setApplyToAll(e.target.checked)}
+              className="w-3.5 h-3.5 accent-violet-500 rounded"
+            />
+            <span className="text-xs text-zinc-500">Apply This Date To All Future Entries This Session</span>
+          </label>
         )}
 
         {/* Actions */}

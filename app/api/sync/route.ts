@@ -38,7 +38,7 @@ export async function POST() {
     // Fetch all manga (with and without MAL ID — we still update what we can)
     const { data: mangaList, error } = await supabase
       .from('manga_list')
-      .select('id, mal_id, title, cover_url, synopsis, total_chapters, has_anime, anime_mal_id, anime_title, total_episodes, status, authors, genres')
+      .select('id, mal_id, title, cover_url, synopsis, total_chapters, has_anime, anime_mal_id, anime_title, total_episodes, status, authors, genres, score, published_from, published_to')
 
     if (error) return NextResponse.json({ error: 'DB error' }, { status: 500 })
 
@@ -103,6 +103,23 @@ export async function POST() {
       if (freshSynopsis && !currentSynopsis) {
         updates.synopsis = freshSynopsis
         changes.push('synopsis added')
+      }
+
+      // Score
+      const freshScore: number | null = d.score ?? null
+      if (freshScore !== null && freshScore !== (m as Record<string, unknown>).score) {
+        updates.score = freshScore
+        changes.push(`score: ${freshScore.toFixed(2)}`)
+      }
+
+      // Published dates
+      const freshFrom: string | null = d.published?.from ? d.published.from.slice(0, 10) : null
+      const freshTo: string | null = d.published?.to ? d.published.to.slice(0, 10) : null
+      if (freshFrom && freshFrom !== (m as Record<string, unknown>).published_from) {
+        updates.published_from = freshFrom
+      }
+      if (freshTo && freshTo !== (m as Record<string, unknown>).published_to) {
+        updates.published_to = freshTo
       }
 
       // ── 2. Total / latest chapters ──────────────────────────────────────

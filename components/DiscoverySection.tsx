@@ -9,15 +9,15 @@ const FILTER_GENRES = MANGA_GENRES.filter(g =>
   [1, 2, 4, 8, 10, 14, 7, 22, 24, 36, 37, 27, 42, 40].includes(g.id)
 )
 
-// Stable daily featured pick — seeded by date so it's consistent per day
-function dailySeed(): number {
+// Hourly featured pick — changes each hour
+function hourlySeed(): number {
   const d = new Date()
-  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate()
+  return d.getFullYear() * 1000000 + (d.getMonth() + 1) * 10000 + d.getDate() * 100 + d.getHours()
 }
 
 function pickFeatured(items: JikanSearchResult[]): JikanSearchResult | null {
   if (!items.length) return null
-  return items[dailySeed() % items.length]
+  return items[hourlySeed() % items.length]
 }
 
 interface Props {

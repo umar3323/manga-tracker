@@ -70,7 +70,10 @@ export default function AnimeLinker({ manga, watchedAnime }: { manga: Manga[]; w
   }
   const [saved, setSaved] = useState<Set<string>>(new Set())
   const [manualLinks, setManualLinks] = useState<Record<string, string>>({}) // manga.id → anime title
+  const [manualMalIds, setManualMalIds] = useState<Record<string, number>>({}) // manga.id → mal_id from URL
   const [searchQuery, setSearchQuery] = useState<Record<string, string>>({})
+  const [urlInput, setUrlInput] = useState<Record<string, string>>({}) // manga.id → pasted URL
+  const [urlError, setUrlError] = useState<Record<string, string>>({})
   const [jikanResults, setJikanResults] = useState<Record<string, JikanAnime[]>>({})
   const [jikanLoading, setJikanLoading] = useState<Record<string, boolean>>({})
   const searchTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
@@ -110,22 +113,49 @@ export default function AnimeLinker({ manga, watchedAnime }: { manga: Manga[]; w
     setTimeout(() => { setChecked(true); setLoading(false) }, 300)
   }
 
-  const saveLink = async (mangaId: string, animeTitle: string) => {
+  const saveLink = async (mangaId: string, animeTitle: string, malId?: number) => {
     setSaving(mangaId)
-    const { error } = await supabase
-      .from('manga_list')
-      .update({ has_anime: true, anime_title: animeTitle })
-      .eq('id', mangaId)
+    const updates: Record<string, unknown> = { has_anime: true, anime_title: animeTitle }
+    if (malId) updates.anime_mal_id = malId
+    const { error } = await supabase.from('manga_list').update(updates).eq('id', mangaId)
     setSaving(null)
-    if (error) { showToast('Failed to save link'); return }
+    if (error) { showToast('Failed To Save Link'); return }
     setSaved(prev => new Set([...prev, mangaId]))
-    showToast(`Linked to "${animeTitle}"`)
+    showToast(`Linked To "${animeTitle}"`)
   }
 
   const saveManualLink = async (manga: Manga) => {
     const title = manualLinks[manga.id]
     if (!title) return
-    await saveLink(manga.id, title)
+    await saveLink(manga.id, title, manualMalIds[manga.id])
+  }
+
+  const handleUrlInput = (mangaId: string, url: string) => {
+    setUrlInput(prev => ({ ...prev, [mangaId]: url }))
+    setUrlError(prev => ({ ...prev, [mangaId]: '' }))
+    if (!url.trim()) return
+    // Extract MAL anime ID from URLs like https://myanimelist.net/anime/12345/...
+    const m = url.match(/myanimelist\.net\/anime\/(\d+)/i)
+    if (m) {
+      const malId = parseInt(m[1])
+      // Fetch title from Jikan
+      setJikanLoading(prev => ({ ...prev, [mangaId]: true }))
+      fetch(`https://api.jikan.moe/v4/anime/${malId}`)
+        .then(r => r.json())
+        .then(j => {
+          const title: string = j.data?.title ?? ''
+          if (title) {
+            setManualLinks(prev => ({ ...prev, [mangaId]: title }))
+            setManualMalIds(prev => ({ ...prev, [mangaId]: malId }))
+          } else {
+            setUrlError(prev => ({ ...prev, [mangaId]: 'Could Not Find Anime — Check The URL' }))
+          }
+        })
+        .catch(() => setUrlError(prev => ({ ...prev, [mangaId]: 'Failed To Fetch Anime Data' })))
+        .finally(() => setJikanLoading(prev => ({ ...prev, [mangaId]: false })))
+    } else if (url.length > 10) {
+      setUrlError(prev => ({ ...prev, [mangaId]: 'Paste A MyAnimeList URL (e.g. myanimelist.net/anime/12345)' }))
+    }
   }
 
   const visibleMatches = autoMatches.filter(m => !dismissed.has(m.manga.id) && !saved.has(m.manga.id))
@@ -271,24 +301,35 @@ export default function AnimeLinker({ manga, watchedAnime }: { manga: Manga[]; w
                     {unmatched.filter(m => !saved.has(m.id)).map(m => (
                       <div key={m.id} className="bg-zinc-800 rounded-xl px-4 py-3">
                         <p className="text-xs font-medium text-zinc-200 mb-2">{m.title}</p>
-                        <div className="flex gap-2">
-                          <div className="relative flex-1">
-                            {manualLinks[m.id] ? (
-                              /* Confirmed pick chip */
-                              <div className="flex items-center gap-2 bg-zinc-700 border border-emerald-600/40 rounded-lg px-3 py-1.5">
+                        <div className="space-y-2">
+                          {/* Confirmed pick chip */}
+                          {manualLinks[m.id] ? (
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 bg-zinc-700 border border-emerald-600/40 rounded-lg px-3 py-1.5 flex-1 min-w-0">
                                 <span className="text-xs text-zinc-200 flex-1 truncate">{manualLinks[m.id]}</span>
-                                <button onClick={() => { setManualLinks(prev => ({ ...prev, [m.id]: '' })); setSearchQuery(prev => ({ ...prev, [m.id]: '' })) }}
-                                  className="text-zinc-500 hover:text-white text-sm">×</button>
+                                {manualMalIds[m.id] && <span className="text-[10px] text-zinc-500 shrink-0">MAL #{manualMalIds[m.id]}</span>}
+                                <button onClick={() => { setManualLinks(prev => ({ ...prev, [m.id]: '' })); setManualMalIds(prev => ({ ...prev, [m.id]: 0 })); setSearchQuery(prev => ({ ...prev, [m.id]: '' })); setUrlInput(prev => ({ ...prev, [m.id]: '' })) }}
+                                  className="text-zinc-500 hover:text-white text-sm shrink-0">×</button>
                               </div>
-                            ) : (
-                              <>
+                              <button
+                                onClick={() => saveManualLink(m)}
+                                disabled={saving === m.id}
+                                className="px-3 py-1.5 text-xs rounded-lg font-medium shrink-0"
+                                style={{ backgroundColor: 'rgba(47,207,122,0.15)', color: '#2FCF7A' }}
+                              >
+                                {saving === m.id ? '…' : 'Link'}
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              {/* Title search */}
+                              <div className="relative">
                                 <input
                                   value={searchQuery[m.id] ?? ''}
                                   onChange={e => handleManualSearch(m.id, e.target.value)}
-                                  placeholder="Search any anime title…"
+                                  placeholder="Search anime title…"
                                   className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-zinc-400"
                                 />
-                                {/* Jikan dropdown */}
                                 {(jikanLoading[m.id] || (jikanResults[m.id]?.length ?? 0) > 0) && (
                                   <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-zinc-800 border border-zinc-600 rounded-lg overflow-hidden shadow-xl">
                                     {jikanLoading[m.id] && (
@@ -296,7 +337,7 @@ export default function AnimeLinker({ manga, watchedAnime }: { manga: Manga[]; w
                                     )}
                                     {!jikanLoading[m.id] && (jikanResults[m.id] ?? []).map(a => (
                                       <button key={a.mal_id}
-                                        onMouseDown={e => { e.preventDefault(); setManualLinks(prev => ({ ...prev, [m.id]: a.title })); setSearchQuery(prev => ({ ...prev, [m.id]: '' })); setJikanResults(prev => ({ ...prev, [m.id]: [] })) }}
+                                        onMouseDown={e => { e.preventDefault(); setManualLinks(prev => ({ ...prev, [m.id]: a.title })); setManualMalIds(prev => ({ ...prev, [m.id]: a.mal_id })); setSearchQuery(prev => ({ ...prev, [m.id]: '' })); setJikanResults(prev => ({ ...prev, [m.id]: [] })) }}
                                         className="w-full flex items-center gap-2 text-left text-xs px-3 py-2 hover:bg-zinc-700 text-zinc-200 transition-colors border-b border-zinc-700 last:border-0">
                                         {a.images?.jpg?.image_url && (
                                           <img src={a.images.jpg.image_url} alt="" className="w-6 h-8 object-cover rounded shrink-0" />
@@ -306,23 +347,22 @@ export default function AnimeLinker({ manga, watchedAnime }: { manga: Manga[]; w
                                     ))}
                                   </div>
                                 )}
-                              </>
-                            )}
-                          </div>
-                          {manualLinks[m.id] && (
-                            <button
-                              onClick={() => saveManualLink(m)}
-                              disabled={saving === m.id}
-                              className="px-3 py-1.5 text-xs rounded-lg font-medium shrink-0"
-                              style={{ backgroundColor: 'rgba(47,207,122,0.15)', color: '#2FCF7A' }}
-                            >
-                              {saving === m.id ? '…' : 'Link'}
-                            </button>
+                              </div>
+                              {/* URL paste */}
+                              <div>
+                                <input
+                                  value={urlInput[m.id] ?? ''}
+                                  onChange={e => handleUrlInput(m.id, e.target.value)}
+                                  placeholder="Or paste a MyAnimeList URL…"
+                                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-zinc-400"
+                                />
+                                {urlError[m.id] && (
+                                  <p className="text-[10px] text-red-400 mt-1">{urlError[m.id]}</p>
+                                )}
+                              </div>
+                            </>
                           )}
                         </div>
-                        {manualLinks[m.id] && (
-                          <p className="text-[10px] text-zinc-500 mt-1">→ {manualLinks[m.id]}</p>
-                        )}
                       </div>
                     ))}
                   </div>

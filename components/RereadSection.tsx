@@ -25,9 +25,10 @@ interface Props {
   mangaId: string
   currentChapter: number
   onStarted: (chapterAtStart: number) => void
+  onCompleted: (restoredChapter: number) => void
 }
 
-export default function RereadSection({ mangaId, currentChapter, onStarted }: Props) {
+export default function RereadSection({ mangaId, currentChapter, onStarted, onCompleted }: Props) {
   const [rereads, setRereads] = useState<Reread[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -78,6 +79,10 @@ export default function RereadSection({ mangaId, currentChapter, onStarted }: Pr
       .select().single()
     if (!error && data) {
       setRereads(prev => prev.map(r => r.id === completingId ? data as Reread : r))
+      // Restore current_chapter to where the user was before the re-read started
+      const restored = active?.chapter_at_start ?? 0
+      await supabase.from('manga_list').update({ current_chapter: restored }).eq('id', mangaId)
+      onCompleted(restored)
       setCompletingId(null); setRating(''); setNotes('')
     }
     setSaving(false)

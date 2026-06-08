@@ -1,0 +1,13 @@
+{
+  "name": "YOMU",
+  "short_name": "YOMU",
+  "description": "Track your manga reading and anime watching progress",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0d0d",
+  "theme_color": "#0d0d0d",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

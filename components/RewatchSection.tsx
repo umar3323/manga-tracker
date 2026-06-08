@@ -26,9 +26,10 @@ interface Props {
   animeTitle: string | null
   episodesWatched: number
   onStarted: (episodesAtStart: number) => void
+  onCompleted: (restoredEpisodes: number) => void
 }
 
-export default function RewatchSection({ mangaId, animeTitle, episodesWatched, onStarted }: Props) {
+export default function RewatchSection({ mangaId, animeTitle, episodesWatched, onStarted, onCompleted }: Props) {
   const [rewatches, setRewatches] = useState<Rewatch[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -79,6 +80,10 @@ export default function RewatchSection({ mangaId, animeTitle, episodesWatched, o
       .select().single()
     if (!error && data) {
       setRewatches(prev => prev.map(r => r.id === completingId ? data as Rewatch : r))
+      // Restore episodes_watched to where the user was before the re-watch started
+      const restored = active?.episodes_at_start ?? 0
+      await supabase.from('manga_list').update({ episodes_watched: restored }).eq('id', mangaId)
+      onCompleted(restored)
       setCompletingId(null); setRating(''); setNotes('')
     }
     setSaving(false)
