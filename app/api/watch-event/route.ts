@@ -84,10 +84,10 @@ export async function POST(req: NextRequest) {
   const safeSite  = String(site ?? '').trim().slice(0, 100)
 
   // Validate numeric fields — reject non-finite, negative, or unreasonably large values
-  const safeEpisode  = Number.isFinite(episode)  && episode  >= 0 && episode  <= 50000 ? Math.round(episode)  : null
-  const safeSeason   = Number.isFinite(season)   && season   >= 0 && season   <= 9999  ? Math.round(season)   : null
-  const safeDuration = Number.isFinite(duration_seconds) && duration_seconds >= 0 && duration_seconds <= 86400 ? Math.round(duration_seconds) : 0
-  const safeWatched  = Number.isFinite(watched_seconds)  && watched_seconds  >= 0 && watched_seconds  <= 86400 ? Math.round(watched_seconds)  : 0
+  const safeEpisode  = episode  != null && Number.isFinite(episode)  && episode  >= 0 && episode  <= 50000 ? Math.round(episode)  : null
+  const safeSeason   = season   != null && Number.isFinite(season)   && season   >= 0 && season   <= 9999  ? Math.round(season)   : null
+  const safeDuration = duration_seconds != null && Number.isFinite(duration_seconds) && duration_seconds >= 0 && duration_seconds <= 86400 ? Math.round(duration_seconds) : 0
+  const safeWatched  = watched_seconds  != null && Number.isFinite(watched_seconds)  && watched_seconds  >= 0 && watched_seconds  <= 86400 ? Math.round(watched_seconds)  : 0
 
   // Validate timestamp — must parse as a real date, not more than 1 hour in the future,
   // not more than 10 years in the past. Fallback to server time on invalid input.
