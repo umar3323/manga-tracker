@@ -616,7 +616,7 @@ export default function StatsPage() {
                         style={{ transition: 'stroke-dasharray 0.6s ease' }} />
                     </svg>
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-lg font-bold text-white" style={{ transform: 'rotate(90deg) translateX(-2px)' }}>{completionPct}%</span>
+                      <span className="text-lg font-bold text-white">{completionPct}%</span>
                     </div>
                   </div>
                   <div>
