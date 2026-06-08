@@ -4694,6 +4694,31 @@ ${entries}
         />
       )}
 
+      {/* Delete confirmation modal */}
+      {pendingDelete && (() => {
+        const target = manga.find(m => m.id === pendingDelete)
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={cancelDelete}>
+            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="text-base font-semibold text-white mb-1">Remove From Library?</div>
+              <div className="text-sm text-zinc-400 mb-5">
+                <span className="text-white font-medium">{target?.title}</span> will be permanently deleted.
+              </div>
+              <div className="flex gap-3 justify-end">
+                <button onClick={cancelDelete}
+                  className="px-4 py-2 rounded-lg text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">
+                  Cancel
+                </button>
+                <button onClick={() => deleteManga(pendingDelete)}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 hover:bg-red-500 text-white transition-colors">
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Toast */}
       {toast && (
         <div role="alert" className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 text-sm text-white px-4 py-2 rounded-lg shadow-lg">
