@@ -103,10 +103,23 @@ const PARSERS = [
     }
   },
 
-  // ── Funimation / HiDive ──────────────────────────────────────────────
+  // ── Funimation ────────────────────────────────────────────────────────
+  // (Funimation merged into Crunchyroll; keeping match so old URLs still work)
   {
-    match: /(funimation|hidive)\./i,
+    match: /funimation\./i,
     parse(url, title) { return fromTitle(title) }
+  },
+
+  // ── HiDive ────────────────────────────────────────────────────────────
+  // URL pattern: /stream/show-name/s01e01 or /stream/show-name/s01e01/
+  {
+    match: /hidive\./i,
+    parse(url, title) {
+      const m = url.match(/\/stream\/([^/?#]+)\/s(\d+)e(\d+)/i)
+      if (m) return { title: tc(m[1].replace(/-/g, ' ')), episode: +m[3], season: +m[2] }
+      // Fallback: title "Show Name - Season 1, Episode 5 - HIDIVE"
+      return fromTitle(title)
+    }
   },
 
   // ── Netflix ───────────────────────────────────────────────────────────
@@ -152,44 +165,187 @@ const PARSERS = [
   },
 
   // ── Amazon Prime Video ────────────────────────────────────────────────
+  // Tab title is often just "Show Name | Prime Video" with no episode.
+  // Try DOM for episode label first, then title, then API increment fallback.
   {
     match: /primevideo\.com/i,
     parse(url, title) {
-      const t   = title.replace(/\s*[-|]\s*(prime video|amazon).*/i, '').trim()
-      const epM = t.match(/\bep(?:isode)?\s*\.?\s*(\d+)/i)
-      return { title: t, episode: epM ? +epM[1] : null, season: null }
+      const t = title.replace(/\s*[-|]\s*(prime video|amazon).*/i, '').trim()
+      // DOM: Prime shows episode info in player overlays
+      let epFromDom = null, sFromDom = null
+      try {
+        const overlays = [
+          ...document.querySelectorAll('[class*="episodeTitle"], [class*="episode-title"], [class*="EpisodeTitle"]'),
+          ...document.querySelectorAll('[data-testid*="episode"], [data-automation-id*="episode"]'),
+        ]
+        for (const el of overlays) {
+          const text = el.textContent?.trim() || ''
+          const seM = text.match(/S(\d+)[:\s]*E(\d+)/i) || text.match(/Season\s*(\d+).*Episode\s*(\d+)/i)
+          if (seM) { sFromDom = +seM[1]; epFromDom = +seM[2]; break }
+          const epOnly = text.match(/\bEp(?:isode)?\s*\.?\s*(\d+)/i)
+          if (epOnly) { epFromDom = +epOnly[1]; break }
+        }
+      } catch {}
+      const epM = epFromDom ?? (t.match(/\bep(?:isode)?\s*\.?\s*(\d+)/i)?.[1] ? +t.match(/\bep(?:isode)?\s*\.?\s*(\d+)/i)[1] : null)
+      return { title: t, episode: epM, season: sFromDom ?? null }
     }
+  },
+
+  // ── Disney+ ───────────────────────────────────────────────────────────
+  // Tab title: "Show Name | Disney+" — no episode. Try DOM scraping.
+  {
+    match: /disneyplus\.com/i,
+    parse(url, title) {
+      const t = title.replace(/\s*[|–-]\s*disney\+?.*/i, '').trim()
+      let epFromDom = null, sFromDom = null
+      try {
+        const candidates = document.querySelectorAll(
+          '[class*="episodeNumber"], [class*="episode-number"], ' +
+          '[data-testid*="episode"], [class*="SubtitleText"], ' +
+          '[class*="subtitle"], [class*="DetailText"]'
+        )
+        for (const el of candidates) {
+          const text = el.textContent?.trim() || ''
+          const seM = text.match(/S(\d+)[:\s]*E(\d+)/i)
+          if (seM) { sFromDom = +seM[1]; epFromDom = +seM[2]; break }
+          const epOnly = text.match(/^E(\d+)[\s–-]|Episode\s*(\d+)/i)
+          if (epOnly) { epFromDom = +(epOnly[1] || epOnly[2]); break }
+        }
+      } catch {}
+      return { title: t || title, episode: epFromDom, season: sFromDom }
+    }
+  },
+
+  // ── Max (HBO Max) ─────────────────────────────────────────────────────
+  // Tab title: "Show Name | Max" — no episode. Try URL then DOM.
+  {
+    match: /\bmax\.com\b/i,
+    parse(url, title) {
+      const t = title.replace(/\s*[|–-]\s*max.*/i, '').trim()
+      // URL: /play/urn:hbo:episode:... — no readable episode number
+      let epFromDom = null, sFromDom = null
+      try {
+        const candidates = document.querySelectorAll(
+          '[class*="EpisodeNumber"], [class*="episode-number"], ' +
+          '[data-testid*="episode"], [aria-label*="Episode"]'
+        )
+        for (const el of candidates) {
+          const text = el.textContent?.trim() || el.getAttribute('aria-label') || ''
+          const seM = text.match(/S(\d+)[:\s]*E(\d+)/i)
+          if (seM) { sFromDom = +seM[1]; epFromDom = +seM[2]; break }
+          const epOnly = text.match(/Episode\s*(\d+)/i)
+          if (epOnly) { epFromDom = +epOnly[1]; break }
+        }
+      } catch {}
+      return { title: t || title, episode: epFromDom, season: sFromDom }
+    }
+  },
+
+  // ── Hulu ──────────────────────────────────────────────────────────────
+  // Titles vary: "Show Name | Hulu" or "Show Name - Season 1 Ep 5 | Hulu"
+  {
+    match: /hulu\.com/i,
+    parse(url, title) {
+      const t   = title.replace(/\s*[|]\s*hulu.*/i, '').trim()
+      const epM = t.match(/\bep(?:isode)?\s*\.?\s*(\d+)/i) || t.match(/\bE(\d+)\b/i)
+      const sM  = t.match(/\bseason\s*(\d+)/i)
+      const show = t
+        .replace(/\s*[-–]\s*season\s*\d+.*/i, '')
+        .replace(/\s*[-–]\s*ep(?:isode)?\s*\d+.*/i, '')
+        .trim()
+      return { title: show || t, episode: epM ? +epM[1] : null, season: sM ? +sM[1] : null }
+    }
+  },
+
+  // ── Apple TV+ ─────────────────────────────────────────────────────────
+  // Tab title: "Show Name — Apple TV+" or episode in title.
+  {
+    match: /tv\.apple\.com/i,
+    parse(url, title) {
+      const t   = title.replace(/\s*[–|—]\s*apple tv\+?.*/i, '').trim()
+      const epM = t.match(/\bep(?:isode)?\s*\.?\s*(\d+)/i)
+      const sM  = t.match(/\bseason\s*(\d+)/i)
+      const show = t
+        .replace(/\s*[-–]\s*season\s*\d+.*/i, '')
+        .replace(/\s*[-–]\s*ep(?:isode)?\s*\d+.*/i, '')
+        .trim()
+      return { title: show || t, episode: epM ? +epM[1] : null, season: sM ? +sM[1] : null }
+    }
+  },
+
+  // ── Bilibili (bilibili.tv international) ─────────────────────────────
+  // URL: /en/play/<showId>/<epId> — ep ID is internal, not episode number.
+  // Title: "EP1 Show Name - bilibili" or "Show Name EP1 - bilibili.tv"
+  {
+    match: /bilibili\.(tv|com)/i,
+    parse(url, title) {
+      const t   = title.replace(/\s*[-|]\s*bilibili.*/i, '').trim()
+      const epM = t.match(/\bEP\s*(\d+)/i) || t.match(/\bep(?:isode)?\s*\.?\s*(\d+)/i)
+      const ep  = epM ? +epM[1] : null
+      const show = t.replace(/\s*[-–]\s*EP\s*\d+.*/i, '').replace(/\bEP\s*\d+\s*/i, '').trim()
+      return { title: show || t, episode: ep, season: null }
+    }
+  },
+
+  // ── Tubi ──────────────────────────────────────────────────────────────
+  {
+    match: /tubitv\.com/i,
+    parse(url, title) {
+      // URL: /series/123456/s01e01-episode-title
+      const urlM = url.match(/s(\d+)e(\d+)/i)
+      if (urlM) {
+        const t = title.replace(/\s*[-|]\s*tubi.*/i, '').replace(/\s*[-|]\s*watch.*/i, '').trim()
+        return { title: t, episode: +urlM[2], season: +urlM[1] }
+      }
+      return fromTitle(title)
+    }
+  },
+
+  // ── VRV / Retrocrush / HIDIVE (old domains) ──────────────────────────
+  {
+    match: /(vrv\.co|retrocrush\.tv)\//i,
+    parse(url, title) { return fromTitle(title) }
   },
 ];
 
-// Generic title parser — last resort
+// Generic title parser — last resort for any unrecognised site
 function fromTitle(title) {
   if (!title) return null
   let t = title
-    // Strip leading "SiteName - " prefix (e.g. "Aniwave - ", "9anime - ")
-    .replace(/^[a-z0-9]+\s*[-–]\s*/i, '')
-    // Strip common site suffixes
-    .replace(/\s*[-|]\s*(watch|stream|anime|free|hd|eng(?:lish)?(?:\s+sub)?|sub(?:bed)?|dub(?:bed)?)\b.*/i, '')
-    .replace(/\s*[-|]\s*[a-z0-9-]+\.(com|ru|net|org|tv|me|to|cc|xyz)\b.*/i, '')
-    // Strip episode title after em-dash (e.g. " — : House of Flame")
-    .replace(/\s*[—–]\s*:?.*/i, '')
+    // Strip trailing site suffix patterns: "| SiteName", "- SiteName", "— SiteName"
+    .replace(/\s*[-|–—]\s*[a-z0-9 .+]+\.(com|net|org|tv|me|to|cc|xyz|ru|io)\b.*/i, '')
+    // Common branded suffixes without TLD (Netflix, Crunchyroll, Disney+, Max, Hulu, etc.)
+    .replace(/\s*[-|–—]\s*(netflix|crunchyroll|funimation|hidive|disney\+?|hulu|max|prime video|amazon|hbo|peacock|tubi|vrv|bilibili|aniwatch|hianime|aniwave|9anime|gogoanime|anitaku)\b.*/i, '')
+    // Strip leading "SiteName - " or "SiteName: " prefix
+    .replace(/^[a-z0-9]{2,20}\s*[-–:]\s*/i, '')
+    // Strip episode title after em-dash (e.g. " — The Final Battle")
+    .replace(/\s*[—–]\s*:?\s*.{0,60}$/, t2 => {
+      // Only strip if it doesn't contain "episode" or season info
+      if (/\bep(?:isode)?\s*\d+|\bseason\s*\d+|\bS\d+E\d+/i.test(t2)) return t2
+      return ''
+    })
     // Strip trailing year in parens
     .replace(/\s*\(\d{4}\)\s*$/i, '')
     .trim()
 
   const epM = t.match(/\bep(?:isode)?\s*\.?\s*(\d+(?:\.\d+)?)\b/i)
+             || t.match(/\bE(\d{1,4})\b(?!\d)/)
+             || t.match(/\bEP(\d+)\b/i)
   const ep  = epM ? +epM[1] : null
-  const sM  = t.match(/\bseason\s*(\d+)\b/i) || t.match(/\bS(\d+)E\d+\b/i)
-  const sn  = sM ? +sM[1] : null
+  const seM = t.match(/S(\d+)[:\s]*E(\d+)/i)
+  const sM  = seM ? null : (t.match(/\bseason\s*(\d+)\b/i) || t.match(/\bS(\d+)E\d+\b/i))
+  const sn  = seM ? +seM[1] : (sM ? +sM[1] : null)
+  const epN = seM ? +seM[2] : ep
 
   let show = t
+    .replace(/\s*S\d+[:\s]*E\d+.*/i, '')                           // strip S1:E5 and everything after
     .replace(/\s*[-–|]\s*ep(?:isode)?\s*\.?\s*\d+(?:\.\d+)?.*/i, '')
     .replace(/\bep(?:isode)?\s*\.?\s*\d+(?:\.\d+)?/i, '')
     .replace(/\bseason\s*\d+\b/i, '')
     .replace(/\s+/g, ' ').trim()
 
   if (!show || show.length < 2) return null
-  return { title: show, episode: ep, season: sn }
+  return { title: show, episode: epN, season: sn }
 }
 
 const TC_LOWER = new Set(['of','and','the','a','an','in','on','at','to','for','nor','but','or','yet','so','with','by'])
