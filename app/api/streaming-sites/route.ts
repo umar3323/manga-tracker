@@ -1,20 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createClient } from '@supabase/supabase-js'
 
-async function makeSupabase() {
+// Accepts both cookie-based auth (browser) and Bearer-token auth (extension).
+async function getUser(req: NextRequest) {
+  const authHeader = req.headers.get('authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${token}` } } },
+    )
+    const { data: { user }, error } = await supabase.auth.getUser(token)
+    return { user: error ? null : user, supabase }
+  }
+
+  // Cookie-based (browser)
+  const { createServerClient } = await import('@supabase/ssr')
+  const { cookies } = await import('next/headers')
   const cookieStore = await cookies()
-  return createServerClient(
+  const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} } },
   )
+  const { data: { user } } = await supabase.auth.getUser()
+  return { user, supabase }
 }
 
 // GET — return all custom streaming sites for the authenticated user
-export async function GET() {
-  const supabase = await makeSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
+export async function GET(req: NextRequest) {
+  const { user, supabase } = await getUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data, error } = await supabase
@@ -29,8 +45,7 @@ export async function GET() {
 
 // POST — add a custom streaming site
 export async function POST(req: NextRequest) {
-  const supabase = await makeSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { user, supabase } = await getUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
@@ -71,8 +86,7 @@ export async function POST(req: NextRequest) {
 
 // DELETE — remove a custom streaming site by id
 export async function DELETE(req: NextRequest) {
-  const supabase = await makeSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { user, supabase } = await getUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await req.json()
