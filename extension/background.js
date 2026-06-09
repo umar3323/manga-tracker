@@ -173,6 +173,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 })
 
+// ── Dedicated anime streaming sites ─────────────────────────────────────
+// For these sites we trust all content is anime — log locally immediately.
+// For all other sites (YouTube, Netflix, streaming platforms) we wait for the
+// API to confirm a library match before updating local stats / NOW TRACKING.
+const DEDICATED_ANIME_SITES = new Set([
+  'crunchyroll.com', 'funimation.com', 'hidive.com',
+  'aniwatch.to', 'hianime.to', 'aniwatchtv.to',
+  '9anime.to', '9anime.gg', '9anime.rs',
+  'gogoanime.by', 'gogoanime.gg', 'gogoanimes.net',
+  'anitaku.pe', 'anitaku.be',
+  'aniwaves.ru', 'aniwaves.com',
+  'bilibili.tv', 'vrv.co', 'retrocrush.tv',
+])
+
+function isDedicatedAnimeSite(site) {
+  const lower = (site || '').toLowerCase()
+  return [...DEDICATED_ANIME_SITES].some(s => lower === s || lower.endsWith('.' + s) || lower.includes(s))
+}
+
 // ── Core event handler ────────────────────────────────────────────────────
 async function handleEvent(payload) {
   // Dedup: same title+episode+is_complete within 5 minutes
@@ -181,19 +200,27 @@ async function handleEvent(payload) {
   if (recentKeys.has(dedupKey) && now - recentKeys.get(dedupKey) < 300_000) return
   recentKeys.set(dedupKey, now)
 
-  // Track locally regardless of auth state
-  chrome.storage.local.set({ yomu_last_tracked: { ...payload, receivedAt: new Date().toISOString() } })
-  updateSessionStats(payload)
+  const dedicated = isDedicatedAnimeSite(payload.site)
+
+  if (dedicated) {
+    // Known anime site — log locally straight away
+    chrome.storage.local.set({ yomu_last_tracked: { ...payload, receivedAt: new Date().toISOString() } })
+    updateSessionStats(payload)
+  }
 
   if (!authToken) {
+    if (!dedicated) {
+      // Non-anime site with no auth — skip entirely (can't verify library match)
+      return
+    }
     queuePending(payload)
     return
   }
 
-  await sendToAPI(payload)
+  await sendToAPI(payload, dedicated)
 }
 
-async function sendToAPI(payload) {
+async function sendToAPI(payload, dedicated = true) {
   try {
     const res = await fetch(API_URL, {
       method: 'POST',
@@ -208,11 +235,19 @@ async function sendToAPI(payload) {
       // Token expired
       authToken = null
       chrome.storage.local.remove('yomu_auth_token')
-      queuePending(payload)
+      if (dedicated) queuePending(payload)
       return
     }
 
     const data = await res.json().catch(() => ({}))
+
+    // For non-dedicated sites (YouTube, Netflix, etc.) only log locally if the
+    // API confirmed a library match. This prevents non-anime content from
+    // appearing in the popup stats or NOW TRACKING panel.
+    if (!dedicated && (data.action === 'updated' || data.action === 'created')) {
+      chrome.storage.local.set({ yomu_last_tracked: { ...payload, receivedAt: new Date().toISOString() } })
+      updateSessionStats(payload)
+    }
 
     if (data.action === 'created') {
       // New anime detected — notify user
@@ -233,8 +268,8 @@ async function sendToAPI(payload) {
     }
 
   } catch {
-    // Network error — queue for later
-    queuePending(payload)
+    // Network error — queue for later (dedicated sites only)
+    if (dedicated) queuePending(payload)
   }
 }
 
