@@ -4784,7 +4784,19 @@ ${entries}
                               value={epMembers.length <= 1 ? (m.total_episodes ?? 0) : (seriesEpTotal ?? 0)}
                               label={`Total episodes for ${m.title}`}
                               className="w-8 text-[11px] text-zinc-500 py-0.5"
-                              onSave={n => updateTotalEpisodes(activeEpMember.id, n, activeEpMember.anime_mal_id ?? activeEpMember.mal_id, activeEpMember.content_type)}
+                              onSave={async n => {
+                                if (epMembers.length > 1) {
+                                  // Series mode: save total on the primary card and null-out
+                                  // other members so the displayed sum equals what the user typed.
+                                  await updateTotalEpisodes(m.id, n, m.anime_mal_id ?? m.mal_id, m.content_type)
+                                  for (const mem of epMembers.filter(e => e.id !== m.id)) {
+                                    await supabase.from('manga_list').update({ total_episodes: null }).eq('id', mem.id)
+                                    setManga(prev => prev.map(x => x.id === mem.id ? { ...x, total_episodes: null } : x))
+                                  }
+                                } else {
+                                  updateTotalEpisodes(activeEpMember.id, n, activeEpMember.anime_mal_id ?? activeEpMember.mal_id, activeEpMember.content_type)
+                                }
+                              }}
                             />
                             <button onClick={() => updateEpisodes(activeEpMember.id, 1, activeEpMember.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
                           </div>

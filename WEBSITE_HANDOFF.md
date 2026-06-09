@@ -10,6 +10,10 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 27 — Fix series total-episodes edit (2026-06-09)
+
+- `app/page.tsx` — Fixed "series total episodes" EditableNumber on anime cards. Bug: `seriesEpTotal` sums ALL members' `total_episodes` (including Jikan-auto-populated values from sub-entries), and the edit was saving to `activeEpMember` (in-progress member), not the primary card — so typing 56 could produce 56+100=156 or save to the wrong entry. Fix: when `epMembers.length > 1`, the edit now saves `n` to the primary card (`m.id`) and nulls-out `total_episodes` on all other members, so the displayed sum equals exactly what the user typed.
+
 #### Session 26 — Extension: Netflix/streaming platforms NOW TRACKING fix (2026-06-09)
 
 - `extension/background.js` — Added `KNOWN_STREAMING_PLATFORMS` set (Netflix, Prime Video, Disney+, Max, Hulu, Apple TV+, Tubi). These platforms now update `yomu_last_tracked` and local session stats **immediately** (same as dedicated anime sites), so the popup shows "NOW TRACKING: Saiki K · netflix.com" the instant playback starts — it no longer waits for an API library-match round-trip. DB updates (episode progress, watch time) still require an API match to prevent non-anime content polluting the library. YouTube and other unknown sites remain fully gated. Also fixed double-counting: `sendToAPI` now skips the local stats update for streaming platforms since they already ran it optimistically in `handleEvent`.
