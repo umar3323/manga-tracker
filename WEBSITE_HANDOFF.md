@@ -10,6 +10,29 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 31 — Phase 1: DetailModal extracted into components/DetailView.tsx (2026-06-10, commit `1d001d3`)
+
+**Extraction: `components/DetailView.tsx` (new file)**
+- `DetailModal`, `RelationMergeButton`, `SeriesPanel`, and `EditableNumber` moved out of `app/page.tsx` into this dedicated file.
+- All four are exported named exports; `app/page.tsx` imports them from `@/components/DetailView`.
+- `DetailModal` is also exported as `DetailModalProps` interface so callers can type the prop spread if needed.
+
+**Isolated loading boundaries (the key structural change)**
+- The single monolithic `useEffect` that fired all 8 API calls in parallel (blocking pattern) is now split into 8 separate `useEffect` hooks, each with its own `loading` state:
+  - `alLoading` — AniList manga (mal_id → MANGA)
+  - AniList anime — no skeleton; only renders when data arrives
+  - `notifyLoading` — notify.moe scores → `ScoresSkeleton` while pending
+  - `wikiLoading` — Wikipedia summary → `WikiSkeleton` while pending
+  - `muLoading` — MangaUpdates badges skeleton (single short bar)
+  - `jikanRecsLoading` — Jikan recs → `RecsSkeleton` while pending
+  - `relationsLoading` — Jikan relations (for Series Map button)
+  - OMDB/IMDb — no loading state; renders silently when key is present
+- Skeleton components (`Skeleton`, `ScoresSkeleton`, `WikiSkeleton`, `RelationsSkeleton`, `RecsSkeleton`) are file-private helpers in `DetailView.tsx`.
+- `app/page.tsx` — removed inline function bodies (~1 500 lines); import line updated.
+- Build passes. ESLint errors dropped from 67 → 63 (baseline was 67 at time of work; original brief cited 56 — discrepancy was pre-existing `.vercel/` noise before session 25 fix).
+
+---
+
 #### Session 30 — Jikan proxy, warmup auth, Wikipedia labels, stats useMemo, AniList discovery, incremental grid (2026-06-10, commits `cafc0ad` + `0eb1dab`)
 
 **Incremental grid rendering (`app/page.tsx`)**
@@ -66,6 +89,12 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 - `scripts/migrations.sql` — Added `user_settings` and `chapter_notifications` DDL with RLS (both keyed on `auth.uid()`). Tables existed only in the live Supabase instance; the repo had no DDL for them. Both confirmed present in production (verified via Supabase MCP).
 
 ### Outstanding Tasks
+
+- [ ] **Phase 2: container-query card grid** — Wrap the library grid in a `@container` div; children use `@md:grid-cols-2 @xl:grid-cols-3` etc. Tier-1/Tier-2 visual hierarchy: status badge and user rating always visible on cards (text-neutral-400 minimum — NOT hover-only). Platform pills (Netflix/Crunchyroll) may remain hover-revealed on desktop. Read `components/DetailView.tsx` and `app/page.tsx` card section before starting. Do NOT redesign the card — hierarchy change only.
+
+- [ ] **Phase 3: filter dock reconciliation with Sidebar** — Decide whether filters live inside `components/Sidebar.tsx` or alongside it. Do NOT add a second left rail. Flag the choice before implementing.
+
+- [ ] **Phase 4: continue decomposing `app/page.tsx`** — After Phase 2 sign-off, continue extracting components (card grid, filter bar, header). `app/page.tsx` is currently ~2 650 lines after Phase 1.
 
 - [ ] **Reload Chrome extension** — `background.js` changed in session 29. Go to `chrome://extensions` and click Reload on YOMU. The `syncFlush` alarm registers on next install/reload.
 
@@ -222,6 +251,13 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 ---
 
 ## Session Log
+
+### Session — 2026-06-10 (session 31)
+- Phase 1 of the UI layout refactor: extracted `DetailModal` (~1 500 lines) from `app/page.tsx` into `components/DetailView.tsx`. Also moved `RelationMergeButton`, `SeriesPanel`, `EditableNumber`.
+- Key structural change: the original single monolithic `useEffect` (all 8 API calls) was split into 8 isolated effects, each with its own loading state. Slow APIs (Wikipedia, notify.moe, Jikan recs) now show per-section skeletons instead of blocking the whole view.
+- `SeriesPanel` was co-located inside the old `page.tsx` SeriesPanel block — moved with the rest. No behaviour changes.
+- Build clean. ESLint errors reduced (67 → 63); all new instances of `set-state-in-effect` are pre-existing patterns carried over from the original code, not newly introduced.
+- Next step pending user sign-off: Phase 2 (container-query card grid + status badge always-visible).
 
 ### Session — 2026-06-10 (session 30)
 - User confirmed VAPID, Google Sheets, and Anthropic env vars all set on Vercel — verified via Chrome extension → Vercel dashboard. Marked those tasks done.
