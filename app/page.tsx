@@ -2708,7 +2708,8 @@ ${entries}
         ) : filtered.length === 0 ? (
           <div className="text-zinc-500 text-sm">Nothing here.</div>
         ) : (
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))' }}>
+          <div className="@container">
+          <div className="grid grid-cols-1 @[740px]:grid-cols-2 @[1120px]:grid-cols-3 gap-3">
             {filtered.slice(0, renderCount).map(m => (
               <div key={m.id}
                 className={`bg-zinc-900 border rounded-xl overflow-hidden flex flex-col h-full transition-colors ${deepSelectMode ? (deepSelected.has(m.id) ? 'border-violet-500 ring-1 ring-violet-500/40' : 'border-zinc-700 cursor-pointer hover:border-zinc-600') : 'border-zinc-800'}`}
@@ -2799,7 +2800,7 @@ ${entries}
                       {m.authors?.length > 0 ? (
                         <div className="flex gap-1 flex-wrap mt-0.5 items-center">
                           {(m.content_type === 'anime' || m.content_type === 'movie') && (
-                            <span className="text-[10px] text-zinc-700 mr-0.5">Studio:</span>
+                            <span className="text-[10px] text-zinc-500 mr-0.5">Studio:</span>
                           )}
                           {m.authors.map((a: Author) => (
                             <button key={a.id}
@@ -2810,7 +2811,7 @@ ${entries}
                           ))}
                         </div>
                       ) : (
-                        <p className="text-[11px] text-zinc-700 mt-0.5 italic">Unknown {(m.content_type === 'anime' || m.content_type === 'movie') ? 'studio' : 'author'}</p>
+                        <p className="text-[11px] text-zinc-500 mt-0.5 italic">Unknown {(m.content_type === 'anime' || m.content_type === 'movie') ? 'studio' : 'author'}</p>
                       )}
                     </div>
 
@@ -3022,7 +3023,7 @@ ${entries}
                         </div>
                       )}
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] text-zinc-500 tabular-nums flex items-center gap-0.5">
+                        <span className="text-[11px] text-zinc-300 tabular-nums flex items-center gap-0.5">
                           Ch.&nbsp;{seriesCurrent}&nbsp;/&nbsp;
                           <EditableNumber
                             value={members.length <= 1 ? (m.total_chapters ?? 0) : (seriesTotal ?? 0)}
@@ -3053,14 +3054,14 @@ ${entries}
                     {/* 5. Genre tags */}
                     <div className="flex flex-wrap gap-1">
                       {m.genres?.length > 0
-                        ? m.genres.slice(0, 5).map(g => <span key={g} className="text-[10px] px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded-full">{g}</span>)
-                        : <span className="text-[10px] text-zinc-700 italic">No Genres Listed</span>
+                        ? m.genres.slice(0, 3).map(g => <span key={g} className="text-[10px] px-1.5 py-0.5 bg-zinc-800 text-zinc-400 rounded-full">{g}</span>)
+                        : <span className="text-[10px] text-zinc-500 italic">No Genres Listed</span>
                       }
                     </div>
 
-                    {/* 6. Rating row */}
+                    {/* 6. Rating row — Tier 1: always visible at readable contrast */}
                     <div className="flex items-center gap-2 pt-1.5 border-t border-zinc-800/70 mt-auto">
-                      <span className="text-[10px] text-zinc-700 uppercase tracking-widest">Rating</span>
+                      <span className="text-[10px] text-zinc-500 uppercase tracking-widest">Rating</span>
                       <div className="flex items-center gap-1.5 ml-auto">
                         <button onClick={async (e) => {
                             e.stopPropagation()
@@ -3071,7 +3072,7 @@ ${entries}
                             if (error) setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: prev_rating } : x))
                           }}
                           title={m.user_rating === 'up' ? 'Remove like' : 'Like'}
-                          className={`transition-colors ${m.user_rating === 'up' ? 'text-emerald-400' : 'text-zinc-700 hover:text-emerald-400'}`}>
+                          className={`transition-colors ${m.user_rating === 'up' ? 'text-emerald-400' : 'text-zinc-500 hover:text-emerald-400'}`}>
                           <ThumbsUp size={13} strokeWidth={1.5} />
                         </button>
                         <button onClick={async (e) => {
@@ -3083,10 +3084,10 @@ ${entries}
                             if (error) setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: prev_rating } : x))
                           }}
                           title={m.user_rating === 'down' ? 'Remove dislike' : 'Dislike'}
-                          className={`transition-colors ${m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-700 hover:text-red-400'}`}>
+                          className={`transition-colors ${m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-500 hover:text-red-400'}`}>
                           <ThumbsDown size={13} strokeWidth={1.5} />
                         </button>
-                        <span className="text-[10px] text-zinc-700 ml-1">
+                        <span className={`text-[10px] ml-1 ${m.user_rating === 'up' ? 'text-emerald-400' : m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-500'}`}>
                           {m.user_rating === 'up' ? 'Liked' : m.user_rating === 'down' ? 'Disliked' : 'Not Rated'}
                         </span>
                       </div>
@@ -3155,6 +3156,7 @@ ${entries}
                 )}
               </div>
             ))}
+          </div>
           </div>
         ))}
 
