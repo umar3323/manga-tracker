@@ -10,6 +10,33 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 30 — Jikan proxy, warmup auth, Wikipedia labels, stats useMemo, AniList discovery, incremental grid (2026-06-10, commits `cafc0ad` + `0eb1dab`)
+
+**Incremental grid rendering (`app/page.tsx`)**
+- IntersectionObserver sentinel: library grid renders only first 40 cards on load, loads 20 more as sentinel scrolls into view (400px pre-load). Resets to 40 on filter/search/mood change. Zero new dependencies.
+
+**AniList discovery catalog (`app/api/swipe-queue/route.ts`)**
+- Replaced static Jikan `/top/manga` (same 50 titles every call) with two AniList GraphQL fetches against random pages 1–100 (SCORE_DESC, no adult). Up to 100 varied candidates per request. AniList `averageScore` (0–100) normalised ÷10 to match Jikan scale. Jaccard scoring unchanged.
+- New `anilistFetch()`, `mapAniListItem()`, `ANILIST_QUERY` helpers added; `jikanFetch`/`mapItem` removed from this file.
+- ⚠️ API COST: AniList GraphQL is free and rate-limit is generous. Two random-page fetches per Discover load = 2 calls. No caching (intentional — variety on every visit).
+
+**Jikan direct browser calls (`lib/jikan.ts`, new `app/api/jikan-proxy/route.ts`)**
+- New `/api/jikan-proxy?path=...` route: server-side general Jikan proxy with 429 retry (1.2s backoff × 2). Accepts any `/v4` path; allowlist regex prevents open-redirect abuse.
+- `jikanGet()`: search paths still → `/api/jikan-search` (cached); all other paths → `/api/jikan-proxy` when in browser; direct to Jikan on server (no CORS concern).
+- `getMangaAllRelations`, `getSeriesEntryDetail`, `getJikanEpisodes`, `getJikanEpisodeSynopsis`, `getAnimeAdaptations`: all converted from raw `fetch('https://api.jikan.moe/v4...')` to `jikanGet()`. Removed inline 429 retry boilerplate from `getSeriesEntryDetail` and episode functions (proxy handles it).
+
+**Warmup sub-fetch auth (`proxy.ts`)**
+- Added `/api/catalog`, `/api/shonenjump`, `/api/goodreads`, `/api/webtoons`, `/api/mangaplus`, `/api/jikan-proxy` to `isPublicApi` exemption. Cron-triggered `/api/warmup` fan-outs carry no session cookie; these routes were 302-ing to `/login` silently.
+
+**Wikipedia infobox coverage (`app/api/wikipedia/route.ts`)**
+- Added label variants to all `parseField` calls: `'Created by'`, `'Original creator'`, `'Drawn by'`, `'English publisher'`, `'Serialized in'`, `'No. of episodes'`, `'Genre(s)'`, `'Animation studio'`, `'Tankōbon'`, `'Series director'`, etc. Improves hit rate on articles with non-standard infobox keys.
+
+**Stats page useMemo (`app/stats/page.tsx`)**
+- Added `useMemo` to React imports.
+- Extracted `animeStatsSection` (deps: `[animeList]`) and `readingVelocitySection` (deps: `[log]`) from JSX IIFEs into `useMemo` constants placed before the early loading return. Satisfies rules of hooks. Remaining 5 IIFEs (`watchHistorySection`, `watchDnaSection`, `ratingsSection`, `tasteProfileSection`, `analyticsSection`) still inline — safe to convert in a future session.
+
+---
+
 #### Session 29 — Offline-first extension sync + Jaccard discovery (2026-06-09, commit `be23894`)
 
 - `extension/background.js` — Offline-first "store and forward" using `chrome.alarms`. Every event queued with a UUID `idempotency_key`. `chrome.alarms.create('syncFlush', { periodInMinutes: 1 })` wakes the MV3 service worker to flush the queue on schedule. `flushPending()` rewritten: sends entire queue to `/api/watch-event/batch` in one request; on success clears only the sent keys (atomic read-modify-write); on 5xx increments `retryCount` and drops events that exceed `MAX_RETRIES = 5`; on 401 clears the stale auth token. `self.addEventListener('online', ...)` also triggers a flush when the device comes back online.
@@ -40,29 +67,23 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Outstanding Tasks
 
-- [ ] **Reload Chrome extension** — `background.js` changed again (session 29). Go to `chrome://extensions` and click Reload on YOMU. The `syncFlush` alarm will register on next install/reload.
+- [ ] **Reload Chrome extension** — `background.js` changed in session 29. Go to `chrome://extensions` and click Reload on YOMU. The `syncFlush` alarm registers on next install/reload.
 
-- [ ] **Web-push notifications** — infrastructure exists (`app/api/cron/check-chapters/route.ts`, `sw.js`, cron now unblocked). Blocked on Vercel env vars only — user must add to Vercel dashboard:
-  - `VAPID_EMAIL`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`
+- [x] **Web-push notifications** — VAPID env vars confirmed set on Vercel (session 30).
 
-- [ ] **Feature request button** — blocked on `GOOGLE_SERVICE_ACCOUNT_JSON` + `GOOGLE_SHEET_ID` in Vercel dashboard.
+- [x] **Feature request button** — `GOOGLE_SERVICE_ACCOUNT_JSON` + `Google_Sheet_ID` confirmed set on Vercel (session 30). Code handles both `Google_Sheet_ID` and `GOOGLE_SHEET_ID` casings.
 
-- [ ] **ANTHROPIC_API_KEY on Vercel** — "Analyse URL" feature in DetailModal fails in production without this. User must add to Vercel dashboard.
+- [x] **ANTHROPIC_API_KEY on Vercel** — confirmed set (session 30).
 
-- [ ] **Warmup route sub-fetches** — `/api/warmup` fan-out calls `/api/catalog`, `/api/shonenjump`, etc. Those routes are still behind the auth wall, so warmup runs but sub-fetches redirect to `/login`. Either add those paths to the `isPublicApi` exemption in `proxy.ts` (only if they serve public catalog data, not per-user data) or pass a shared secret. Low urgency.
+- [x] **Warmup route sub-fetches** — `/api/catalog`, `/api/shonenjump`, `/api/goodreads`, `/api/webtoons`, `/api/mangaplus` added to `isPublicApi` in `proxy.ts` (session 30).
 
-- [ ] **Stats page inline IIFEs** (M-4) — `app/stats/page.tsx` has ~8 large `{(() => { ... })()}` JSX IIFEs (lines ~427, 519, 641, 821, 890, 919, 1110, 1188). Extract into `useMemo` constants. Safe to defer.
+- [x] **Jikan direct browser calls** — all 5 functions converted to `jikanGet()`; new `/api/jikan-proxy` route handles non-search paths in browser (session 30).
 
-- [x] **Watch-event API fuzzy match at scale** (H-4) — migrated to `match_library_entry` pg_trgm RPC (session 28).
+- [x] **Wikipedia infobox coverage** — additional label variants added to all `parseField` calls (session 30).
 
-- [x] **`onMergeMultiple` transaction safety** (H-6) — `merge_entries` RPC implemented (session 28).
-
-- [ ] **Jikan direct browser calls** (M-1) — some `lib/jikan.ts` functions call `api.jikan.moe` directly from the browser. Route all through `/api/jikan`.
+- [ ] **Stats page remaining IIFEs** — `app/stats/page.tsx` still has 5 inline IIFEs: `watchHistorySection` (line ~522), `watchDnaSection` (line ~822), `ratingsSection` (line ~986), `tasteProfileSection` (line ~1275), `analyticsSection` (line ~1353). Convert to `useMemo` constants placed before the early return (same pattern as `animeStatsSection` and `readingVelocitySection` already done). Each needs deps: watchHistory/DNA → `[watchSessions, manga]`; ratings → `[manga, animeList]`; tasteProfile/analytics → `[manga, log]`. `showAllSessions` also needed for watchHistorySection. Do NOT change the nested IIFE inside watchHistorySection (SVG sparkline at line ~644). Safe to defer.
 
 - [ ] **menome.in.th integration** — No public API found. Currently listed as "planned" on Sources page.
-
-- [ ] **Wikipedia infobox coverage** — infobox parsing is regex-based; some articles use different field labels. Can be improved by adding label variants to `parseField` calls in `app/api/wikipedia/route.ts`.
-  - ⚠️ API COST: Wikipedia REST API is free. Each novel fetch = 2 HTTP calls (summary + mobile-sections). Cached 72h per title.
 
 - [ ] **Infra: move repo out of synced folder** — stale `.git/index 2` / `.git/index 3` files from iCloud/Drive/Dropbox sync inside `.git/`. Risk of repository corruption. Exclude `.git`, `.next`, `node_modules`, `.vercel` from sync scope and delete the stale numbered files.
 
@@ -201,6 +222,14 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 ---
 
 ## Session Log
+
+### Session — 2026-06-10 (session 30)
+- User confirmed VAPID, Google Sheets, and Anthropic env vars all set on Vercel — verified via Chrome extension → Vercel dashboard. Marked those tasks done.
+- Tackled all 4 remaining code tasks: Jikan proxy (new `/api/jikan-proxy` route + `jikanGet()` updated), warmup auth fix (`proxy.ts` exemptions), Wikipedia infobox labels, stats `useMemo` refactor.
+- Stats `useMemo`: converted only `animeStatsSection` and `readingVelocitySection` — the two where the complete IIFE body was confirmed from reads. Remaining 5 IIFEs deferred; they span 100–200 lines each and converting them safely requires reading every line.
+- AniList discovery: replaced Jikan `/top/manga` (static 50 titles) with two random AniList GraphQL pages. Every Discover session now draws from a different pool of 100 candidates.
+- Incremental grid: IntersectionObserver sentinel in `app/page.tsx` — 40 initial cards, +20 on scroll. Large libraries no longer block the main thread on initial render.
+- Deployed `cafc0ad` (grid + AniList) and `0eb1dab` (4 code fixes) to Vercel.
 
 ### Session — 2026-06-09 (session 29)
 - Continued Gemini consultation from previous session. Implemented two remaining recommendations from Gemini's concrete spec.
