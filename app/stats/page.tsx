@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { ThumbsUp, ThumbsDown, Sparkles, BookOpen } from 'lucide-react'
+import { ThumbsUp, ThumbsDown, Sparkles, BookOpen, Clapperboard } from 'lucide-react'
 import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
 import { getStatus, type AnimeRow } from '@/lib/anime-data'
 import AnimeLinker from '@/components/AnimeLinker'
@@ -814,6 +814,168 @@ export default function StatsPage() {
                   </div>
                 </div>
               )}
+            </div>
+          )
+        })()}
+
+        {/* ── Watch DNA (extension-powered anime stats) ── */}
+        {watchSessions.length > 0 && (() => {
+          const now = new Date()
+          const GENRE_PALETTE = ['#FF2D46','#FF8C42','#FFB02E','#2FCF7A','#2BE6DC','#818CF8']
+
+          // Map title_raw → manga entry to get genres
+          const titleToManga: Record<string, Manga> = {}
+          for (const m of manga) {
+            if (m.has_anime || m.content_type === 'anime') {
+              titleToManga[(m.anime_title ?? m.title).toLowerCase()] = m
+              titleToManga[m.title.toLowerCase()] = m
+            }
+          }
+
+          // Count episodes per genre (from completed watch sessions)
+          const genreEpisodes: Record<string, number> = {}
+          const watchedTitles = new Set<string>()
+          for (const s of watchSessions) {
+            if (!s.is_complete) continue
+            watchedTitles.add(s.title_raw)
+            const m = titleToManga[s.title_raw.toLowerCase()]
+            if (m?.genres?.length) {
+              for (const g of m.genres) {
+                genreEpisodes[g] = (genreEpisodes[g] ?? 0) + 1
+              }
+            }
+          }
+          const topWatchGenres = Object.entries(genreEpisodes).sort((a, b) => b[1] - a[1]).slice(0, 6)
+
+          // Eps per active day (days that had at least one completed episode)
+          const activeDaysSet = new Set(
+            watchSessions.filter(s => s.is_complete).map(s => new Date(s.watched_at).toDateString())
+          )
+          const completedEps = watchSessions.filter(s => s.is_complete).length
+          const avgEpsPerDay = activeDaysSet.size > 0 ? Math.round(completedEps / activeDaysSet.size) : 0
+
+          // Rewatch: sessions where manga entry has rewatch flag, or episodes_watched > total_episodes
+          const rewatchedTitles = manga.filter(m =>
+            (m.has_anime || m.content_type === 'anime') &&
+            m.total_episodes && m.episodes_watched > m.total_episodes
+          )
+          const rewatchCount = rewatchedTitles.length
+
+          // Watch personality based on top genre
+          const topWatchGenre = topWatchGenres[0]?.[0] ?? ''
+          const watchPersonality: Record<string, string> = {
+            Action: 'Binge warrior',       Fantasy: 'World-builder',
+            Comedy: 'Laughter hunter',     Romance: 'Heart-seeker',
+            'Slice of Life': 'Chill watcher', Supernatural: 'Mystery chaser',
+            Horror: 'Thrill-seeker',       Drama: 'Story-driven',
+            'Sci-Fi': 'Future-gazer',      Shounen: 'Power-level chaser',
+          }
+
+          // Most-watched titles by episode count
+          const titleEpCount: Record<string, number> = {}
+          for (const s of watchSessions) {
+            if (s.is_complete) titleEpCount[s.title_raw] = (titleEpCount[s.title_raw] ?? 0) + 1
+          }
+          const topWatchTitles = Object.entries(titleEpCount).sort((a, b) => b[1] - a[1]).slice(0, 5)
+          const maxEpTitle = topWatchTitles[0]?.[1] ?? 1
+
+          // Today's watch time
+          const todayEps = watchSessions.filter(s => s.is_complete && new Date(s.watched_at).toDateString() === now.toDateString()).length
+          const todaySec = watchSessions.filter(s => new Date(s.watched_at).toDateString() === now.toDateString())
+            .reduce((sum, s) => sum + (s.watched_seconds ?? 0), 0)
+          const todayHrs = Math.floor(todaySec / 3600)
+          const todayMins = Math.floor((todaySec % 3600) / 60)
+
+          return (
+            <div className="mb-6">
+              <hr className="border-zinc-800 mb-6" />
+              <h2 className="text-lg font-bold mb-3">Your Watch DNA</h2>
+              <p className="text-xs text-zinc-500 mb-4">Based on extension-tracked sessions</p>
+
+              {/* Hero row */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="bg-zinc-900 rounded-xl p-4 text-center">
+                  <div className="text-xl font-bold text-white">
+                    {todayHrs > 0 ? `${todayHrs}h ${todayMins}m` : `${todayMins}m`}
+                  </div>
+                  <div className="text-xs text-zinc-500 mt-0.5">Today</div>
+                </div>
+                <div className="bg-zinc-900 rounded-xl p-4 text-center">
+                  <div className="text-xl font-bold text-white">{todayEps}</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">Episodes Today</div>
+                </div>
+                <div className="bg-zinc-900 rounded-xl p-4 text-center">
+                  <div className="text-xl font-bold text-white">{activeDaysSet.size}</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">Active Watch Days</div>
+                </div>
+                <div className="bg-zinc-900 rounded-xl p-4 text-center">
+                  <div className="text-xl font-bold text-white">{rewatchCount}</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">Rewatched</div>
+                </div>
+              </div>
+
+              <div className="lg:grid lg:grid-cols-2 lg:gap-4 mb-4">
+                {/* Personality + genre donut */}
+                {topWatchGenres.length > 0 && (
+                  <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+                    <div className="flex items-center gap-3 mb-4">
+                      <Clapperboard size={20} strokeWidth={1.5} className="text-violet-400 shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-white">{watchPersonality[topWatchGenre] ?? 'Avid Watcher'}</p>
+                        <p className="text-xs text-zinc-500">
+                          {avgEpsPerDay > 0 ? `${avgEpsPerDay} Episodes Per Active Day` : 'Keep watching to build your profile'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-4 items-start">
+                      <div className="shrink-0">
+                        <DonutChart size={100} data={topWatchGenres.map(([g, n], i) => ({ label: g, value: n, color: GENRE_PALETTE[i % GENRE_PALETTE.length] }))} />
+                      </div>
+                      <div className="flex-1 space-y-2">
+                        {topWatchGenres.map(([genre, eps], i) => (
+                          <div key={genre} className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: GENRE_PALETTE[i % GENRE_PALETTE.length] }} />
+                            <span className="text-xs text-zinc-400 w-20 shrink-0 truncate">{genre}</span>
+                            <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full" style={{ width: `${(eps / (topWatchGenres[0][1] || 1)) * 100}%`, backgroundColor: GENRE_PALETTE[i % GENRE_PALETTE.length] }} />
+                            </div>
+                            <span className="text-[10px] text-zinc-500 w-12 text-right shrink-0">{eps} ep</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Top titles by episodes watched */}
+                {topWatchTitles.length > 0 && (
+                  <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+                    <h3 className="text-sm font-semibold mb-4">Most Watched <span className="text-zinc-600 font-normal text-[10px]">by episodes</span></h3>
+                    <div className="space-y-3">
+                      {topWatchTitles.map(([title, eps], i) => {
+                        const entry = titleToManga[title.toLowerCase()]
+                        const isRewatch = entry?.total_episodes && entry.episodes_watched > entry.total_episodes
+                        return (
+                          <div key={title} className="flex items-center gap-3">
+                            <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
+                            <span className="text-xs text-zinc-300 flex-1 truncate">{title}</span>
+                            {isRewatch && <span className="text-[9px] text-cyan-500 shrink-0 border border-cyan-700 rounded px-1">RE</span>}
+                            <div className="w-20 h-2 bg-zinc-800 rounded-full overflow-hidden shrink-0">
+                              <div className="h-full rounded-full" style={{ width: `${(eps / maxEpTitle) * 100}%`, backgroundColor: '#a78bfa' }} />
+                            </div>
+                            <span className="text-[10px] text-zinc-500 w-8 text-right shrink-0">{eps}ep</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    {rewatchCount > 0 && (
+                      <div className="mt-4 pt-3 border-t border-zinc-800">
+                        <p className="text-xs text-zinc-500">🔁 Rewatched <span className="text-white">{rewatchCount}</span> {rewatchCount === 1 ? 'series' : 'series'} — because once wasn't enough</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )
         })()}

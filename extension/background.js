@@ -147,7 +147,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       chrome.storage.local.get(['yomu_last_tracked'], d => sendResponse(d.yomu_last_tracked || null))
       return true
     case 'GET_SESSION_STATS':
-      chrome.storage.local.get(['yomu_session_stats'], d => sendResponse(d.yomu_session_stats || {}))
+      chrome.storage.local.get(['yomu_session_stats'], d => {
+        let stats = d.yomu_session_stats
+        if (!stats || stats.date !== todayKey()) {
+          stats = freshStats()
+          chrome.storage.local.set({ yomu_session_stats: stats })
+        }
+        sendResponse(stats)
+      })
       return true
     case 'GET_CUSTOM_SITES':
       chrome.storage.local.get(['yomu_custom_sites'], d => sendResponse(d.yomu_custom_sites || []))
@@ -256,14 +263,21 @@ function flushPending() {
 }
 
 // ── Local stats aggregation ───────────────────────────────────────────────
+function todayKey() {
+  // Returns 'YYYY-MM-DD' in local time
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+
+function freshStats() {
+  return { total_watch_minutes: 0, episodes_completed: 0, titles_seen: [], sites_used: [], date: todayKey() }
+}
+
 function updateSessionStats(payload) {
   chrome.storage.local.get(['yomu_session_stats'], d => {
-    const stats = d.yomu_session_stats || {
-      total_watch_minutes: 0,
-      episodes_completed: 0,
-      titles_seen: [],
-      sites_used: [],
-    }
+    let stats = d.yomu_session_stats
+    // Reset if it's a new day
+    if (!stats || stats.date !== todayKey()) stats = freshStats()
     stats.total_watch_minutes += Math.round((payload.watched_seconds || 0) / 60)
     if (payload.is_complete) stats.episodes_completed++
     if (!stats.titles_seen.includes(payload.title)) stats.titles_seen.push(payload.title)
