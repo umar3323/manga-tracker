@@ -270,7 +270,19 @@ function todayKey() {
 }
 
 function freshStats() {
-  return { total_watch_minutes: 0, episodes_completed: 0, titles_seen: [], sites_used: [], date: todayKey() }
+  return {
+    total_watch_minutes: 0,
+    episodes_completed: 0,
+    titles_seen: [],
+    sites_used: [],
+    date: todayKey(),
+    // session_progress: tracks last-seen watched_seconds per session key so we
+    // can compute deltas instead of re-adding the full cumulative total each tick.
+    // completed_keys: prevents double-counting episodes_completed when 85%-done
+    // fires before the actual "ended" event.
+    session_progress: {},
+    completed_keys: [],
+  }
 }
 
 function updateSessionStats(payload) {
@@ -278,10 +290,28 @@ function updateSessionStats(payload) {
     let stats = d.yomu_session_stats
     // Reset if it's a new day
     if (!stats || stats.date !== todayKey()) stats = freshStats()
-    stats.total_watch_minutes += Math.round((payload.watched_seconds || 0) / 60)
-    if (payload.is_complete) stats.episodes_completed++
+    // Ensure fields added after initial schema exist
+    if (!stats.session_progress) stats.session_progress = {}
+    if (!stats.completed_keys)   stats.completed_keys   = []
+
+    // Delta tracking: payload.watched_seconds is cumulative (grows every heartbeat).
+    // Only add the increase since the last reported value to avoid counting the same
+    // time repeatedly across multiple heartbeat pings.
+    const sessionKey = `${payload.title}||${payload.episode ?? 'null'}`
+    const prev    = stats.session_progress[sessionKey] ?? 0
+    const current = Math.max(0, payload.watched_seconds || 0)
+    const delta   = Math.max(0, current - prev)
+    stats.session_progress[sessionKey] = Math.max(prev, current)
+    stats.total_watch_minutes += Math.round(delta / 60)
+
+    // Count each completed episode only once (85%-threshold and "ended" can both fire)
+    if (payload.is_complete && !stats.completed_keys.includes(sessionKey)) {
+      stats.completed_keys.push(sessionKey)
+      stats.episodes_completed++
+    }
+
     if (!stats.titles_seen.includes(payload.title)) stats.titles_seen.push(payload.title)
-    if (!stats.sites_used.includes(payload.site)) stats.sites_used.push(payload.site)
+    if (!stats.sites_used.includes(payload.site))   stats.sites_used.push(payload.site)
     chrome.storage.local.set({ yomu_session_stats: stats })
   })
 }
