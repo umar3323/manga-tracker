@@ -556,6 +556,14 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
   const [showUrlImport, setShowUrlImport] = useState(false)
   // notify.moe
   const [notifyMoe, setNotifyMoe] = useState<{ id: string; rating: { overall: number; story: number; visuals: number; soundtrack: number } | null; url: string } | null>(null)
+  // Wikipedia
+  const [wikiData, setWikiData] = useState<{
+    title: string; url: string; summary: string; thumbnail?: string
+    author?: string; illustrator?: string; publisher?: string; serializedIn?: string
+    originalRun?: string; volumes?: string; episodes?: string; directed?: string
+    studio?: string; genres?: string[]; arcSummary?: string
+  } | null>(null)
+  const [wikiExpanded, setWikiExpanded] = useState(false)
   // OMDB / IMDb rating
   const [imdbRating, setImdbRating] = useState<string | null>(null)
   const [imdbId, setImdbId] = useState<string | null>(null)
@@ -617,6 +625,14 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
         .then(j => { if (j.data) setNotifyMoe(j.data) })
         .catch(() => {})
     }
+    // Wikipedia: author, release history, arcs (non-blocking)
+    if (manga.title) {
+      const wikiMalId = manga.mal_id ?? ''
+      fetch(`/api/wikipedia?title=${encodeURIComponent(manga.title)}&mal_id=${wikiMalId}`, { signal })
+        .then(r => r.json())
+        .then(j => { if (j.data) setWikiData(j.data) })
+        .catch(() => {})
+    }
     // MangaUpdates: fetch adaptation depth + community recommendations (non-blocking)
     if (manga.title) {
       fetch(`/api/mangaupdates?title=${encodeURIComponent(manga.title)}`, { signal })
@@ -661,7 +677,7 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
         .catch(() => {})
     }
 
-    return () => ac.abort()
+    return () => { ac.abort(); setWikiData(null); setWikiExpanded(false) }
   }, [manga.mal_id, manga.anime_mal_id, manga.has_anime, manga.title, manga.content_type])
 
   // Fetch Jikan relations for Related Anime section + Series Map button
@@ -1219,6 +1235,73 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
               </div>
             )
           })()}
+
+          {/* Wikipedia info panel */}
+          {wikiData && (
+            <div className="mb-4">
+              <button
+                onClick={() => setWikiExpanded(p => !p)}
+                className="flex items-center justify-between w-full text-left mb-2 group"
+              >
+                <p className="text-xs font-medium text-zinc-500 group-hover:text-zinc-300 transition-colors">
+                  📖 Wikipedia
+                </p>
+                <span className="text-zinc-600 text-xs">{wikiExpanded ? '▲' : '▼'}</span>
+              </button>
+
+              {/* Summary always visible */}
+              <p className="text-xs text-zinc-400 leading-relaxed line-clamp-3">
+                {wikiData.summary}
+              </p>
+
+              {wikiExpanded && (
+                <div className="mt-3 space-y-2">
+                  {/* Infobox fields */}
+                  {[
+                    { label: 'Author', value: wikiData.author },
+                    { label: 'Illustrator', value: wikiData.illustrator },
+                    { label: 'Publisher', value: wikiData.publisher },
+                    { label: 'Serialized in', value: wikiData.serializedIn },
+                    { label: 'Original run', value: wikiData.originalRun },
+                    { label: 'Volumes', value: wikiData.volumes },
+                    { label: 'Episodes', value: wikiData.episodes },
+                    { label: 'Directed by', value: wikiData.directed },
+                    { label: 'Studio', value: wikiData.studio },
+                  ].filter(f => f.value).map(f => (
+                    <div key={f.label} className="flex gap-2 text-xs">
+                      <span className="text-zinc-500 shrink-0 w-24">{f.label}</span>
+                      <span className="text-zinc-300">{f.value}</span>
+                    </div>
+                  ))}
+
+                  {/* Genres */}
+                  {wikiData.genres && wikiData.genres.length > 0 && (
+                    <div className="flex gap-2 text-xs">
+                      <span className="text-zinc-500 shrink-0 w-24">Genres</span>
+                      <span className="text-zinc-300">{wikiData.genres.join(', ')}</span>
+                    </div>
+                  )}
+
+                  {/* Arc / chapter list */}
+                  {wikiData.arcSummary && (
+                    <div className="mt-2">
+                      <p className="text-xs text-zinc-500 mb-1">Story arcs / chapters</p>
+                      <p className="text-xs text-zinc-400 leading-relaxed">{wikiData.arcSummary}</p>
+                    </div>
+                  )}
+
+                  <a
+                    href={wikiData.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors mt-1"
+                  >
+                    Read on Wikipedia ↗
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* AniList: ranked tags */}
           {alManga && alManga.tags.filter(t => t.rank >= 60).length > 0 && (

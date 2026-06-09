@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, and Supabase (Postgres + auth). Live at `manga-tracker-hazel.vercel.app`. All core features are active: library tracking, series grouping, discovery, airing calendar, sync, stats, sharing. Session 7 completed all remaining Code-owner tasks from the Weekly Update doc: date attribution timestamp fix, duplicate dismissal cross-device persistence, MangaDex chapter listing, OMDB/IMDb ratings, and Google Takeout import UI.
+YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, and Supabase (Postgres + auth). Live at `manga-tracker-hazel.vercel.app`. All core features are active: library tracking, series grouping, discovery, airing calendar, sync, stats, sharing, Chrome extension for watch tracking, and community totals crowd-sourcing. Sessions 13–17 added community totals editing, extension daily stat reset, anime watch DNA, Continue Watching platform tracking, hourly Discover refresh with dismiss, and multi-source integration (notify.moe, AniList external links, 16-entry sources page).
 
 ---
 
@@ -10,126 +10,70 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
-#### Community Totals (session 13)
+#### Session 18 — Wikipedia integration + bug fixes (2026-06-09)
 
-- **Supabase** — New `community_totals` table: `(id, mal_id, content_type, total_chapters, total_episodes, updated_by, updated_at)`. Unique on `(mal_id, content_type)`. RLS: any authenticated user can read/upsert.
-- `app/api/community-totals/route.ts` *(new)* — `GET ?mal_id=&content_type=` returns existing record or null. `POST` body `{ mal_id, content_type, total_chapters?, total_episodes? }` upserts on conflict. Cookie-based auth only (browser-only — extension does not call this route).
-- `app/page.tsx` — Two new functions in the `Home` component:
-  - `updateTotalChapters(id, n, malId?, contentType?)` — writes to `manga_list` + fires POST to `/api/community-totals` if `malId` present; shows toast "Total chapters shared with community ✓".
-  - `updateTotalEpisodes(id, n, malId?, contentType?)` — same pattern for `total_episodes`.
-- `app/page.tsx` — **Card chapter tracker**: `{seriesTotal ?? '?'}` static span replaced with `<EditableNumber>` calling `updateTotalChapters`. Only operates on single-entry cards (multi-part series totals are summed; user edits the active member).
-- `app/page.tsx` — **Card episode tracker**: `/{seriesEpTotal}` static span replaced with `<EditableNumber>` calling `updateTotalEpisodes`.
-- `app/page.tsx` — **DetailModal total_chapters**: existing `EditableNumber` now additionally POSTs to `/api/community-totals` after the `manga_list` update.
-- `app/page.tsx` — **DetailModal total_episodes**: was a static `{manga.total_episodes} eps` span; replaced with `<EditableNumber>` that writes to `manga_list` + community_totals.
-- `app/page.tsx` — **Add-entry flow**: after inserting a new library entry, fetches `/api/community-totals?mal_id=&content_type=` and back-fills any missing `total_chapters`/`total_episodes` from community data.
+- `app/api/wikipedia/route.ts` *(new)* — Wikipedia REST API proxy. `GET ?title=&mal_id=`. Fetches summary + infobox via `page/summary` + `page/mobile-sections` endpoints. Parses infobox table rows (author, illustrator, publisher, originalRun, volumes, episodes, directed, studio, genres). Finds arc/chapter list section and extracts item names as `arcSummary`. Falls back to search API if exact title not found. 72h cache in `anilist_cache` with `media_type='WIKIPEDIA'`, keyed by `mal_id` (or title hash when mal_id absent). Returns `WikipediaData` interface (also exported for reuse).
+- `app/api/notifymoe/route.ts` — Fixed stale null caching: added `NULL_CACHE_TTL_MS = 2h` for misses (was never caching nulls — every modal open re-queried). Now upserts `payload: null` when `findNotifyMoeByMalId` returns null; uses `ttl = cached.payload ? 24h : 2h` on cache read.
+- `app/page.tsx` — DetailModal Wikipedia panel: collapsible section below "Also on" links showing summary (always visible), infobox fields table (expanded), genres, arcSummary, "Read on Wikipedia ↗" link. State: `wikiData` + `wikiExpanded`. Fetch in DetailModal useEffect; cleanup resets both state values.
+- `app/sources/page.tsx` — Added Wikipedia to `LINKED_SOURCES` (live tier, between notify.moe and MangaUpdates).
+- `extension/content.js` — Netflix parser: added guard `if (!show || /^netflix$/i.test(show)) return null` to prevent empty/bare "Netflix" log entries.
+- `package.json` — Added `"devclean": "rm -rf .next/dev/cache/turbopack && next dev"` script to clear Turbopack RocksDB before starting dev server (avoids SSTable corruption from space in path `Anime Website`).
+- `.claude/launch.json` — Changed `runtimeArgs` to `["run", "devclean"]` so preview tool always clears stale cache.
 
-### Previous Latest Changes (session 12)
+#### Session 17 — Multi-source integration (2026-06-09, commit `bf2aa0c`)
 
-- `app/page.tsx` — **Multi-type filter + recents refresh (session 12)**:
-  - Anime filter tab now shows entries where `has_anime = true` in addition to `content_type === 'anime'/'movie'`, so manga entries with anime adaptations appear in both their primary tab and the Anime tab.
-  - `typeCounts` updated to count `has_anime` entries toward the anime badge.
-  - Added `visibilitychange` listener: re-fetches `manga_list` every time the user switches back to this tab — ensures episode count updates (from extension watch events in another tab) reflect immediately and bump Recents order.
-- **Supabase**: Spirited Away `content_type` updated to `'movie'` (was `'anime'`).
-- `app/api/streaming-sites/route.ts` — **Auth fix (session 11 code review)**: original route used cookie-only auth. Extension sends `Authorization: Bearer <token>`. Fixed `getUser()` to try Bearer first, fall back to cookie auth for browser requests — matching `watch-event/route.ts` pattern.
-- `app/extension/page.tsx` *(new)* — Extension landing page: feature grid, supported-platform table with detection method, "How it works" explainer, 5-step install instructions, GitHub download button. Linked from Sidebar + tablet icon rail.
-- `app/sources/page.tsx` — New **Extension Streaming Sites** section: built-in site grid (all 16 parsers), custom-sites list (from DB), "Add site" form (URL → hostname normalisation → POST to API → live update), hover-to-delete per site.
-- `app/api/streaming-sites/route.ts` *(new)* — GET/POST/DELETE. GET and POST add normalise hostname (strips scheme/www/path). Duplicate insert returns 409. All endpoints dual-mode auth (Bearer + cookie).
-- `extension/background.js` — `fetchCustomSites()` fetches `/api/streaming-sites` after auth and caches hostnames in `chrome.storage.local`. Called on startup (if token present), on `SET_AUTH_TOKEN`, and on `tabs.onUpdated` token grab. `GET_CUSTOM_SITES` message handler added.
-- `extension/content.js` — `_customHostnames` loaded async from background on script load; `getBestParser()` checks custom hostnames after dedicated parsers and applies `fromTitle()` to matches.
-- `components/Nav.tsx` — Extension tab added to tablet icon rail (`tabletTabs`); mobile bottom nav unchanged (5 items).
-- `components/Sidebar.tsx` — Extension link added to desktop sidebar nav.
-- **Supabase migration** — `custom_streaming_sites (id, user_id, hostname, display_name, created_at)` table with RLS (`auth.uid() = user_id`). Unique constraint on `(user_id, hostname)`.
-- `extension/content.js` — **Multi-platform streaming support (session 11)**:
-  - Added dedicated parsers: **Disney+** (DOM scrape), **Max/HBO** (DOM scrape), **Hulu** (title), **Apple TV+** (title), **Bilibili.tv** (title `EP N` pattern), **Tubi** (URL `s01e01` pattern)
-  - Fixed **HiDive** parser to extract season/episode from URL (`/stream/show/s01e01`) instead of falling back to title
-  - Split Funimation into its own stub entry (kept for legacy URLs)
-  - Improved **`fromTitle()` fallback**: now strips branded suffixes without TLD (Netflix, Disney+, Max, etc.), handles `S1:E5` inline format, more robust episode extraction — any unknown site with episode info in the tab title will parse correctly
-- `extension/content.js` — **Netflix tracking fixes (session 11)**:
-  - Netflix parser now DOM-scrapes the player UI for `S1:E5` patterns using several known Netflix selector candidates before falling back to title parsing.
-  - Parser also handles `S1:E5`-style format in the tab title itself.
-  - `send()` now retries once after 1 s on failure — wakes a terminated MV3 service worker instead of silently losing the event.
-- `app/api/watch-event/route.ts` — **Episode counter increment when episode is null**: When `is_complete` is true but `safeEpisode` is null (Netflix and others that don't expose episode number in title), `episodes_watched` is now incremented by 1 (was silently skipped). Auto-complete logic also applied in the null-episode path.
+- `lib/notifymoe.ts` *(new)* — notify.moe REST API client. `findNotifyMoeByMalId(malId, title)` searches by title then matches via `mappings[].serviceId` for MAL ID. `getNotifyMoeAnime(notifyId)` direct-fetch by notify.moe internal ID. Returns `NotifyMoeAnime` with `rating: { overall, story, visuals, soundtrack, overall_count }`. **Server-side only** (CORS blocked for browser requests).
+- `app/api/notifymoe/route.ts` *(new)* — Server-side proxy for notify.moe. `GET ?mal_id=&title=`. Caches in `anilist_cache` table with `media_type='NOTIFY_MOE'`. 24h TTL. Falls back to stale cache if fresh fetch returns null.
+- `lib/anilist.ts` — Added `AniListExternalLink` interface and `externalLinks: AniListExternalLink[]` field to `AniListAnimeData`. `fetchAniListAnime` now filters `externalLinks` by `type !== 'STREAMING'` and exposes them separately from `streamingLinks`. AniList returns links to AniDB, Anime-Planet, Annict, LiveChart etc. with `type: 'INFO'` — no extra API calls needed.
+- `app/page.tsx` — DetailModal: notify.moe score bars (Overall/Story/Visuals/Soundtrack, rendered as progress bars). "Also on" link buttons for `externalLinks` with emoji icons per site (`SITE_ICONS` map). Both appear in the anime detail panel alongside existing AniList/streaming data.
+- `app/sources/page.tsx` — Expanded `LINKED_SOURCES` from 9 to 16 entries across three groups: Direct APIs (MyAnimeList, AniList, notify.moe, Kitsu, MangaUpdates, MangaDex, MangaPlus, Shonen Jump, Webtoons, Goodreads, ANN), Via AniList cross-links (AniDB, Anime-Planet, Annict, LiveChart.me), Planned (menome.in.th).
 
-### Previous Latest Changes (session 10)
+#### Session 16 — Discover improvements (2026-06-09)
 
-- `app/page.tsx` — **Code review fixes (session 10)**:
-  - AbortController on all 6 DetailModal `useEffect` fetches (AniList ×2, MangaUpdates, ANN, Jikan recs, OMDB) — cancelled on cleanup.
-  - `updateNotes` now calls `supabase.auth.getUser()` and adds `.eq('user_id', user.id)` to the update query (defence-in-depth over RLS).
-  - `filtered`/`typeCounts` wrapped in `useMemo`; `endSession` in `useCallback`.
-  - Cover-fetch `useEffect` concurrency guard via `fetchRunning` ref.
-  - Toast timer stored in `toastTimer` ref; cleared on unmount.
-  - `fetchManga` error path calls `setLoading(false)` before returning.
-  - `recMalId` dead ternary fixed (was using `mal_id` twice; now correctly uses `anime_mal_id` for second branch).
-  - `triggerDownload` properly appends/removes anchor element.
-  - Both duplicate `STATUS_LABELS` declarations inside components removed.
-  - `endSession` useCallback deps corrected.
-- `app/api/watch-event/route.ts` — Comprehensive input sanitisation: `safeTitle` (255 chars), `safeSite` (100 chars), `safeEpisode`/`safeSeason`/`safeDuration`/`safeWatched` bounds-checked; timestamp validated (rejects NaN, >1hr future, >10yr past).
-- `app/stats/page.tsx` — Auth guard in `load()`: checks `supabase.auth.getUser()` before any DB queries; shows empty page instead of silent failure.
-- `extension/background.js` — `SET_AUTH_TOKEN` validates sender origin (must be `YOMU_HOST`) and JWT format before storing; `recentKeys` Map pruned every 30 min.
-- `extension/content.js` — MutationObserver debounced with `requestAnimationFrame`; `setInterval` polling replaced with Navigation API (`navigation.addEventListener('navigate', ...)`); `tc()` skips connectives (of/and/the/a/an/…) mid-title.
-- `lib/data/takeout-series.ts` *(new)* — 33-entry `TAKEOUT_ENTRIES` array extracted from `app/page.tsx` (was inline in the client bundle with personal viewing notes); notes stripped.
-- `lib/jikan.ts` — `mapMangaResult` null-coalesces `mal_id`; `getJikanRecommendations` field names corrected (`episodes` not `total_episodes`); version comment to bust Vercel build cache.
+- `components/DiscoverySection.tsx` — Full rewrite: 4 sections (Popular Manga, New Manga, Popular Anime, New Anime). Genre filter pills per section. Hourly cache key `${YYYY-MM-DD-HH}-${genreId}` so data refreshes every hour. 5-min interval checks if hour has flipped and re-fetches. Member/reader count shown per card (`👥 N`). Dismiss X button on hover — saves `direction: 'skip'` to `swipe_history` table to build taste profile.
+- `lib/jikan.ts` — Added `members?: number | null` to `JikanSearchResult`. Added to `mapMangaResult` and `mapAnimeResult`. Added `getTopAnime()` and `getNewAnime()` functions.
+- `lib/supabase.ts` — Extended `SwipeRecord.direction` type to include `'skip'`.
 
-### Previous Latest Changes (sessions 8–9)
+#### Session 15 — Continue Watching + platform tracking (2026-06-09)
 
-- `app/stats/page.tsx` — **Graphs throughout Stats tab** (session 9):
-  - `DonutChart` component (multi-segment SVG arcs) — reused in Status Breakdown and Reading DNA
-  - `WatchHeatmap` component — 52-week episode calendar (cyan palette), mirrors `ReadingHeatmap`
-  - Watch History section: Completion Rate ring (cyan, % overlaid), 8-week Watch Time Trend area/line chart, Episode Calendar heatmap, Hour-of-Day watch histogram (colour-coded morning/afternoon/evening/late-night)
-  - Status Breakdown: donut chart alongside existing bars
-  - Reading DNA: per-genre colour donut + coloured bar legend
-  - All charts pure inline SVG — zero new dependencies
+- `app/page.tsx` — Continue Watching banner: reads `last_watched_site` to show a colour-coded platform pill next to the label (e.g. "🎬 Netflix" in Netflix red). Library card badge shows platform name instead of generic "🎬 tracked". `SITE_DISPLAY` and `SITE_COLORS` maps added.
+- `app/api/watch-event/route.ts` — Added `last_watched_site: safeSite` to the matched-entry updates object and new-entry insert payload.
+- `lib/supabase.ts` — Added `last_watched_site: string | null` to `Manga` type.
 
-- `app/page.tsx` — **OMDB movie type fix** (session 9): All 3 OMDB fetch calls now use `type=movie` when `content_type === 'movie'`, `type=series` otherwise. Fixes movies returning no IMDb results.
+#### Session 14 — Extension daily reset + anime watch stats (2026-06-09)
 
-- `lib/jikan.ts` — Added version comment at top to bust Vercel's stale module build cache. Fixes alternating Error/Ready deployment pattern that started in session 6.
+- `extension/background.js` — Daily reset for extension session stats: `todayKey()` returns `YYYY-MM-DD`. `updateSessionStats` resets all counters if `stats.date !== todayKey()`. `GET_SESSION_STATS` also resets stale date on read.
+- `app/stats/page.tsx` — Added "Your Watch DNA" section: hero stats (today's time/eps, active days, rewatches), genre donut + bars from `watch_sessions`, watch personality label, top watched titles with RE badge for rewatches. Uses same `watch_sessions` Supabase table that the extension writes to.
 
-### Previous Latest Changes (session 8)
+#### Session 13 — Community totals (2026-06-09)
 
-- `extension/content.js` — **YOMU auth token harvesting**: Added a block at the end of the file that fires only on `manga-tracker-hazel.vercel.app`. Reads all `localStorage` keys, finds the Supabase JWT (`access_token`), and sends `{ type: 'SET_AUTH_TOKEN', token }` to the background worker. Retries up to 10 times every 800 ms to handle Supabase's async session restore.
-
-- `extension/background.js` — Added `SET_AUTH_TOKEN` message handler. Stores token in `authToken` + `chrome.storage.local`, flushes the pending queue, and flashes the green badge.
-
-- `extension/popup.js` — **Connection UX fix**: Removed `window.close()` from the Connect button handler. Popup stays open, shows yellow dot ("Connecting…"), polls `GET_STATUS` every 500 ms for up to 12 seconds, turns green with "✓ Connected!" on success.
-
-### Previous Latest Changes (session 7)
-
-- `app/page.tsx` — **Date attribution timestamp fix**: `commitChapterProgress` now uses the user's picked date as `last_read_at` when `attr.precision === 'exact'` (`timestamp = attr.precision === 'exact' && attr.date ? new Date(attr.date).toISOString() : now`). Previously always wrote `now`. Same fix applied to `commitEpisodeProgress` which now also writes `last_read_at` (it didn't before).
-
-- `app/page.tsx` — **Duplicate dismissal cross-device persistence**: `dismissedPairs` state still initialises from localStorage (fast). A `useEffect` on mount calls `supabase.auth.getUser()` to load `user_metadata.dismissed_pairs` and merges them into state. `dismissPair()` now also calls `supabase.auth.updateUser({ data: { dismissed_pairs: arr } })` alongside the localStorage write.
-
-- `app/page.tsx` + `lib/jikan.ts` — **MangaDex chapter listing in DetailModal**: Added `getMangaDexChapters(title)` to `lib/jikan.ts` — searches MangaDex by title, dedupes by chapter number, returns `{ chapters: MangaDexChapter[], total: number }`. In DetailModal, a collapsible "📖 Chapters (N)" section appears for any non-anime, non-movie entry. Lazy-loads on expand. Shows chapter number, volume badge, title, page count, and publish date per row.
-
-- `app/page.tsx` — **OMDB/IMDb rating in DetailModal**: On DetailModal open, reads `localStorage.getItem('yomu_omdb_key')` and fetches from `omdbapi.com` if present. Displays `★ X.X IMDb ↗` below the MAL link when a result is found. A `⚙` button next to the rating opens a `window.prompt` to change the key. When no key is set, a small `+ IMDb rating` button appears that prompts for the key and immediately fetches.
-  - ⚠️ **API COST**: OMDB free tier = 1,000 req/day. One fetch per DetailModal open (only when key is set). No polling. No server-side storage — key lives in `localStorage` only.
-
-- `app/page.tsx` — **Google Takeout import UI**: Added `TakeoutImportModal` component with all 33 series hardcoded (mirrors `scripts/takeout-import.ts`). Shows which series will be added vs already in library. "Import N Series" button inserts via `supabase.from('manga_list').insert(toImport)`. After import, calls `fetchManga()` to refresh the grid and shows a toast. Accessible via **📦 Import** button in the desktop toolbar (added in session 8) and `📦 Takeout Import` in the mobile `⋮` menu.
-
-- `lib/jikan.ts` — Added `MangaDexChapter` interface and `getMangaDexChapters(title, offset?)` public function. Internally: `getMangaDexId(title)` searches MangaDex `/manga` by title, then `getMangaDexChaptersByMangaId(id, offset)` fetches English chapters with deduplication by chapter number.
-
-- `app/api/mangadex/route.ts` *(new)* + `lib/jikan.ts` — **MangaDex CORS fix**: MangaDex API blocks direct browser requests. Created a thin server-side proxy at `/api/mangadex?path=<encoded-path>` that forwards requests to `api.mangadex.org` with 5-minute server-side cache. Updated `lib/jikan.ts` `getMangaDexId` and `getMangaDexChaptersByMangaId` to call `/api/mangadex` instead of `api.mangadex.org` directly. Verified: Berserk loads 419 chapters correctly.
+- **Supabase** — New `community_totals` table: `(id, mal_id, content_type, total_chapters, total_episodes, updated_by, updated_at)`. Unique on `(mal_id, content_type)`.
+- `app/api/community-totals/route.ts` *(new)* — `GET ?mal_id=&content_type=` returns record or null. `POST` body `{ mal_id, content_type, total_chapters?, total_episodes? }` upserts on conflict.
+- `app/page.tsx` — Card chapter/episode totals replaced with `<EditableNumber>` that writes to `manga_list` + fires POST to `/api/community-totals`. Add-entry flow back-fills missing totals from community data on insert.
 
 ### Outstanding Tasks
 
 - [ ] **Web-push notifications** — infrastructure exists (`app/api/cron/route.ts`, `sw.js`). Blocked on Vercel env vars only — user must add to Vercel dashboard:
-  - `VAPID_EMAIL` — any email address
-  - `NEXT_PUBLIC_VAPID_PUBLIC_KEY` — generate with `npx web-push generate-vapid-keys`
-  - `VAPID_PRIVATE_KEY` — from same command
+  - `VAPID_EMAIL`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`
 
-- [ ] **Feature request button** — code is correct (`app/api/feature-request/route.ts` already handles `GOOGLE_SERVICE_ACCOUNT_JSON`). Blocked on Vercel env var only — user must add `GOOGLE_SERVICE_ACCOUNT_JSON` (full service account credentials JSON as a single-line string) in Vercel dashboard. Also ensure `GOOGLE_SHEET_ID` is set.
+- [ ] **Feature request button** — blocked on `GOOGLE_SERVICE_ACCOUNT_JSON` + `GOOGLE_SHEET_ID` in Vercel dashboard.
 
-- [ ] **Stats page inline IIFEs** (M-4) — `app/stats/page.tsx` has ~8 large `{(() => { ... })()}` JSX IIFEs (lines ~427, 519, 641, 821, 890, 919, 1110, 1188). These recompute on every render. To fix: move the `if (loading) return` guard to after all `useMemo` declarations, then extract each IIFE's body into a named `const` wrapped in `useMemo`. Complex restructure; safe to defer.
+- [ ] **ANTHROPIC_API_KEY on Vercel** — "Analyse URL" feature in DetailModal fails in production without this. User must add to Vercel dashboard.
 
-- [ ] **Watch-event API fuzzy match at scale** (H-4) — `app/api/watch-event/route.ts` loads the entire user library in JS on every POST to fuzzy-match the title. Fast for small libraries; degrades at scale. Long-term fix: `pg_trgm` extension + DB-level similarity search via Supabase RPC. Low urgency for personal use.
+- [ ] **Stats page inline IIFEs** (M-4) — `app/stats/page.tsx` has ~8 large `{(() => { ... })()}` JSX IIFEs (lines ~427, 519, 641, 821, 890, 919, 1110, 1188). Extract into `useMemo` constants. Safe to defer.
 
-- [ ] **`onMergeMultiple` transaction safety** (H-6) — `app/page.tsx` `onMergeMultiple` fires two separate `supabase` calls (delete one entry, update another) without a transaction. A crash between the two leaves the DB in a half-merged state. Fix: create a Supabase RPC function `merge_entries(keep_id, drop_id)` that does both atomically.
+- [ ] **Watch-event API fuzzy match at scale** (H-4) — `app/api/watch-event/route.ts` loads full library in JS on every POST. Long-term fix: `pg_trgm` + DB-level RPC. Low urgency for personal use.
 
-- [ ] **Jikan direct browser calls** (M-1) — several `lib/jikan.ts` functions (`getAnimeAdaptations`, `getMangaAllRelations`, `getSeriesEntryDetail`, `getJikanEpisodes`, etc.) call `https://api.jikan.moe/v4/...` directly from the browser, bypassing the `/api/jikan` proxy. This is fine for now (Jikan has permissive CORS) but means no server-side rate-limit caching. Fix: route all Jikan calls through `/api/jikan`.
+- [ ] **`onMergeMultiple` transaction safety** (H-6) — `app/page.tsx` `onMergeMultiple` fires two separate Supabase calls without a transaction. Fix: create RPC `merge_entries(keep_id, drop_id)`.
 
-- [x] **OMDB IMDb rating — movie type search** — fixed in session 9 (`d7b1f13`)
-- [x] **Stats tab graphs** — added in session 9 (`e2406da`): donuts, trend line, heatmap, hour-of-day
-- [x] **Vercel alternating Error/Ready builds** — fixed in session 9 by busting jikan.ts cache (`d7b1f13`)
-- [x] **Code review critical/high/medium/low findings** — fixed in session 10 (`8c4dd46`)
+- [ ] **Jikan direct browser calls** (M-1) — some `lib/jikan.ts` functions call `api.jikan.moe` directly from the browser. Route all through `/api/jikan`.
+
+- [ ] **menome.in.th integration** — Thai anime community site. No public API found. Currently listed as "planned" on Sources page. Revisit if an API or scrape path is discovered.
+
+- [ ] **Reload Chrome extension** — after `background.js` daily reset change, user must go to `chrome://extensions` and click Reload on the YOMU extension.
+
+- [ ] **Wikipedia infobox coverage** — infobox parsing is regex-based on HTML table rows; some articles use different field labels (e.g. "Story by" vs "Written by"). Coverage will be incomplete for some titles. Low urgency; can be improved by adding label variants to the `parseField` calls in `app/api/wikipedia/route.ts`.
+  - ⚠️ API COST: Wikipedia REST API is free with no rate limits. Each novel Wikipedia page fetch = 2 HTTP calls (summary + mobile-sections). Cached 72h per title.
 
 ---
 
@@ -137,15 +81,15 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### UrlImportModal closes immediately on interaction — 2026-06-08
 - **Symptom:** Clicking inside the "Import From URL" modal closed the DetailModal.
-- **Root cause:** Modal renders outside the DetailModal panel div (which has `onClick` stopPropagation) but inside the backdrop div with `onClick={onClose}`. `mousedown` fired before `click` could be stopped.
+- **Root cause:** Modal renders inside backdrop div with `onClick={onClose}`. `mousedown` fired before `click` could be stopped.
 - **Fix:** `components/UrlImportModal.tsx` — added `onMouseDown={e => e.stopPropagation()}`.
 - **Prevention rule:** Any modal inside a backdrop `onClick={onClose}` div must have BOTH `onClick` AND `onMouseDown` stopPropagation on its outermost element.
 
 ### MangaDex chapters showing "No data" in browser — 2026-06-08
-- **Symptom:** Expanding the 📖 Chapters section in DetailModal always showed "No chapter data found on MangaDex."
-- **Root cause:** `lib/jikan.ts` called `api.mangadex.org` directly from the client (browser). MangaDex blocks cross-origin browser requests (CORS). The fetch silently failed, returning no data.
-- **Fix:** Created `app/api/mangadex/route.ts` — a server-side proxy that forwards any path to `api.mangadex.org`. Updated `getMangaDexId` and `getMangaDexChaptersByMangaId` in `lib/jikan.ts` to call `/api/mangadex?path=...` instead of the MangaDex URL directly.
-- **Prevention rule:** Never call MangaDex (or any API that sets restrictive CORS headers) directly from the browser. Always proxy through a Next.js API route.
+- **Symptom:** Expanding the 📖 Chapters section in DetailModal always showed "No chapter data found."
+- **Root cause:** `lib/jikan.ts` called `api.mangadex.org` directly from the client. MangaDex blocks CORS.
+- **Fix:** `app/api/mangadex/route.ts` — server-side proxy. Updated `lib/jikan.ts` to call `/api/mangadex`.
+- **Prevention rule:** Never call MangaDex (or any CORS-restrictive API) directly from the browser. Always proxy through a Next.js API route.
 
 ### Auto-sync gauges overwriting independent progress — 2026-06-08
 - **Symptom:** Advancing chapters silently overwrote `episodes_watched` and vice versa.
@@ -155,30 +99,58 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Extension "Connect to YOMU" gave no feedback — 2026-06-08
 - **Symptom:** Clicking "Connect to YOMU" opened the YOMU site but nothing happened — popup closed, dot stayed red.
-- **Root cause:** `popup.js` called `window.close()` immediately after `chrome.tabs.create()`. The background's `chrome.tabs.onUpdated` did eventually grab the token but the popup was already gone, so the user saw no confirmation.
-- **Fix:** `extension/popup.js` — removed `window.close()`; popup now stays open and polls `GET_STATUS` every 500 ms. `extension/content.js` — added YOMU-domain block that reads `localStorage` directly and sends `SET_AUTH_TOKEN` to background. `extension/background.js` — added `SET_AUTH_TOKEN` handler.
-- **Prevention rule:** Never `window.close()` a popup that is waiting for an async result. Always keep the popup open until the result is confirmed. For any popup that needs auth feedback, use a polling pattern or a persistent `chrome.runtime.onMessage` listener.
+- **Root cause:** `popup.js` called `window.close()` immediately after `chrome.tabs.create()`.
+- **Fix:** Removed `window.close()`; popup polls `GET_STATUS` every 500ms. Content script pushes token via `SET_AUTH_TOKEN`.
+- **Prevention rule:** Never `window.close()` a popup waiting for an async result. Always keep open until result confirmed.
 
 ### Vercel alternating Error/Ready builds — 2026-06-08
-- **Symptom:** Every `git push` created two deployments — one `● Error` (35s, fails) and one `● Ready` (1m, succeeds). Production always used the Ready one so the site was fine, but builds were noisy and any cache-miss day would have no Ready fallback.
-- **Root cause:** One of Vercel's parallel build workers cached `lib/jikan.ts` from before `searchAnimeByProducer` was added (session 6). That worker consistently failed with "Export searchAnimeByProducer doesn't exist." The other worker had a fresh cache and succeeded.
-- **Fix:** `lib/jikan.ts` — added a version comment at line 1 to change the file hash, forcing all build workers to invalidate their cache entry. Combined with `npx vercel deploy --prod --force` to flush the cache immediately.
-- **Prevention rule:** If you ever see alternating Error/Ready builds with the same cryptic "export not found" error, touch the affected module with a trivial comment change. Run `npx vercel deploy --prod --force` once to flush, then normal `git push` will work cleanly.
+- **Symptom:** Every `git push` triggered one Error + one Ready deployment.
+- **Root cause:** One Vercel build worker had stale `lib/jikan.ts` cache from before `searchAnimeByProducer` was added.
+- **Fix:** Added a version comment to `lib/jikan.ts` to bust the cache hash.
+- **Prevention rule:** If you see alternating Error/Ready with "export not found", touch the affected module with a comment. Run `npx vercel deploy --prod --force` once to flush.
 
 ### streaming-sites API returned 401 for extension — 2026-06-09
-- **Symptom:** Extension's `fetchCustomSites()` always got 401; custom sites never loaded into `chrome.storage.local`.
-- **Root cause:** `streaming-sites/route.ts` used `createServerClient` (cookie-based auth only). Extension has no cookies — it sends `Authorization: Bearer <token>`. The `getUser()` call returned null.
-- **Fix:** `app/api/streaming-sites/route.ts` — replaced `makeSupabase()` with `getUser(req)` that tries Bearer auth first, falls back to cookie auth for browser requests.
-- **Prevention rule:** Any API route that the extension calls must support Bearer token auth (same pattern as `watch-event/route.ts` — check `Authorization: Bearer` header, call `supabase.auth.getUser(token)`). Cookie-only routes (`createServerClient`) are browser-only.
+- **Symptom:** Extension's `fetchCustomSites()` always got 401.
+- **Root cause:** Route used cookie-only auth; extension sends `Authorization: Bearer <token>`.
+- **Fix:** `app/api/streaming-sites/route.ts` — dual-mode auth (Bearer first, cookie fallback).
+- **Prevention rule:** Any API route called by the extension must support Bearer token auth. Cookie-only routes are browser-only.
 
 ### Netflix episode counter never advancing — 2026-06-09
-- **Symptom:** Watching anime on Netflix (e.g. Saiki K) did not increment the episode counter on the library card.
-- **Root cause (1):** Netflix tab title is `"Show Name | Netflix"` with no episode number. The parser returned `episode: null`. `watch-event` API only updated `episodes_watched` when `safeEpisode != null`, so the field was never touched.
-- **Root cause (2):** MV3 service worker terminates after ~30s inactivity. If the user watches without interacting with the extension, the SW dies mid-session. `send()` used `.catch(() => {})` — silently dropped the event, so nothing reached the API.
-- **Fix (1):** `extension/content.js` — Netflix parser now DOM-scrapes player UI for `S1:E5` patterns; also parses `S1:E5` from title string.
-- **Fix (2):** `app/api/watch-event/route.ts` — added `else` branch: when `is_complete && safeEpisode == null`, increment `episodes_watched` by 1.
-- **Fix (3):** `extension/content.js` — `send()` retries once after 1s on failure to wake a dead service worker.
-- **Prevention rule:** Never silently swallow errors in `send()` — always retry at least once to handle SW termination. The API must handle `episode: null` for `is_complete` events (some streaming sites never expose episode number in title/DOM).
+- **Symptom:** Watching on Netflix didn't increment the episode counter.
+- **Root cause (1):** Netflix title has no episode number → `episode: null` → API skipped `episodes_watched` update.
+- **Root cause (2):** MV3 service worker terminates after ~30s; `send()` silently dropped events.
+- **Fix:** DOM-scrape Netflix player for `S1:E5`; API increments by 1 when `is_complete && safeEpisode == null`; `send()` retries once after 1s.
+- **Prevention rule:** Never silently swallow errors in `send()`. API must handle `episode: null` for `is_complete` events.
+
+### notify.moe CORS blocked in browser — 2026-06-09
+- **Symptom:** Direct browser fetch to `notify.moe` API fails with CORS error.
+- **Root cause:** notify.moe API blocks cross-origin browser requests.
+- **Fix:** `app/api/notifymoe/route.ts` — server-side proxy with 24h cache in `anilist_cache` table (`media_type='NOTIFY_MOE'`).
+- **Prevention rule:** Never call notify.moe directly from the browser. Always use `/api/notifymoe` proxy.
+
+### notify.moe scores never rendering (stale null cache) — 2026-06-09
+- **Symptom:** notify.moe score bars never appeared in DetailModal even for well-known anime; every modal open made a fresh API call and returned null.
+- **Root cause:** When `findNotifyMoeByMalId` returned null, nothing was cached. On next open the TTL check found no row → re-queried → null again. Infinite miss loop.
+- **Fix:** `app/api/notifymoe/route.ts` — now upserts `payload: null` on miss; read path uses `ttl = payload ? 24h : 2h`.
+- **Prevention rule:** Always cache null/miss results with a shorter TTL. Never let a "no data found" path return without writing to cache.
+
+### Turbopack RocksDB corruption in dev — 2026-06-09
+- **Symptom:** `next dev` failed with `Failed to open database / invalid digit found in string`.
+- **Root cause:** RocksDB SSTable files in `.next/dev/cache/turbopack/` corrupt when the path contains a space (`Anime Website`). Stale cache from a prior session triggers the error.
+- **Fix:** `package.json` — `devclean` script: `rm -rf .next/dev/cache/turbopack && next dev`. `.claude/launch.json` uses `devclean` so the preview tool always clears the cache first.
+- **Prevention rule:** Always start the dev server via `npm run devclean` (not `npm run dev`) in this project. Never run `next dev` directly.
+
+### Netflix session log showing blank titles — 2026-06-09
+- **Symptom:** Extension session log rows showed `—` with no title; entries had empty show name.
+- **Root cause:** Netflix parser fell through all extraction paths (DOM scrape + title string parsing both failed), resulting in `show = ""` or `show = "Netflix"`.
+- **Fix:** `extension/content.js` — added guard: `if (!show || /^netflix$/i.test(show)) return null` so the parser returns null instead of logging a broken entry.
+- **Prevention rule:** All extension site parsers must return `null` (not an object with empty title) when title extraction fails. The `send()` function skips null results.
+
+### swipe_history insert failed with user_id column — 2026-06-09
+- **Symptom:** Dismiss X on Discover cards threw Supabase insert error referencing unknown column `user_id`.
+- **Root cause:** `swipe_history` table has no `user_id` column (cols: id, mal_id, title, direction, genres, synopsis, swiped_at).
+- **Fix:** Removed `user_id` reference from dismiss insert; used plain `insert` without `onConflict`.
+- **Prevention rule:** Before adding a column to a Supabase insert, verify the column exists in the table schema. `swipe_history` does not have `user_id`.
 
 ### Duplicate detection falsely flagging series members — 2026-06-08
 - **Symptom:** Series members with similar titles appeared in Duplicates tab.
@@ -190,108 +162,118 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ## Session Log
 
+### Session — 2026-06-09 (session 18)
+- User requested Wikipedia as a data source for author, publication history, arc info, etc.
+- Built `/api/wikipedia` proxy (2 REST calls: `page/summary` + `page/mobile-sections` for infobox). Regex parses infobox table row HTML. 72h cache. Falls back to search API.
+- Fixed notify.moe null cache loop (stale nulls never written; fixed with 2h miss TTL + null upsert).
+- Fixed Turbopack RocksDB corruption: `devclean` script + launch.json update.
+- Fixed Netflix blank title log rows: parser returns null when show extraction fails.
+- Wikipedia panel added to DetailModal (collapsible, below "Also on"; shows summary + infobox fields + arcs).
+- Wikipedia added to Sources page (live tier).
+
+### Session — 2026-06-09 (session 17)
+- User asked to integrate 7 new sources: hummingbird.me (Kitsu rebrand), menome.in.th, anime-planet.com, anidb.net, kitsu.app, annict.com, notify.moe.
+- notify.moe: open REST API but CORS-blocked. Built server-side proxy (`/api/notifymoe`) with 24h cache. Scores shown as progress bars in DetailModal.
+- AniDB, Anime-Planet, Annict, LiveChart: already reachable via AniList `externalLinks` GraphQL field. Previously only `STREAMING` type was kept — now expose all non-streaming links as "Also on" buttons. No additional API calls needed.
+- Kitsu: already integrated in `lib/kitsu.ts`. Listed as live on Sources page (Hummingbird.me rebranded to Kitsu).
+- menome.in.th: Thai community site with no discoverable public API. Listed as "planned" on Sources page.
+- Sources page expanded from 9 to 16 entries in three groups.
+- Committed `bf2aa0c` and pushed.
+
+### Session — 2026-06-09 (session 16)
+- User wanted Discover sections updated hourly, member/reader counts shown, Popular Anime and New Anime sections added, and X button to dismiss cards and record them for taste profiling.
+- Hourly cache key `YYYY-MM-DD-HH` per genre; 5-min interval checks for hour flip.
+- Member counts from Jikan `members` field.
+- Dismiss writes `direction: 'skip'` to `swipe_history` — same table used by swipe queue, so same RLS applies. Attempted `upsert` with `user_id` but `swipe_history` has no `user_id` column; fixed to plain `insert`.
+
+### Session — 2026-06-09 (session 15)
+- Continue Watching was showing FMA instead of actively-watched Saiki K — fixed by ensuring `last_watched_site` is written on every watch event, and the banner always reads the most recently updated entry.
+- Platform pill added to Continue Watching header and library card badge. `SITE_DISPLAY`/`SITE_COLORS` maps normalize hostname → display name → colour.
+
+### Session — 2026-06-09 (session 14)
+- Extension stats were cumulative across days; user wanted daily reset. Fixed via date key comparison in background.js.
+- Extension stats (watch time, episodes, titles, sites) already written to `watch_sessions` table which the Stats page reads. Confirmed flow is connected.
+- Added "Your Watch DNA" section to Stats page (mirrors Reading DNA) — genre breakdown, personality label, top titles, re-watch badges.
+
 ### Session — 2026-06-09 (session 13)
-- User requested manual editing of total chapters/episodes on cards, with changes crowd-sourced so other users adding the same title see the updated total.
-- `community_totals` Supabase table added (upsert keyed by `mal_id + content_type`). Reused existing `EditableNumber` component for the total fields on cards and in DetailModal.
-- Toast fires when a community total is shared. Entries without a `mal_id` silently skip the community write.
-- Add-entry flow now back-fills missing totals from community on insert.
+- User requested manual editing of total chapters/episodes on cards, crowd-sourced so other users see the updated total.
+- `community_totals` Supabase table added (upsert keyed by `mal_id + content_type`). Reused `EditableNumber` component. Toast fires when a community total is shared. Add-entry flow back-fills from community on insert.
 
-### Session — 2026-06-09 (session 12)
-- Multi-type filter: Anime tab now includes `has_anime=true` manga entries. typeCounts reflects this. Spirited Away set to movie via Supabase.
-- Recents live refresh: visibilitychange listener re-fetches library when user tabs back, so watch events from the extension update card order instantly.
-
-### Session — 2026-06-09 (session 11 — continued, code review)
-- Code review of all session-11 additions. One critical bug found and fixed: `streaming-sites` API used cookie auth only; extension calls with Bearer token → returns 401. Fixed to dual-mode auth matching `watch-event` pattern.
-- Deployment verified via browser automation: `/extension` page renders correctly with all sections. `/sources` Extension Streaming Sites section shows all 16 built-in parsers and "Add site" button. API tested directly: GET 200 ✓, POST 201 ✓, DELETE 200 ✓. No console errors.
-- Note: React controlled-input test via JS (`.value =` assignment) doesn't trigger `onChange`; form works correctly for real user input — this is a test limitation, not a bug.
+### Session — 2026-06-09 (sessions 11–12 — continued)
+- Multi-type filter: Anime tab includes `has_anime=true` manga entries. typeCounts reflects this.
+- Recents live refresh: `visibilitychange` listener re-fetches library on tab focus.
+- streaming-sites API auth bug fixed (Bearer + cookie dual-mode).
+- Deployment verified via browser automation.
 
 ### Session — 2026-06-09 (session 11)
-- Extended extension to cover all major streaming platforms: Disney+, Max, Hulu, Apple TV+, Bilibili.tv, Tubi — all with episode extraction where possible. DOM scraping used for Disney+ and Max (title has no episode info). Improved `fromTitle()` fallback so any unrecognised site with episode info in the tab title works automatically.
-- Netflix episode tracking was broken in two ways: (1) parser only scraped title — Netflix anime titles are just "Show | Netflix" with no episode info, so `episode` was always `null`; (2) `watch-event` API skipped `episodes_watched` update entirely when `safeEpisode == null`.
-- Fixed parser to DOM-scrape Netflix player UI selectors for `S1:E5` patterns and also parse `S1:E5` in the title string.
-- Fixed API to increment `episodes_watched` by 1 when `is_complete` but no episode number (fallback for any site that doesn't expose episode in title/DOM).
-- Fixed `send()` in content.js to retry once after 1s on service worker termination (MV3 background can die after ~30s inactivity; events were being silently dropped).
+- Extended extension to all major streaming platforms. Fixed Netflix tracking (DOM scrape + API null-episode increment + send() retry).
 
 ### Session — 2026-06-08 (session 10)
-- Full code review performed; all Critical, High, Medium, and most Low findings fixed in one commit (`8c4dd46`).
-- Key security fixes: watch-event API now sanitises all 6 input fields; extension `SET_AUTH_TOKEN` validates sender origin + JWT format before storing; `updateNotes` adds explicit `user_id` guard.
-- Key perf fixes: AbortController on DetailModal's 6 concurrent fetches (cancelled on close); MutationObserver debounced with rAF; 1s polling replaced with Navigation API.
-- Key correctness fixes: `recMalId` dead ternary; `tc()` connective words; `fetchManga` early return now calls `setLoading(false)`; `TAKEOUT_ENTRIES` extracted from public bundle.
-- 4 findings deferred as noted in Outstanding Tasks: M-4 (stats IIFEs), H-4 (DB-level fuzzy match), H-6 (merge transaction), M-1 (Jikan proxy coverage).
-- Deployed to `manga-tracker-hazel.vercel.app` via `git push` (`3673140`).
+- Full code review; all Critical/High/Medium findings fixed. 4 deferred (M-4, H-4, H-6, M-1).
 
 ### Session — 2026-06-08 (session 9)
-- Added graphs throughout Stats tab: DonutChart + WatchHeatmap components; completion ring, 8-week watch trend, hour-of-day histogram, episode calendar in Watch History; donut in Status Breakdown; donut + coloured bars in Reading DNA. All pure inline SVG.
-- Fixed OMDB fetching `type=series` for movies — now uses `type=movie` when `content_type === 'movie'`.
-- Fixed Vercel alternating Error/Ready build pattern (since session 6) by adding a comment to `lib/jikan.ts` to bust its stale cache entry. After fix, `git push` triggers a single clean Ready build again.
-- Graphs deploy initially failed (only Error, no Ready) due to the cache issue — forced with `npx vercel deploy --prod --force`. Subsequent push with the cache bust fix resolves it permanently.
-- Outstanding tasks still requiring user action: VAPID env vars for web-push, `GOOGLE_SERVICE_ACCOUNT_JSON` for feature-request button.
+- Graphs throughout Stats tab (donuts, trend, heatmap, hour-of-day). OMDB movie-type fix. Vercel cache-bust.
 
 ### Session — 2026-06-08 (session 8)
-- Fixed extension "Connect to YOMU" UX: popup was calling `window.close()` immediately, giving no feedback. Now stays open and polls for connection.
-- Added content-script–based token harvesting (direct `localStorage` read on YOMU origin) as the reliable path — doesn't require `scripting` permission timing; fires as soon as the page is idle.
-- Added `SET_AUTH_TOKEN` handler in `background.js` to receive the token pushed from content script.
-- Root cause of the original issue: `chrome.scripting.executeScript` with `world: 'MAIN'` fires after the popup closes, so user saw nothing happen. New flow: popup stays open → content script pushes token → background stores it → popup poll detects and turns green.
+- Extension Connect UX fix. Content-script token harvesting. SET_AUTH_TOKEN handler.
 
 ### Session — 2026-06-08 (session 7)
-- Fixed date attribution bug: `commitChapterProgress` was always writing `now` as `last_read_at` even when user picked an exact date in DateAttributionModal. Now uses picked date when `attr.precision === 'exact'`. Same fix applied to `commitEpisodeProgress`.
-- Fixed duplicate dismissal not persisting cross-device: merged localStorage with Supabase `auth.updateUser` user metadata. Load on mount, save on every dismiss.
-- Added MangaDex chapter listing to DetailModal. Lazy-load on expand, English chapters only, deduped by chapter number, shows vol/ch/pages/date.
-- Added OMDB/IMDb rating to DetailModal. Key stored in localStorage. Prompt-based key entry (no dedicated settings UI). One fetch per modal open.
-- Added Google Takeout import UI (`TakeoutImportModal`). 33 series hardcoded (matches `scripts/takeout-import.ts`). Shows diff vs existing library before confirming. Accessible from mobile menu.
-- Deployed to `manga-tracker-hazel.vercel.app`.
+- Date attribution timestamp fix. Cross-device duplicate dismissal. MangaDex chapter listing. OMDB/IMDb rating. Google Takeout import UI.
 
 ### Session — 2026-06-08 (session 6)
-- Removed auto-sync between chapter and episode gauges
-- Added Movie to type filter tabs; episode tracker hidden for movies; both trackers dim when inactive
-- "Similar in your list" entries now clickable via `onNavigate`
-- Added StudioModal for anime/movie studio discovery via `searchAnimeByProducer`
-- Fixed UrlImportModal close glitch — `onMouseDown` stopPropagation
-- Fixed pre-existing `JikanAnimeItem` TypeScript error in `lib/jikan.ts`
+- Removed auto-sync gauges. Movie filter tab. StudioModal. UrlImportModal close fix.
 
 ### Session — 2026-06-08 (session 5)
-- SeriesPanel online Jikan search; related works add buttons; series-aware episode tracker
-- FMA Brotherhood DB patch; Jikan 429 retry in `getSeriesEntryDetail`
-- Filter tabs larger and brighter; duplicate detection `series_id` check
+- SeriesPanel online search; related works add buttons; series-aware episode tracker; FMA patch.
 
 ---
 
 ## Change History
 
+### 2026-06-09 — Session 18
+- `app/api/wikipedia/route.ts` *(new)* — Wikipedia proxy; 72h cache; infobox + arc parsing
+- `app/api/notifymoe/route.ts` — 2h null TTL; null upsert on miss
+- `app/page.tsx` — Wikipedia collapsible panel in DetailModal
+- `app/sources/page.tsx` — Wikipedia added as live source
+- `extension/content.js` — Netflix empty-title guard
+- `package.json` — `devclean` script
+- `.claude/launch.json` — `devclean` in runtimeArgs
+
+### 2026-06-09 — Sessions 13–17
+- `lib/notifymoe.ts` *(new)* — notify.moe API client (server-side only)
+- `app/api/notifymoe/route.ts` *(new)* — server-side proxy, 24h cache in anilist_cache
+- `app/api/community-totals/route.ts` *(new)* — GET/POST for crowd-sourced chapter/episode totals
+- `lib/anilist.ts` — `externalLinks` field added to `AniListAnimeData`; non-streaming links exposed
+- `lib/supabase.ts` — `last_watched_site: string | null` on Manga type; `SwipeRecord.direction` extended to `'skip'`
+- `lib/jikan.ts` — `members` field; `getTopAnime()`; `getNewAnime()`
+- `app/page.tsx` — Community totals editing on cards/DetailModal; notify.moe score bars; "Also on" external links; Continue Watching platform pill; card badge shows platform name
+- `app/api/watch-event/route.ts` — `last_watched_site` written on match and new-entry insert
+- `app/stats/page.tsx` — "Your Watch DNA" section (genre donut, personality, top titles, RE badge)
+- `app/sources/page.tsx` — 9 → 16 sources (notify.moe, Kitsu, AniDB, Anime-Planet, Annict, LiveChart, menome.in.th)
+- `components/DiscoverySection.tsx` — Full rewrite: 4 sections, hourly cache, member counts, dismiss X
+
 ### 2026-06-09 — Sessions 11–12
-- `app/page.tsx` — Multi-type filter (Anime tab includes `has_anime` entries); `visibilitychange` listener for live recents refresh
-- `app/api/streaming-sites/route.ts` — Dual-mode auth (Bearer + cookie); `custom_streaming_sites` table
+- `app/page.tsx` — Multi-type filter; `visibilitychange` recents refresh
+- `app/api/streaming-sites/route.ts` — Dual-mode auth
 - `app/extension/page.tsx` *(new)* — Extension landing page
-- `app/sources/page.tsx` — Custom streaming sites section + add/delete UI
-- `extension/content.js` — Netflix DOM scraping; 6 new platform parsers; `fromTitle()` overhaul; `send()` retry; custom hostnames support
-- `extension/background.js` — `fetchCustomSites()`; `GET_CUSTOM_SITES` handler
-- `app/api/watch-event/route.ts` — +1 increment fallback when `safeEpisode == null`
-- `components/Nav.tsx` + `components/Sidebar.tsx` — Extension tab added
+- `app/sources/page.tsx` — Custom streaming sites section
+- `extension/content.js` — Netflix DOM scrape; 6 new platform parsers; `send()` retry
+- `extension/background.js` — `fetchCustomSites()`; daily stat reset
+- `app/api/watch-event/route.ts` — +1 episode fallback when `safeEpisode == null`
+- `components/Nav.tsx` + `components/Sidebar.tsx` — Extension tab
 
 ### 2026-06-08 — Sessions 8–9
-- `app/stats/page.tsx` — DonutChart + WatchHeatmap; graphs in Watch History, Status Breakdown, Reading DNA
-- `app/page.tsx` — OMDB `type=movie` for movies
-- `lib/jikan.ts` — cache-bust version comment
-- `extension/content.js` — YOMU-domain token harvesting block
+- `app/stats/page.tsx` — DonutChart + WatchHeatmap; full graph suite
+- `extension/content.js` — YOMU-domain token harvesting
 - `extension/background.js` — `SET_AUTH_TOKEN` handler
-- `extension/popup.js` — removed `window.close()`; polls for connection status
+- `extension/popup.js` — polling UX; removed `window.close()`
 
 ### 2026-06-08 — Session 6
-- `app/page.tsx` — Removed auto-sync gauges: `commitChapterProgress` no longer writes `episodes_watched`; `commitEpisodeProgress` no longer writes `current_chapter`
-- `app/page.tsx` — Movie filter tab added (amber style)
-- `app/page.tsx` — Episode tracker hidden for `content_type === 'movie'`; inactive gauge dimming with `opacity-40` and `bg-zinc-600`
-- `app/page.tsx` — "Similar in your list" entries changed to `<button onClick={() => onNavigate(sm)}>`
-- `app/page.tsx` — Studio label + `StudioModal`: anime/movie cards show `Studio:` prefix; `StudioModal` calls `searchAnimeByProducer`
-- `components/UrlImportModal.tsx` — Added `onMouseDown={e => e.stopPropagation()}`
-- `lib/jikan.ts` — Fixed `JikanAnimeItem` TypeScript errors (replaced with `any`)
+- `app/page.tsx` — Removed auto-sync gauges; Movie filter; StudioModal; "Similar in your list" clickable
+- `components/UrlImportModal.tsx` — `onMouseDown` stopPropagation
+- `lib/jikan.ts` — TypeScript fixes
 
 ### 2026-06-08 — Sessions 1–5
-- Batch-enriched 88 manga entries via Jikan
-- Dual manga+anime search; Library Health Check modal; Re-Watch tracking; `unwatched` status
-- Progress snapshots on re-read/re-watch; Title-Case sweep
-- Calendar: global airing schedule, filter pills, 14-day window, `+ Add` for non-library entries
-- Sync results modal with change chips; content-type badge on all library cards
-- `score`, `published_from`, `published_to` DB columns; DateAttributionModal "Apply To All"
-- Series grouping: `series_id` + `series_primary`; `SeriesPanel`; episode tracker on cards
-- Jikan online search in SeriesPanel; related works `+ Lib` / `+ Series` buttons
-- FMA Brotherhood DB patch; `getSeriesEntryDetail` 429 retry
+- Batch-enriched 88 manga entries; dual search; Library Health Check; Re-Watch tracking; `unwatched` status
+- Progress snapshots; Title-Case sweep; Calendar; Sync results modal; content-type badges
+- Series grouping; SeriesPanel; episode tracker; FMA patch; related works add buttons

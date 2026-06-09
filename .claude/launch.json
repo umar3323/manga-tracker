@@ -4,7 +4,7 @@
     {
       "name": "manga-tracker",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": ["run", "devclean"],
       "port": 3000
     }
   ]

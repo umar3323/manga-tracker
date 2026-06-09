@@ -160,7 +160,10 @@ const PARSERS = [
         .replace(/\s*[-–]\s*season\s*\d+.*/i, '')
         .replace(/\s*[-–]\s*S\d+.*/i, '')
         .trim()
-      return { title: show || t, episode: ep, season: sn }
+      // If show is empty or just "Netflix" we couldn't extract a title — return null
+      // so the watch-event API uses the +1 increment fallback rather than logging a blank title.
+      if (!show || /^netflix$/i.test(show)) return null
+      return { title: show, episode: ep, season: sn }
     }
   },
 

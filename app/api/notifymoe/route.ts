@@ -8,7 +8,8 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { findNotifyMoeByMalId } from '@/lib/notifymoe'
 
-const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000 // 24h
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000 // 24h for hits
+const NULL_CACHE_TTL_MS = 2 * 60 * 60 * 1000  // 2h for misses (don't hammer API for unknown titles)
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
@@ -36,7 +37,9 @@ export async function GET(req: NextRequest) {
 
   if (cached) {
     const age = Date.now() - new Date(cached.fetched_at).getTime()
-    if (age < CACHE_MAX_AGE_MS) {
+    // Use hit TTL for real data, miss TTL for cached nulls
+    const ttl = cached.payload ? CACHE_MAX_AGE_MS : NULL_CACHE_TTL_MS
+    if (age < ttl) {
       return NextResponse.json({ data: cached.payload, cached: true })
     }
   }
@@ -49,7 +52,14 @@ export async function GET(req: NextRequest) {
   const fresh = await findNotifyMoeByMalId(malId, title)
 
   if (!fresh) {
-    if (cached) return NextResponse.json({ data: cached.payload, cached: true, stale: true })
+    // Cache the null result so we don't re-query on every modal open
+    await supabase.from('anilist_cache').upsert({
+      mal_id: malId,
+      media_type: 'NOTIFY_MOE',
+      anilist_id: 0,
+      payload: null,
+      fetched_at: new Date().toISOString(),
+    }, { onConflict: 'mal_id,media_type' }).catch(() => {})
     return NextResponse.json({ data: null })
   }
 

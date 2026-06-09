@@ -57,6 +57,14 @@ const LINKED_SOURCES = [
     status: 'live' as const,
   },
   {
+    name: 'Wikipedia',
+    url: 'https://en.wikipedia.org',
+    via: 'Wikipedia REST API v1',
+    description: 'Author, illustrator, publisher, original run, volume/episode counts, studio, genres, and story arc summaries. Shown in the Wikipedia panel inside the detail modal.',
+    features: ['Author & illustrator', 'Publication history', 'Story arcs', 'Infobox fields'],
+    status: 'live' as const,
+  },
+  {
     name: 'MangaUpdates',
     url: 'https://www.mangaupdates.com',
     via: 'MangaUpdates API',
