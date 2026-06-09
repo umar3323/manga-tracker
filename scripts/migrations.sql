@@ -161,10 +161,17 @@ RETURNS void
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  -- Reassign watch sessions from dropped entries to the kept entry
   UPDATE watch_sessions
     SET manga_id = keep_id
   WHERE manga_id = ANY(drop_ids);
 
+  -- Reassign chapter notifications so alerts keep firing on the kept entry
+  UPDATE chapter_notifications
+    SET manga_id = keep_id
+  WHERE manga_id = ANY(drop_ids);
+
+  -- Delete the dropped duplicates
   DELETE FROM manga_list
   WHERE id = ANY(drop_ids);
 END;
