@@ -2854,6 +2854,13 @@ export default function Home() {
   const [addContentType, setAddContentType] = useState<'manga' | 'anime' | 'movie'>('manga')
   const addSuggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const addBarRef = useRef<HTMLDivElement>(null)
+  // Quick-details fields shown after a title is confirmed
+  const [addShowDetails, setAddShowDetails] = useState(false)
+  const [addDetailStatus, setAddDetailStatus] = useState<MangaStatus | null>(null)
+  const [addDetailProgress, setAddDetailProgress] = useState<string>('')
+  const [addDetailDate, setAddDetailDate] = useState<string>('')
+  const [addDetailNotes, setAddDetailNotes] = useState<string>('')
+  const [addDetailRating, setAddDetailRating] = useState<'up' | 'down' | null>(null)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
@@ -3385,6 +3392,15 @@ ${entries}
     }
   }
 
+  const resetAddDetails = () => {
+    setAddShowDetails(false)
+    setAddDetailStatus(null)
+    setAddDetailProgress('')
+    setAddDetailDate('')
+    setAddDetailNotes('')
+    setAddDetailRating(null)
+  }
+
   const addManga = async () => {
     if (!selectedJikan && !newTitle.trim()) return
     setAdding(true)
@@ -3458,6 +3474,17 @@ ${entries}
           ...(isMovie ? { has_anime: false } : {}),
         }
       }
+      // Apply quick-detail overrides from the expanded details panel
+      if (addDetailStatus) insertPayload.status = addDetailStatus
+      const progressNum = parseInt(addDetailProgress, 10)
+      if (!isNaN(progressNum) && progressNum > 0) {
+        if (isAnime || isMovie) insertPayload.episodes_watched = progressNum
+        else insertPayload.current_chapter = progressNum
+      }
+      if (addDetailNotes.trim()) insertPayload.notes = addDetailNotes.trim()
+      if (addDetailRating) insertPayload.user_rating = addDetailRating
+      if (addDetailDate) insertPayload.last_read_at = new Date(addDetailDate).toISOString()
+
       const { data, error } = await supabase
         .from('manga_list')
         .insert(insertPayload)
@@ -3473,6 +3500,7 @@ ${entries}
         setShowAdd(false)
         setAddSuggestions([])
         setShowAddSuggestions(false)
+        resetAddDetails()
         // Check community totals to fill in missing totals (runs async after add)
         const malIdForCommunity = newEntry.mal_id ?? newEntry.anime_mal_id
         if (malIdForCommunity) {
@@ -4011,7 +4039,7 @@ ${entries}
               {(['manga', 'anime', 'movie'] as const).map(ct => (
                 <button
                   key={ct}
-                  onClick={() => { setAddContentType(ct); setSelectedJikan(null); setNewTitle(''); setAddSuggestions([]) }}
+                  onClick={() => { setAddContentType(ct); setSelectedJikan(null); setNewTitle(''); setAddSuggestions([]); resetAddDetails() }}
                   className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors ${addContentType === ct ? 'bg-white text-black' : 'text-zinc-500 hover:text-zinc-300'}`}
                 >
                   {ct === 'manga' ? '📚 Manga / Manhwa' : ct === 'anime' ? '🎌 Anime' : '🎬 Movie'}
@@ -4027,7 +4055,7 @@ ${entries}
                     <img src={selectedJikan.cover_url} alt="" className="w-6 h-9 object-cover rounded shrink-0" />
                   )}
                   <span className="text-sm text-zinc-200 flex-1 truncate">{selectedJikan.title}</span>
-                  <button onClick={() => { setSelectedJikan(null); setNewTitle('') }}
+                  <button onClick={() => { setSelectedJikan(null); setNewTitle(''); resetAddDetails() }}
                     className="text-zinc-500 hover:text-white text-lg shrink-0">×</button>
                 </div>
               ) : (
@@ -4058,7 +4086,7 @@ ${entries}
                     }}
                     onKeyDown={e => {
                       if (e.key === 'Enter') { setShowAddSuggestions(false); addManga() }
-                      if (e.key === 'Escape') { setShowAdd(false); setNewTitle(''); setAddSuggestions([]); setSelectedJikan(null) }
+                      if (e.key === 'Escape') { setShowAdd(false); setNewTitle(''); setAddSuggestions([]); setSelectedJikan(null); resetAddDetails() }
                     }}
                     placeholder={addContentType === 'anime' ? 'Search for an anime title…' : addContentType === 'movie' ? 'Search for a movie title…' : 'Search for a manga / manhwa title…'}
                     aria-label={addContentType === 'anime' ? 'New anime title' : addContentType === 'movie' ? 'New movie title' : 'New manga title'}
@@ -4103,6 +4131,114 @@ ${entries}
               {adding ? '…' : 'Add'}
             </button>
             </div>
+
+            {/* ── Quick Details (shown once a title is confirmed) ── */}
+            {(selectedJikan || newTitle.trim()) && (
+              <div className="border border-zinc-800 rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setAddShowDetails(v => !v)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50 transition-colors"
+                >
+                  <span className="font-medium">{addShowDetails ? '▲ Hide details' : '▼ Add details (status, progress, date, notes…)'}</span>
+                  {/* Show a summary of filled fields when collapsed */}
+                  {!addShowDetails && (addDetailStatus || addDetailProgress || addDetailDate || addDetailNotes || addDetailRating) && (
+                    <span className="text-zinc-600 text-[10px] gap-1.5 flex items-center">
+                      {addDetailStatus && <span className="bg-zinc-800 rounded px-1.5 py-0.5">{addDetailStatus.replace('_', ' ')}</span>}
+                      {addDetailProgress && <span className="bg-zinc-800 rounded px-1.5 py-0.5">{addContentType === 'manga' ? `Ch.${addDetailProgress}` : `Ep.${addDetailProgress}`}</span>}
+                      {addDetailDate && <span className="bg-zinc-800 rounded px-1.5 py-0.5">{addDetailDate}</span>}
+                      {addDetailRating && <span>{addDetailRating === 'up' ? '👍' : '👎'}</span>}
+                    </span>
+                  )}
+                </button>
+
+                {addShowDetails && (
+                  <div className="px-4 pb-4 pt-1 flex flex-col gap-4 bg-zinc-900/40">
+                    {/* Status */}
+                    <div>
+                      <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mb-2">Status</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(addContentType === 'manga'
+                          ? (['reading', 'completed', 'plan_to_read', 'on_hold', 'dropped'] as MangaStatus[])
+                          : addContentType === 'anime'
+                          ? (['watching', 'completed', 'plan_to_read', 'on_hold', 'dropped'] as MangaStatus[])
+                          : (['unwatched', 'watching', 'completed'] as MangaStatus[])
+                        ).map(s => (
+                          <button
+                            key={s}
+                            onClick={() => setAddDetailStatus(prev => prev === s ? null : s)}
+                            className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors capitalize ${
+                              addDetailStatus === s
+                                ? 'bg-white text-black'
+                                : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                            }`}
+                          >
+                            {s.replace(/_/g, ' ')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Progress + Date row */}
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mb-2">
+                          {addContentType === 'manga' ? 'Current Chapter' : 'Episodes Watched'}
+                        </p>
+                        <input
+                          type="number"
+                          min={0}
+                          value={addDetailProgress}
+                          onChange={e => setAddDetailProgress(e.target.value)}
+                          placeholder="0"
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-zinc-500 text-zinc-200 placeholder:text-zinc-600"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mb-2">
+                          {addContentType === 'manga' ? 'Date Read' : 'Date Watched'}
+                        </p>
+                        <input
+                          type="date"
+                          value={addDetailDate}
+                          onChange={e => setAddDetailDate(e.target.value)}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-zinc-500 text-zinc-200 [color-scheme:dark]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    <div>
+                      <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mb-2">Notes</p>
+                      <textarea
+                        value={addDetailNotes}
+                        onChange={e => setAddDetailNotes(e.target.value)}
+                        placeholder="Your thoughts, where you left off, reminders…"
+                        rows={2}
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-zinc-500 text-zinc-200 placeholder:text-zinc-600 resize-none"
+                      />
+                    </div>
+
+                    {/* Rating */}
+                    <div>
+                      <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mb-2">Rating</p>
+                      <div className="flex gap-2">
+                        {(['up', 'down'] as const).map(r => (
+                          <button
+                            key={r}
+                            onClick={() => setAddDetailRating(prev => prev === r ? null : r)}
+                            className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${
+                              addDetailRating === r ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                            }`}
+                          >
+                            {r === 'up' ? '👍 Liked' : '👎 Didn\'t like'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
