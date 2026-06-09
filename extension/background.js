@@ -4,9 +4,25 @@
 
 'use strict';
 
-const YOMU_URL   = 'https://manga-tracker-hazel.vercel.app'
-const API_URL    = `${YOMU_URL}/api/watch-event`
-const YOMU_HOST  = 'manga-tracker-hazel.vercel.app'
+const YOMU_URL    = 'https://manga-tracker-hazel.vercel.app'
+const API_URL     = `${YOMU_URL}/api/watch-event`
+const BATCH_URL   = `${YOMU_URL}/api/watch-event/batch`
+const YOMU_HOST   = 'manga-tracker-hazel.vercel.app'
+const MAX_RETRIES = 5
+
+// ── Offline-first: periodic flush alarm ──────────────────────────────────
+// Wakes the MV3 service worker every 1 min to drain the pending queue,
+// even if the worker was terminated mid-flush.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.alarms.create('syncFlush', { periodInMinutes: 1 })
+})
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'syncFlush' && authToken) flushPending()
+})
+
+// Also flush immediately when network comes back online
+self.addEventListener('online', () => { if (authToken) flushPending() })
 
 // ── Auth state ────────────────────────────────────────────────────────────
 let authToken = null
@@ -294,36 +310,71 @@ async function sendToAPI(payload, dedicated = true) {
 }
 
 // ── Pending queue (offline / not logged in yet) ───────────────────────────
+// Each queued item has an idempotency_key (UUID) so the batch endpoint can
+// use ON CONFLICT to prevent double-counting if the same event is retried.
 function queuePending(payload) {
   chrome.storage.local.get(['yomu_pending'], d => {
     const queue = (d.yomu_pending || []).filter(e =>
-      // Deduplicate queue too
+      // Deduplicate: same title+episode+is_complete = same logical event
       !(e.title === payload.title && e.episode === payload.episode && e.is_complete === payload.is_complete)
     )
-    queue.push(payload)
+    // Assign a stable idempotency key at queue-time (not retry-time) so the
+    // server can deduplicate even if we retry the same batch multiple times.
+    const item = {
+      ...payload,
+      idempotency_key: payload.idempotency_key ?? crypto.randomUUID(),
+      retryCount: 0,
+    }
+    queue.push(item)
     chrome.storage.local.set({ yomu_pending: queue.slice(-100) })
   })
 }
 
 function flushPending() {
+  if (!navigator.onLine) return
   chrome.storage.local.get(['yomu_pending'], async d => {
     const queue = d.yomu_pending || []
     if (queue.length === 0) return
-    // Process one-by-one and remove from storage only after each successful send.
-    // Do NOT bulk-remove upfront: if the MV3 service worker is terminated mid-flush,
-    // any remaining items stay in storage and are retried on the next SW wake.
-    for (const payload of queue) {
-      await sendToAPI(payload)
-      // Remove this specific payload from the stored queue
-      await new Promise(resolve => {
-        chrome.storage.local.get(['yomu_pending'], d2 => {
-          const remaining = (d2.yomu_pending || []).filter(e =>
-            !(e.title === payload.title && e.episode === payload.episode && e.is_complete === payload.is_complete)
-          )
-          chrome.storage.local.set({ yomu_pending: remaining }, resolve)
-        })
+
+    // Batch flush: send all pending events in one request so the batch endpoint
+    // can deduplicate via idempotency_key. This is far more efficient than
+    // sending one-by-one and avoids partial-send state corruption.
+    try {
+      const res = await fetch(BATCH_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ events: queue }),
       })
-      await delay(300)
+
+      if (res.ok) {
+        // Success — remove all events we just flushed
+        const flushedKeys = new Set(queue.map(e => e.idempotency_key))
+        chrome.storage.local.get(['yomu_pending'], d2 => {
+          const remaining = (d2.yomu_pending || []).filter(e => !flushedKeys.has(e.idempotency_key))
+          chrome.storage.local.set({ yomu_pending: remaining })
+        })
+      } else if (res.status >= 500) {
+        // Server error — increment retryCount, drop items exceeding MAX_RETRIES
+        chrome.storage.local.get(['yomu_pending'], d2 => {
+          const updated = (d2.yomu_pending || [])
+            .map(e => queue.find(q => q.idempotency_key === e.idempotency_key)
+              ? { ...e, retryCount: (e.retryCount || 0) + 1 }
+              : e
+            )
+            .filter(e => (e.retryCount || 0) <= MAX_RETRIES)
+          chrome.storage.local.set({ yomu_pending: updated })
+        })
+      } else if (res.status === 401) {
+        // Auth expired — token will be refreshed next time user visits YOMU
+        authToken = null
+        chrome.storage.local.remove('yomu_auth_token')
+      }
+      // 4xx (other than 401): bad payload — drop to prevent poison-pill loop
+    } catch {
+      // Network failure — leave queue intact, alarm will retry in 1 min
     }
   })
 }

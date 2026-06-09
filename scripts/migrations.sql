@@ -150,6 +150,78 @@ BEGIN
 END;
 $$;
 
+-- ── Offline-first batch sync: idempotency_key on watch_sessions ──────────
+-- Allows the batch /api/watch-event/batch endpoint to upsert events
+-- idempotently — retries never double-count the same heartbeat.
+ALTER TABLE watch_sessions ADD COLUMN IF NOT EXISTS idempotency_key uuid;
+UPDATE watch_sessions SET idempotency_key = gen_random_uuid() WHERE idempotency_key IS NULL;
+ALTER TABLE watch_sessions ALTER COLUMN idempotency_key SET NOT NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'watch_sessions_idempotency_key_key'
+  ) THEN
+    ALTER TABLE watch_sessions ADD CONSTRAINT watch_sessions_idempotency_key_key UNIQUE (idempotency_key);
+  END IF;
+END $$;
+
+-- ── Jaccard-based discovery RPC ───────────────────────────────────────────
+-- Scores discover_cache entries against the user's taste profile
+-- (genres from completed/watching library entries) using the Jaccard index.
+-- Filters out already-swiped and already-in-library titles.
+CREATE OR REPLACE FUNCTION discover_jaccard_feed(p_user_id uuid)
+RETURNS TABLE (
+  id uuid,
+  title text,
+  cover_url text,
+  genres text[],
+  mal_id integer,
+  similarity_score real
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  user_taste_profile text[];
+BEGIN
+  SELECT ARRAY(
+    SELECT DISTINCT unnest(m.genres)
+    FROM manga_list m
+    WHERE m.user_id = p_user_id
+      AND m.status IN ('completed', 'watching')
+  ) INTO user_taste_profile;
+
+  RETURN QUERY
+  WITH scored_cache AS (
+    SELECT
+      d.id,
+      d.title,
+      d.cover_url,
+      d.genres,
+      d.mal_id,
+      (
+        SELECT CAST(COUNT(*) AS real)
+        FROM (SELECT unnest(d.genres) INTERSECT SELECT unnest(user_taste_profile)) AS intersection_set
+      ) / NULLIF(
+        (SELECT CAST(COUNT(*) AS real)
+        FROM (SELECT unnest(d.genres) UNION SELECT unnest(user_taste_profile)) AS union_set),
+      0) AS calculated_score
+    FROM discover_cache d
+    WHERE d.id NOT IN (
+      SELECT sh.anime_id FROM swipe_history sh WHERE sh.user_id = p_user_id
+    )
+    AND d.mal_id NOT IN (
+      SELECT ml.mal_id FROM manga_list ml WHERE ml.user_id = p_user_id AND ml.mal_id IS NOT NULL
+    )
+  )
+  SELECT s.id, s.title, s.cover_url, s.genres, s.mal_id,
+         s.calculated_score::real AS similarity_score
+  FROM scored_cache s
+  WHERE s.calculated_score > 0
+  ORDER BY s.calculated_score DESC
+  LIMIT 20;
+END;
+$$;
+
 -- ── Atomic merge RPC (duplicate detector) ────────────────────────────────
 DROP FUNCTION IF EXISTS merge_entries(uuid, uuid[]);
 
