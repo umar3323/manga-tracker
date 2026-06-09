@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
       anilist_id: 0,
       payload: null,
       fetched_at: new Date().toISOString(),
-    }, { onConflict: 'mal_id,media_type' }).catch(() => {})
+    }, { onConflict: 'mal_id,media_type' })
     return NextResponse.json({ data: null })
   }
 
