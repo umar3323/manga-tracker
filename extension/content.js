@@ -559,11 +559,33 @@ function stopHeartbeat() {
   if (heartbeat) { clearInterval(heartbeat); heartbeat = null }
 }
 
+// ── Fix 1: Robust send with retry ────────────────────────────────────────
+// "Could not establish connection. Receiving end does not exist." happens when
+// the MV3 service worker is in the process of spinning up after being
+// terminated. A single retry after 1 s is not enough — the worker may need
+// up to ~2–3 s to fully register. We retry up to 3 times with a 1 s delay.
+async function sendWithRetry(message, retries = 3, delayMs = 1000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      if (!chrome.runtime?.id) return  // extension context invalidated
+      await chrome.runtime.sendMessage(message)
+      return  // success
+    } catch (err) {
+      const msg = String(err)
+      // Don't retry on context-invalidated or hard permission errors
+      if (msg.includes('Extension context invalidated') || msg.includes('runtime.id')) return
+      if (i < retries - 1) {
+        await new Promise(r => setTimeout(r, delayMs))
+      }
+      // On final attempt, swallow silently — best-effort delivery
+    }
+  }
+}
+
 function send(isComplete) {
   if (!session) return
   if (isComplete && session.reportedComplete) return
   if (isComplete) session.reportedComplete = true
-  // Bail out silently if extension context was invalidated (e.g. after reload)
   try { if (!chrome.runtime?.id) return } catch { return }
 
   const payload = {
@@ -577,16 +599,7 @@ function send(isComplete) {
     timestamp:        new Date().toISOString(),
   }
 
-  // MV3 service workers can be terminated after ~30s of inactivity.
-  // On failure, retry once after 1 s to wake the service worker back up.
-  chrome.runtime.sendMessage({ type: 'WATCH_EVENT', payload }).catch(() => {
-    setTimeout(() => {
-      try {
-        if (!chrome.runtime?.id) return
-        chrome.runtime.sendMessage({ type: 'WATCH_EVENT', payload }).catch(() => {})
-      } catch { }
-    }, 1000)
-  })
+  sendWithRetry({ type: 'WATCH_EVENT', payload })
 }
 
 // ── DOM scanning ──────────────────────────────────────────────────────────

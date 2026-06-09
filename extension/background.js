@@ -14,10 +14,15 @@ const IDLE_THRESHOLD_SECONDS = 900 // 15 minutes
 // ── Offline-first: periodic flush alarm ──────────────────────────────────
 // Wakes the MV3 service worker every 1 min to drain the pending queue,
 // even if the worker was terminated mid-flush.
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create('syncFlush', { periodInMinutes: 1 })
+chrome.runtime.onInstalled.addListener(async () => {
+  // create() is idempotent when called with the same name — safe on update too.
+  // Use periodInMinutes so Chrome re-registers after every SW restart.
+  await chrome.alarms.create('syncFlush', { periodInMinutes: 1 })
   // Inject content script into any already-open matching tabs on install/update
   injectIntoExistingTabs()
+  // Kick off a flush + site refresh now that we know the SW is alive
+  const token = await getAuthToken()
+  if (token) { flushPending(); fetchCustomSites() }
 })
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -55,14 +60,12 @@ function setAuthToken(token) {
   }
 }
 
-// Load custom sites from storage on startup
-chrome.storage.local.get(['yomu_custom_sites'], async d => {
-  const token = await getAuthToken()
-  if (token) {
-    flushPending()
-    fetchCustomSites()
-  }
-})
+// ── Fix 3 (Gemini): No top-level network calls ────────────────────────────
+// MV3 service workers must complete their synchronous init phase immediately.
+// Any network I/O or storage reads at the top level can block worker
+// registration and cause "Service Worker termination" errors in DevTools.
+// All startup work (flush, custom-site fetch) is deferred to event handlers
+// (onInstalled above, onAlarm, onMessage) — never executed at module scope.
 
 // ── Custom streaming sites ────────────────────────────────────────────────
 async function fetchCustomSites() {
