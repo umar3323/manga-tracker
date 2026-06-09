@@ -3952,7 +3952,7 @@ ${entries}
         {/* ── Continue strip ── */}
         {(() => {
           const CONTINUE_KEY = 'yomu_last_read'
-          // Derive the last-touched reading entry from loaded data
+          // Derive the last-touched reading/watching entry from loaded data
           const lastRead = manga
             .filter(m => (m.status === 'reading' || m.status === 'watching') && m.last_read_at)
             .sort((a, b) => new Date(b.last_read_at!).getTime() - new Date(a.last_read_at!).getTime())[0]
@@ -3962,7 +3962,41 @@ ${entries}
           // Persist for instant next-load
           try { localStorage.setItem(CONTINUE_KEY, JSON.stringify({ id: lastRead.id, title: lastRead.title, chapter: lastRead.current_chapter, cover: lastRead.cover_url })) } catch {}
 
-          const mdexUrl = lastRead.mal_id
+          const isWatching = lastRead.status === 'watching'
+          const site = lastRead.last_watched_site
+
+          // Site name display helpers
+          const SITE_DISPLAY: Record<string, string> = {
+            'netflix.com': 'Netflix', 'netflix': 'Netflix',
+            'crunchyroll.com': 'Crunchyroll', 'crunchyroll': 'Crunchyroll',
+            'funimation.com': 'Funimation', 'funimation': 'Funimation',
+            'hidive.com': 'HiDive', 'hidive': 'HiDive',
+            'disneyplus.com': 'Disney+', 'disney+': 'Disney+',
+            'max.com': 'Max', 'hbomax.com': 'Max', 'max': 'Max',
+            'hulu.com': 'Hulu', 'hulu': 'Hulu',
+            'vrv.co': 'VRV', 'vrv': 'VRV',
+            'bilibili.tv': 'Bilibili', 'bilibili': 'Bilibili',
+            'tubi.tv': 'Tubi', 'tubi': 'Tubi',
+            'appletv.apple.com': 'Apple TV+', 'apple tv+': 'Apple TV+',
+          }
+          const SITE_COLORS: Record<string, string> = {
+            'Netflix': '#e50914',
+            'Crunchyroll': '#ff6400',
+            'Disney+': '#113ccf',
+            'Max': '#002be0',
+            'Hulu': '#3dba00',
+            'HiDive': '#00b4d8',
+            'VRV': '#f5c400',
+            'Funimation': '#410099',
+            'Bilibili': '#00aeec',
+            'Tubi': '#fa4616',
+            'Apple TV+': '#555',
+          }
+          const siteKey = site?.toLowerCase() ?? ''
+          const siteName = SITE_DISPLAY[siteKey] ?? (site ? site.replace(/\.com$/, '') : null)
+          const siteColor = siteName ? (SITE_COLORS[siteName] ?? '#555') : null
+
+          const mdexUrl = !isWatching && lastRead.mal_id
             ? `https://mangadex.org/search?q=${encodeURIComponent(lastRead.title)}`
             : null
 
@@ -3972,9 +4006,21 @@ ${entries}
                 <img src={lastRead.cover_url} alt="" className="w-8 h-11 object-cover rounded shrink-0" />
               )}
               <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-zinc-600 uppercase tracking-widest font-semibold mb-0.5">{lastRead.status === 'watching' ? 'Continue Watching' : 'Continue Reading'}</p>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <p className="text-[10px] text-zinc-600 uppercase tracking-widest font-semibold">{isWatching ? 'Continue Watching' : 'Continue Reading'}</p>
+                  {isWatching && siteName && (
+                    <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
+                      style={{ backgroundColor: siteColor + '25', color: siteColor!, border: `1px solid ${siteColor}55` }}>
+                      {siteName}
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm font-semibold text-zinc-100 truncate">{lastRead.title}</p>
-                <p className="text-xs text-zinc-500 mt-0.5">{lastRead.status === 'watching' ? `Episode ${lastRead.episodes_watched}${lastRead.total_episodes ? ` of ${lastRead.total_episodes}` : ''}` : `Chapter ${lastRead.current_chapter}${lastRead.total_chapters ? ` of ${lastRead.total_chapters}` : ''}`}</p>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  {isWatching
+                    ? `Episode ${lastRead.episodes_watched}${lastRead.total_episodes ? ` of ${lastRead.total_episodes}` : ''}`
+                    : `Chapter ${lastRead.current_chapter}${lastRead.total_chapters ? ` of ${lastRead.total_chapters}` : ''}`}
+                </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {mdexUrl && (
@@ -4334,12 +4380,29 @@ ${entries}
                         ))}
                       </select>
                       <span className="text-[11px] text-zinc-600" suppressHydrationWarning>{timeAgo(m.last_read_at)}</span>
-                      {m.auto_tracked && (
-                        <span title={`Auto-tracked · ${m.total_watch_time_minutes > 0 ? Math.round(m.total_watch_time_minutes / 60 * 10) / 10 + 'h watched' : 'extension active'}`}
-                          className="text-[10px] bg-green-950 text-green-400 border border-green-800/50 px-1.5 py-0.5 rounded-full">
-                          🎬 tracked
-                        </span>
-                      )}
+                      {m.auto_tracked && (() => {
+                        const siteLabelMap: Record<string, string> = {
+                          'netflix.com': 'Netflix', 'netflix': 'Netflix',
+                          'crunchyroll.com': 'Crunchyroll', 'crunchyroll': 'Crunchyroll',
+                          'funimation.com': 'Funimation', 'funimation': 'Funimation',
+                          'hidive.com': 'HiDive', 'hidive': 'HiDive',
+                          'disneyplus.com': 'Disney+', 'disney+': 'Disney+',
+                          'max.com': 'Max', 'hbomax.com': 'Max', 'max': 'Max',
+                          'hulu.com': 'Hulu', 'hulu': 'Hulu',
+                          'vrv.co': 'VRV', 'vrv': 'VRV',
+                          'bilibili.tv': 'Bilibili', 'bilibili': 'Bilibili',
+                          'tubi.tv': 'Tubi', 'tubi': 'Tubi',
+                        }
+                        const sk = m.last_watched_site?.toLowerCase() ?? ''
+                        const sn = siteLabelMap[sk] ?? (m.last_watched_site ? m.last_watched_site.replace(/\.com$/, '') : null)
+                        const watchHrs = m.total_watch_time_minutes > 0 ? Math.round(m.total_watch_time_minutes / 60 * 10) / 10 + 'h' : null
+                        return (
+                          <span title={`Auto-tracked${sn ? ` on ${sn}` : ''}${watchHrs ? ` · ${watchHrs} watched` : ''}`}
+                            className="text-[10px] bg-green-950 text-green-400 border border-green-800/50 px-1.5 py-0.5 rounded-full">
+                            🎬 {sn ?? 'tracked'}
+                          </span>
+                        )
+                      })()}
                       {m.status === 'reading' && finishEstimate(m) && (
                         <span className="text-[11px] text-zinc-600 flex items-center gap-1">
                           <Flag size={10} strokeWidth={1.5} /> {finishEstimate(m)}

@@ -44,6 +44,7 @@ export interface Manga {
   // Watch tracking (populated by browser extension)
   total_watch_time_minutes: number
   auto_tracked: boolean
+  last_watched_site: string | null
 }
 
 export interface SwipeRecord {

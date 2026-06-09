@@ -140,6 +140,7 @@ export async function POST(req: NextRequest) {
     const updates: Record<string, unknown> = {
       total_watch_time_minutes: (best.total_watch_time_minutes ?? 0) + watchMinutes,
       last_read_at: watchedAt,
+      last_watched_site: safeSite,
       auto_tracked: true,
     }
 
@@ -193,6 +194,7 @@ export async function POST(req: NextRequest) {
         total_watch_time_minutes: watchMinutes,
         last_read_at: watchedAt,
         auto_tracked: true,
+        last_watched_site: safeSite,
         notes: `[auto-tracked] First seen on ${safeSite}`,
       })
       .select('id')
