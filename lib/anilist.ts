@@ -48,6 +48,13 @@ export interface AniListStreamingLink {
   language: string | null
 }
 
+export interface AniListExternalLink {
+  site: string
+  url: string
+  type: 'STREAMING' | 'INFO' | 'SOCIAL' | 'OTHER'
+  language: string | null
+}
+
 export interface AniListAnimeData {
   id: number
   title: { romaji: string; english: string | null }
@@ -56,6 +63,7 @@ export interface AniListAnimeData {
   tags: AniListTag[]
   meanScore: number | null
   streamingLinks: AniListStreamingLink[]
+  externalLinks: AniListExternalLink[]
 }
 
 const MANGA_QUERY = `
@@ -149,6 +157,11 @@ export async function fetchAniListAnime(malId: number): Promise<AniListAnimeData
       .filter((l: { type: string }) => l.type === 'STREAMING')
       .map((l: { site: string; url: string; language: string | null }) => ({
         site: l.site, url: l.url, language: l.language ?? null,
+      })),
+    externalLinks: (data.externalLinks ?? [])
+      .filter((l: { type: string }) => l.type !== 'STREAMING')
+      .map((l: { site: string; url: string; type: string; language: string | null }) => ({
+        site: l.site, url: l.url, type: l.type as AniListExternalLink['type'], language: l.language ?? null,
       })),
   }
 }

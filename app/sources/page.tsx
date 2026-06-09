@@ -23,20 +23,37 @@ interface CustomSite {
 }
 
 const LINKED_SOURCES = [
+  // ── Live — direct API ──────────────────────────────────────────────────────
   {
     name: 'MyAnimeList',
     url: 'https://myanimelist.net',
-    via: 'Jikan API',
-    description: 'Manga & anime metadata — titles, chapter counts, cover art, scores, genres, authors.',
-    features: ['Cover art', 'Chapter counts', 'Genres & scores', 'Anime adaptations'],
+    via: 'Jikan REST API v4',
+    description: 'Core manga & anime metadata — titles, chapter/episode counts, cover art, scores, genres, authors, airing status, member counts.',
+    features: ['Cover art', 'Chapter/episode counts', 'Genres & scores', 'Member counts'],
     status: 'live' as const,
   },
   {
     name: 'AniList',
     url: 'https://anilist.co',
     via: 'AniList GraphQL',
-    description: 'Airing schedules, streaming links, related works, tags, and community recommendations.',
-    features: ['Airing countdowns', 'Streaming links', 'Related works', 'Tags & recommendations'],
+    description: 'Airing schedules, streaming platform links, related works, community tags, cross-site links (AniDB, Anime-Planet, Annict, Kitsu, LiveChart), and community recommendations.',
+    features: ['Airing countdowns', 'Streaming links', 'Cross-site links', 'Tags & recommendations'],
+    status: 'live' as const,
+  },
+  {
+    name: 'notify.moe',
+    url: 'https://notify.moe',
+    via: 'notify.moe REST API',
+    description: 'Anime community quality scores across four dimensions: overall, story, visuals, and soundtrack. Shown in the anime detail panel.',
+    features: ['Overall score', 'Story', 'Visuals', 'Soundtrack'],
+    status: 'live' as const,
+  },
+  {
+    name: 'Kitsu',
+    url: 'https://kitsu.app',
+    via: 'Kitsu JSON:API',
+    description: 'Community-ranked manhwa/manga catalog and MAL-ID bridge for non-MAL entries (ComicK, Webtoons). Previously known as Hummingbird.',
+    features: ['Manhwa catalog', 'MAL-ID bridge', 'Community scores'],
     status: 'live' as const,
   },
   {
@@ -82,18 +99,60 @@ const LINKED_SOURCES = [
   {
     name: 'Goodreads',
     url: 'https://www.goodreads.com',
-    via: 'Goodreads API',
-    description: 'Book and manga ratings from Goodreads — surfaced in search results.',
+    via: 'Goodreads scrape',
+    description: 'Book and manga ratings — surfaced in search results.',
     features: ['Ratings in search'],
     status: 'live' as const,
   },
   {
     name: 'Anime News Network',
     url: 'https://www.animenewsnetwork.com',
-    via: 'ANN API',
+    via: 'ANN XML API',
     description: 'Fallback anime adaptation detection when AniList hasn\'t updated yet.',
     features: ['Anime adaptation signals'],
     status: 'live' as const,
+  },
+  // ── Live — via AniList cross-references ───────────────────────────────────
+  {
+    name: 'AniDB',
+    url: 'https://anidb.net',
+    via: 'AniList cross-link',
+    description: 'Precise episode database, character & staff data. AniDB deep links surface in anime detail cards automatically via AniList.',
+    features: ['Episode data', 'Character & staff', 'Deep links'],
+    status: 'live' as const,
+  },
+  {
+    name: 'Anime-Planet',
+    url: 'https://www.anime-planet.com',
+    via: 'AniList cross-link',
+    description: 'Community recommendation engine and tags. Anime-Planet deep links surface in anime detail cards automatically via AniList.',
+    features: ['Deep links', 'Community recs'],
+    status: 'live' as const,
+  },
+  {
+    name: 'Annict',
+    url: 'https://annict.com',
+    via: 'AniList cross-link',
+    description: 'Japanese anime episode-logging platform. Annict deep links surface in anime detail cards automatically via AniList.',
+    features: ['Deep links', 'Episode logging'],
+    status: 'live' as const,
+  },
+  {
+    name: 'LiveChart.me',
+    url: 'https://www.livechart.me',
+    via: 'AniList cross-link',
+    description: 'Seasonal anime charts and detailed airing schedules. Links surface in anime detail cards automatically via AniList.',
+    features: ['Seasonal charts', 'Airing schedules'],
+    status: 'live' as const,
+  },
+  // ── Planned ────────────────────────────────────────────────────────────────
+  {
+    name: 'menome.in.th',
+    url: 'http://menome.in.th',
+    via: 'Thai anime community',
+    description: 'Thai-language anime community database. Integration planned for Thai-specific metadata and community lists.',
+    features: ['Thai community data'],
+    status: 'in_progress' as const,
   },
 ]
 

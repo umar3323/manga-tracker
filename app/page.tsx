@@ -554,6 +554,8 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
   const [relationsLoaded, setRelationsLoaded] = useState(false)
   const [showDeepSearch, setShowDeepSearch] = useState(false)
   const [showUrlImport, setShowUrlImport] = useState(false)
+  // notify.moe
+  const [notifyMoe, setNotifyMoe] = useState<{ id: string; rating: { overall: number; story: number; visuals: number; soundtrack: number } | null; url: string } | null>(null)
   // OMDB / IMDb rating
   const [imdbRating, setImdbRating] = useState<string | null>(null)
   const [imdbId, setImdbId] = useState<string | null>(null)
@@ -602,6 +604,18 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
     if (manga.anime_mal_id) {
       fetch(`/api/anilist?mal_id=${manga.anime_mal_id}&type=ANIME`, { signal })
         .then(r => r.json()).then(j => { if (j.data) setAlAnime(j.data) }).catch(() => {})
+      // notify.moe: fetch community scores for anime entries
+      const notifyTitle = manga.anime_title ?? manga.title
+      fetch(`/api/notifymoe?mal_id=${manga.anime_mal_id}&title=${encodeURIComponent(notifyTitle)}`, { signal })
+        .then(r => r.json())
+        .then(j => { if (j.data) setNotifyMoe(j.data) })
+        .catch(() => {})
+    } else if ((manga.content_type === 'anime' || manga.content_type === 'movie') && manga.mal_id) {
+      // Pure anime entries
+      fetch(`/api/notifymoe?mal_id=${manga.mal_id}&title=${encodeURIComponent(manga.title)}`, { signal })
+        .then(r => r.json())
+        .then(j => { if (j.data) setNotifyMoe(j.data) })
+        .catch(() => {})
     }
     // MangaUpdates: fetch adaptation depth + community recommendations (non-blocking)
     if (manga.title) {
@@ -1141,6 +1155,66 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
                       </a>
                     )
                   })}
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* notify.moe: community scores */}
+          {notifyMoe?.rating && (() => {
+            const r = notifyMoe.rating
+            const bars: { label: string; value: number; color: string }[] = [
+              { label: 'Overall',    value: r.overall,    color: '#2BE6DC' },
+              { label: 'Story',      value: r.story,      color: '#a78bfa' },
+              { label: 'Visuals',    value: r.visuals,    color: '#FF8C42' },
+              { label: 'Soundtrack', value: r.soundtrack, color: '#2FCF7A' },
+            ]
+            return (
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-medium text-zinc-500">notify.moe Community Scores</p>
+                  <a href={notifyMoe.url} target="_blank" rel="noopener noreferrer"
+                    className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors flex items-center gap-1">
+                    View on notify.moe ↗
+                  </a>
+                </div>
+                <div className="bg-zinc-900 rounded-xl p-3 space-y-2">
+                  {bars.map(b => (
+                    <div key={b.label} className="flex items-center gap-3">
+                      <span className="text-[10px] text-zinc-500 w-20 shrink-0">{b.label}</span>
+                      <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all"
+                          style={{ width: `${Math.min(100, b.value * 10)}%`, backgroundColor: b.color }} />
+                      </div>
+                      <span className="text-[10px] text-zinc-400 w-7 text-right shrink-0 font-mono">{b.value.toFixed(1)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* AniList: non-streaming external links (AniDB, Anime-Planet, Annict, etc.) */}
+          {alAnime && alAnime.externalLinks && alAnime.externalLinks.length > 0 && (() => {
+            const SITE_ICONS: Record<string, string> = {
+              'AniDB': '🗄️', 'Anime-Planet': '🪐', 'Annict': '📺',
+              'Kitsu': '🐱', 'LiveChart.me': '📊', 'AllCinema': '🎬',
+              'Syoboi': '📅', 'ANN': '📰', 'Wikipedia': '📖',
+            }
+            const infoLinks = alAnime.externalLinks.filter(l => l.type === 'INFO' || l.type === 'OTHER')
+            if (!infoLinks.length) return null
+            return (
+              <div className="mb-4">
+                <p className="text-xs font-medium text-zinc-500 mb-2">Also on</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {infoLinks.map(l => (
+                    <a key={l.site} href={l.url} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-xs text-zinc-300 transition-colors">
+                      <span>{SITE_ICONS[l.site] ?? '🔗'}</span>
+                      <span>{l.site}</span>
+                      <span className="text-zinc-600 text-[10px]">↗</span>
+                    </a>
+                  ))}
                 </div>
               </div>
             )

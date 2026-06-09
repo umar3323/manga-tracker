@@ -10,6 +10,21 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Community Totals (session 13)
+
+- **Supabase** — New `community_totals` table: `(id, mal_id, content_type, total_chapters, total_episodes, updated_by, updated_at)`. Unique on `(mal_id, content_type)`. RLS: any authenticated user can read/upsert.
+- `app/api/community-totals/route.ts` *(new)* — `GET ?mal_id=&content_type=` returns existing record or null. `POST` body `{ mal_id, content_type, total_chapters?, total_episodes? }` upserts on conflict. Cookie-based auth only (browser-only — extension does not call this route).
+- `app/page.tsx` — Two new functions in the `Home` component:
+  - `updateTotalChapters(id, n, malId?, contentType?)` — writes to `manga_list` + fires POST to `/api/community-totals` if `malId` present; shows toast "Total chapters shared with community ✓".
+  - `updateTotalEpisodes(id, n, malId?, contentType?)` — same pattern for `total_episodes`.
+- `app/page.tsx` — **Card chapter tracker**: `{seriesTotal ?? '?'}` static span replaced with `<EditableNumber>` calling `updateTotalChapters`. Only operates on single-entry cards (multi-part series totals are summed; user edits the active member).
+- `app/page.tsx` — **Card episode tracker**: `/{seriesEpTotal}` static span replaced with `<EditableNumber>` calling `updateTotalEpisodes`.
+- `app/page.tsx` — **DetailModal total_chapters**: existing `EditableNumber` now additionally POSTs to `/api/community-totals` after the `manga_list` update.
+- `app/page.tsx` — **DetailModal total_episodes**: was a static `{manga.total_episodes} eps` span; replaced with `<EditableNumber>` that writes to `manga_list` + community_totals.
+- `app/page.tsx` — **Add-entry flow**: after inserting a new library entry, fetches `/api/community-totals?mal_id=&content_type=` and back-fills any missing `total_chapters`/`total_episodes` from community data.
+
+### Previous Latest Changes (session 12)
+
 - `app/page.tsx` — **Multi-type filter + recents refresh (session 12)**:
   - Anime filter tab now shows entries where `has_anime = true` in addition to `content_type === 'anime'/'movie'`, so manga entries with anime adaptations appear in both their primary tab and the Anime tab.
   - `typeCounts` updated to count `has_anime` entries toward the anime badge.
@@ -175,6 +190,12 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ## Session Log
 
+### Session — 2026-06-09 (session 13)
+- User requested manual editing of total chapters/episodes on cards, with changes crowd-sourced so other users adding the same title see the updated total.
+- `community_totals` Supabase table added (upsert keyed by `mal_id + content_type`). Reused existing `EditableNumber` component for the total fields on cards and in DetailModal.
+- Toast fires when a community total is shared. Entries without a `mal_id` silently skip the community write.
+- Add-entry flow now back-fills missing totals from community on insert.
+
 ### Session — 2026-06-09 (session 12)
 - Multi-type filter: Anime tab now includes `has_anime=true` manga entries. typeCounts reflects this. Spirited Away set to movie via Supabase.
 - Recents live refresh: visibilitychange listener re-fetches library when user tabs back, so watch events from the extension update card order instantly.
@@ -236,6 +257,16 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 ---
 
 ## Change History
+
+### 2026-06-09 — Sessions 11–12
+- `app/page.tsx` — Multi-type filter (Anime tab includes `has_anime` entries); `visibilitychange` listener for live recents refresh
+- `app/api/streaming-sites/route.ts` — Dual-mode auth (Bearer + cookie); `custom_streaming_sites` table
+- `app/extension/page.tsx` *(new)* — Extension landing page
+- `app/sources/page.tsx` — Custom streaming sites section + add/delete UI
+- `extension/content.js` — Netflix DOM scraping; 6 new platform parsers; `fromTitle()` overhaul; `send()` retry; custom hostnames support
+- `extension/background.js` — `fetchCustomSites()`; `GET_CUSTOM_SITES` handler
+- `app/api/watch-event/route.ts` — +1 increment fallback when `safeEpisode == null`
+- `components/Nav.tsx` + `components/Sidebar.tsx` — Extension tab added
 
 ### 2026-06-08 — Sessions 8–9
 - `app/stats/page.tsx` — DonutChart + WatchHeatmap; graphs in Watch History, Status Breakdown, Reading DNA
