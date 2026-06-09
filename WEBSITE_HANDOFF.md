@@ -10,6 +10,15 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+- `app/api/streaming-sites/route.ts` — **Auth fix (session 11 code review)**: original route used cookie-only auth. Extension sends `Authorization: Bearer <token>`. Fixed `getUser()` to try Bearer first, fall back to cookie auth for browser requests — matching `watch-event/route.ts` pattern.
+- `app/extension/page.tsx` *(new)* — Extension landing page: feature grid, supported-platform table with detection method, "How it works" explainer, 5-step install instructions, GitHub download button. Linked from Sidebar + tablet icon rail.
+- `app/sources/page.tsx` — New **Extension Streaming Sites** section: built-in site grid (all 16 parsers), custom-sites list (from DB), "Add site" form (URL → hostname normalisation → POST to API → live update), hover-to-delete per site.
+- `app/api/streaming-sites/route.ts` *(new)* — GET/POST/DELETE. GET and POST add normalise hostname (strips scheme/www/path). Duplicate insert returns 409. All endpoints dual-mode auth (Bearer + cookie).
+- `extension/background.js` — `fetchCustomSites()` fetches `/api/streaming-sites` after auth and caches hostnames in `chrome.storage.local`. Called on startup (if token present), on `SET_AUTH_TOKEN`, and on `tabs.onUpdated` token grab. `GET_CUSTOM_SITES` message handler added.
+- `extension/content.js` — `_customHostnames` loaded async from background on script load; `getBestParser()` checks custom hostnames after dedicated parsers and applies `fromTitle()` to matches.
+- `components/Nav.tsx` — Extension tab added to tablet icon rail (`tabletTabs`); mobile bottom nav unchanged (5 items).
+- `components/Sidebar.tsx` — Extension link added to desktop sidebar nav.
+- **Supabase migration** — `custom_streaming_sites (id, user_id, hostname, display_name, created_at)` table with RLS (`auth.uid() = user_id`). Unique constraint on `(user_id, hostname)`.
 - `extension/content.js` — **Multi-platform streaming support (session 11)**:
   - Added dedicated parsers: **Disney+** (DOM scrape), **Max/HBO** (DOM scrape), **Hulu** (title), **Apple TV+** (title), **Bilibili.tv** (title `EP N` pattern), **Tubi** (URL `s01e01` pattern)
   - Fixed **HiDive** parser to extract season/episode from URL (`/stream/show/s01e01`) instead of falling back to title
@@ -136,6 +145,12 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 - **Fix:** `lib/jikan.ts` — added a version comment at line 1 to change the file hash, forcing all build workers to invalidate their cache entry. Combined with `npx vercel deploy --prod --force` to flush the cache immediately.
 - **Prevention rule:** If you ever see alternating Error/Ready builds with the same cryptic "export not found" error, touch the affected module with a trivial comment change. Run `npx vercel deploy --prod --force` once to flush, then normal `git push` will work cleanly.
 
+### streaming-sites API returned 401 for extension — 2026-06-09
+- **Symptom:** Extension's `fetchCustomSites()` always got 401; custom sites never loaded into `chrome.storage.local`.
+- **Root cause:** `streaming-sites/route.ts` used `createServerClient` (cookie-based auth only). Extension has no cookies — it sends `Authorization: Bearer <token>`. The `getUser()` call returned null.
+- **Fix:** `app/api/streaming-sites/route.ts` — replaced `makeSupabase()` with `getUser(req)` that tries Bearer auth first, falls back to cookie auth for browser requests.
+- **Prevention rule:** Any API route that the extension calls must support Bearer token auth (same pattern as `watch-event/route.ts` — check `Authorization: Bearer` header, call `supabase.auth.getUser(token)`). Cookie-only routes (`createServerClient`) are browser-only.
+
 ### Netflix episode counter never advancing — 2026-06-09
 - **Symptom:** Watching anime on Netflix (e.g. Saiki K) did not increment the episode counter on the library card.
 - **Root cause (1):** Netflix tab title is `"Show Name | Netflix"` with no episode number. The parser returned `episode: null`. `watch-event` API only updated `episodes_watched` when `safeEpisode != null`, so the field was never touched.
@@ -154,6 +169,11 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 ---
 
 ## Session Log
+
+### Session — 2026-06-09 (session 11 — continued, code review)
+- Code review of all session-11 additions. One critical bug found and fixed: `streaming-sites` API used cookie auth only; extension calls with Bearer token → returns 401. Fixed to dual-mode auth matching `watch-event` pattern.
+- Deployment verified via browser automation: `/extension` page renders correctly with all sections. `/sources` Extension Streaming Sites section shows all 16 built-in parsers and "Add site" button. API tested directly: GET 200 ✓, POST 201 ✓, DELETE 200 ✓. No console errors.
+- Note: React controlled-input test via JS (`.value =` assignment) doesn't trigger `onChange`; form works correctly for real user input — this is a test limitation, not a bug.
 
 ### Session — 2026-06-09 (session 11)
 - Extended extension to cover all major streaming platforms: Disney+, Max, Hulu, Apple TV+, Bilibili.tv, Tubi — all with episode extraction where possible. DOM scraping used for Disney+ and Max (title has no episode info). Improved `fromTitle()` fallback so any unrecognised site with episode info in the tab title works automatically.
