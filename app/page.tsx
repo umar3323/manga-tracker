@@ -2770,6 +2770,14 @@ export default function Home() {
 
   useEffect(() => { fetchManga() }, [fetchManga])
 
+  // Re-fetch when user switches back to this tab — ensures episode-count updates from the
+  // extension (which fire while watching in another tab) are reflected immediately on return.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchManga() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [fetchManga])
+
   // Pace tracking: avg chapters/day over last 30 days
   useEffect(() => {
     const ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
@@ -3571,21 +3579,39 @@ ${entries}
     return map
   }, [manga])
 
+  // An entry "belongs" to the anime tab if its content_type is anime/movie OR it has an anime adaptation.
+  // This lets manga entries with has_anime=true show up in both their primary type tab AND the anime tab.
+  const matchesTypeFilter = (m: Manga) => {
+    if (typeFilter === 'all') return true
+    const ct = m.content_type ?? 'manga'
+    if (typeFilter === 'anime') return ct === 'anime' || ct === 'movie' || !!m.has_anime
+    return ct === typeFilter
+  }
+
   const filtered = useMemo(() => manga
     .filter(m => !m.series_id || !!m.series_primary) // hide non-primary grouped entries
     .filter(m => filter === 'all' || filter === 'duplicates' || m.status === filter)
-    .filter(m => typeFilter === 'all' || (m.content_type ?? 'manga') === typeFilter)
+    .filter(matchesTypeFilter)
     .filter(m => !search || m.title.toLowerCase().includes(search.toLowerCase()))
     .filter(m => !mood || MOODS.find(mo => mo.id === mood)?.test(m))
     .sort(sortFn),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   [manga, filter, typeFilter, search, mood, sortFn])
 
-  // Count per type for badge labels
-  const typeCounts = useMemo(() => manga.reduce((acc, m) => {
-    const t = m.content_type ?? 'manga'
-    acc[t] = (acc[t] ?? 0) + 1
+  // Count per type for badge labels.
+  // Anime tab count includes entries where has_anime=true so it reflects what the tab will show.
+  const typeCounts = useMemo(() => {
+    const acc: Record<string, number> = {}
+    manga.forEach(m => {
+      const t = m.content_type ?? 'manga'
+      acc[t] = (acc[t] ?? 0) + 1
+      // also count has_anime entries toward the anime tab (unless they already are anime)
+      if (m.has_anime && t !== 'anime' && t !== 'movie') {
+        acc['anime'] = (acc['anime'] ?? 0) + 1
+      }
+    })
     return acc
-  }, {} as Record<string, number>), [manga])
+  }, [manga])
 
   return (
     <main className="min-h-screen bg-[#0d0d0d] text-white">
