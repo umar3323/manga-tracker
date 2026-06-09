@@ -10,6 +10,11 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+- `app/page.tsx` — **Multi-type filter + recents refresh (session 12)**:
+  - Anime filter tab now shows entries where `has_anime = true` in addition to `content_type === 'anime'/'movie'`, so manga entries with anime adaptations appear in both their primary tab and the Anime tab.
+  - `typeCounts` updated to count `has_anime` entries toward the anime badge.
+  - Added `visibilitychange` listener: re-fetches `manga_list` every time the user switches back to this tab — ensures episode count updates (from extension watch events in another tab) reflect immediately and bump Recents order.
+- **Supabase**: Spirited Away `content_type` updated to `'movie'` (was `'anime'`).
 - `app/api/streaming-sites/route.ts` — **Auth fix (session 11 code review)**: original route used cookie-only auth. Extension sends `Authorization: Bearer <token>`. Fixed `getUser()` to try Bearer first, fall back to cookie auth for browser requests — matching `watch-event/route.ts` pattern.
 - `app/extension/page.tsx` *(new)* — Extension landing page: feature grid, supported-platform table with detection method, "How it works" explainer, 5-step install instructions, GitHub download button. Linked from Sidebar + tablet icon rail.
 - `app/sources/page.tsx` — New **Extension Streaming Sites** section: built-in site grid (all 16 parsers), custom-sites list (from DB), "Add site" form (URL → hostname normalisation → POST to API → live update), hover-to-delete per site.
@@ -169,6 +174,10 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 ---
 
 ## Session Log
+
+### Session — 2026-06-09 (session 12)
+- Multi-type filter: Anime tab now includes `has_anime=true` manga entries. typeCounts reflects this. Spirited Away set to movie via Supabase.
+- Recents live refresh: visibilitychange listener re-fetches library when user tabs back, so watch events from the extension update card order instantly.
 
 ### Session — 2026-06-09 (session 11 — continued, code review)
 - Code review of all session-11 additions. One critical bug found and fixed: `streaming-sites` API used cookie auth only; extension calls with Bearer token → returns 401. Fixed to dual-mode auth matching `watch-event` pattern.
