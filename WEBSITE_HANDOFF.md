@@ -10,6 +10,14 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+- `extension/content.js` — **Netflix tracking fixes (session 11)**:
+  - Netflix parser now DOM-scrapes the player UI for `S1:E5` patterns using several known Netflix selector candidates before falling back to title parsing.
+  - Parser also handles `S1:E5`-style format in the tab title itself.
+  - `send()` now retries once after 1 s on failure — wakes a terminated MV3 service worker instead of silently losing the event.
+- `app/api/watch-event/route.ts` — **Episode counter increment when episode is null**: When `is_complete` is true but `safeEpisode` is null (Netflix and others that don't expose episode number in title), `episodes_watched` is now incremented by 1 (was silently skipped). Auto-complete logic also applied in the null-episode path.
+
+### Previous Latest Changes (session 10)
+
 - `app/page.tsx` — **Code review fixes (session 10)**:
   - AbortController on all 6 DetailModal `useEffect` fetches (AniList ×2, MangaUpdates, ANN, Jikan recs, OMDB) — cancelled on cleanup.
   - `updateNotes` now calls `supabase.auth.getUser()` and adds `.eq('user_id', user.id)` to the update query (defence-in-depth over RLS).
@@ -123,6 +131,15 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 - **Fix:** `lib/jikan.ts` — added a version comment at line 1 to change the file hash, forcing all build workers to invalidate their cache entry. Combined with `npx vercel deploy --prod --force` to flush the cache immediately.
 - **Prevention rule:** If you ever see alternating Error/Ready builds with the same cryptic "export not found" error, touch the affected module with a trivial comment change. Run `npx vercel deploy --prod --force` once to flush, then normal `git push` will work cleanly.
 
+### Netflix episode counter never advancing — 2026-06-09
+- **Symptom:** Watching anime on Netflix (e.g. Saiki K) did not increment the episode counter on the library card.
+- **Root cause (1):** Netflix tab title is `"Show Name | Netflix"` with no episode number. The parser returned `episode: null`. `watch-event` API only updated `episodes_watched` when `safeEpisode != null`, so the field was never touched.
+- **Root cause (2):** MV3 service worker terminates after ~30s inactivity. If the user watches without interacting with the extension, the SW dies mid-session. `send()` used `.catch(() => {})` — silently dropped the event, so nothing reached the API.
+- **Fix (1):** `extension/content.js` — Netflix parser now DOM-scrapes player UI for `S1:E5` patterns; also parses `S1:E5` from title string.
+- **Fix (2):** `app/api/watch-event/route.ts` — added `else` branch: when `is_complete && safeEpisode == null`, increment `episodes_watched` by 1.
+- **Fix (3):** `extension/content.js` — `send()` retries once after 1s on failure to wake a dead service worker.
+- **Prevention rule:** Never silently swallow errors in `send()` — always retry at least once to handle SW termination. The API must handle `episode: null` for `is_complete` events (some streaming sites never expose episode number in title/DOM).
+
 ### Duplicate detection falsely flagging series members — 2026-06-08
 - **Symptom:** Series members with similar titles appeared in Duplicates tab.
 - **Root cause:** Duplicate scan didn't check `series_id`.
@@ -132,6 +149,12 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 ---
 
 ## Session Log
+
+### Session — 2026-06-09 (session 11)
+- Netflix episode tracking was broken in two ways: (1) parser only scraped title — Netflix anime titles are just "Show | Netflix" with no episode info, so `episode` was always `null`; (2) `watch-event` API skipped `episodes_watched` update entirely when `safeEpisode == null`.
+- Fixed parser to DOM-scrape Netflix player UI selectors for `S1:E5` patterns and also parse `S1:E5` in the title string.
+- Fixed API to increment `episodes_watched` by 1 when `is_complete` but no episode number (fallback for any site that doesn't expose episode in title/DOM).
+- Fixed `send()` in content.js to retry once after 1s on service worker termination (MV3 background can die after ~30s inactivity; events were being silently dropped).
 
 ### Session — 2026-06-08 (session 10)
 - Full code review performed; all Critical, High, Medium, and most Low findings fixed in one commit (`8c4dd46`).

@@ -143,18 +143,28 @@ export async function POST(req: NextRequest) {
       auto_tracked: true,
     }
 
-    if (is_complete && safeEpisode != null) {
-      // Only advance episode counter — never go backwards
-      if (safeEpisode > (best.episodes_watched ?? 0)) {
-        updates.episodes_watched = safeEpisode
+    if (is_complete) {
+      if (safeEpisode != null) {
+        // Only advance episode counter — never go backwards
+        if (safeEpisode > (best.episodes_watched ?? 0)) {
+          updates.episodes_watched = safeEpisode
+        }
+        // Auto-complete: if we just watched the last episode
+        if (best.total_episodes && safeEpisode >= best.total_episodes && best.status === 'watching') {
+          updates.status = 'completed'
+        }
+      } else {
+        // No episode number available (e.g. Netflix anime) — increment by 1
+        const newEp = (best.episodes_watched ?? 0) + 1
+        updates.episodes_watched = newEp
+        // Auto-complete: if we just watched the last episode
+        if (best.total_episodes && newEp >= best.total_episodes && best.status === 'watching') {
+          updates.status = 'completed'
+        }
       }
       // Auto-promote status: plan_to_read / unwatched → watching
       if (best.status === 'plan_to_read' || best.status === 'unwatched') {
         updates.status = 'watching'
-      }
-      // Auto-complete: if we just watched the last episode
-      if (best.total_episodes && safeEpisode >= best.total_episodes && best.status === 'watching') {
-        updates.status = 'completed'
       }
     }
 

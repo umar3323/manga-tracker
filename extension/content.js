@@ -110,18 +110,44 @@ const PARSERS = [
   },
 
   // ── Netflix ───────────────────────────────────────────────────────────
-  // Netflix titles: "Show Name | Netflix" or "Show Name - Season 1 Episode 3 - Netflix"
+  // Tab title is usually just "Show Name | Netflix" with no episode info.
+  // Try DOM scraping first, then fall back to title parsing.
   {
     match: /netflix\.com/i,
     parse(url, title) {
-      const t   = title.replace(/\s*[-|]\s*netflix.*/i, '').trim()
-      const epM = t.match(/\bep(?:isode)?\s*\.?\s*(\d+)/i) || t.match(/\bE(\d+)\b/)
-      const sM  = t.match(/\bseason\s*(\d+)/i) || t.match(/\bS(\d+)\b/i)
-      const show = t
+      const t = title.replace(/\s*[-|]\s*netflix.*/i, '').trim()
+
+      // 1. DOM: Netflix player overlays episode info in several possible selectors
+      let epFromDom = null, sFromDom = null, showFromDom = null
+      try {
+        // "S1:E5 Episode Title" label shown in the player UI
+        const labelEl = document.querySelector(
+          '[data-uia="video-title"], .watch-video--player-view .title-logo-div, ' +
+          '.VideoMetadata--title, .ltr-1l7esfg, .ltr-i8lf9x'
+        )
+        const labelText = labelEl?.textContent?.trim() || ''
+        // "S1:E5" or "Season 1: Episode 5" patterns
+        const seM = labelText.match(/S(\d+)[:\s]*E(\d+)/i)
+        if (seM) { sFromDom = +seM[1]; epFromDom = +seM[2] }
+        // Show title: try the series title element
+        const seriesEl = document.querySelector(
+          '.watch-video--player-view h4, [data-uia="video-title--main-title"], .ltr-1l7esfg'
+        )
+        if (seriesEl) showFromDom = seriesEl.textContent?.trim() || null
+      } catch {}
+
+      // 2. Title string: handles "S1:E5 Title - Show | Netflix" and "Episode N" patterns
+      const seM2  = t.match(/S(\d+)[:\s]*E(\d+)/i)
+      const epM   = seM2 ? null : (t.match(/\bep(?:isode)?\s*\.?\s*(\d+)/i) || t.match(/\bE(\d+)\b/))
+      const sM    = t.match(/\bseason\s*(\d+)/i) || t.match(/\bS(\d+)E?\d*\b/i)
+      const ep    = epFromDom ?? (seM2 ? +seM2[2] : (epM ? +epM[1] : null))
+      const sn    = sFromDom  ?? (seM2 ? +seM2[1] : (sM  ? +sM[1]  : null))
+      const show  = showFromDom || t
+        .replace(/\s*[-–]\s*S\d+[:\s]*E\d+.*/i, '')
         .replace(/\s*[-–]\s*season\s*\d+.*/i, '')
         .replace(/\s*[-–]\s*S\d+.*/i, '')
         .trim()
-      return { title: show || t, episode: epM ? +epM[1] : null, season: sM ? +sM[1] : null }
+      return { title: show || t, episode: ep, season: sn }
     }
   },
 
@@ -352,7 +378,16 @@ function send(isComplete) {
     timestamp:        new Date().toISOString(),
   }
 
-  chrome.runtime.sendMessage({ type: 'WATCH_EVENT', payload }).catch(() => {})
+  // MV3 service workers can be terminated after ~30s of inactivity.
+  // On failure, retry once after 1 s to wake the service worker back up.
+  chrome.runtime.sendMessage({ type: 'WATCH_EVENT', payload }).catch(() => {
+    setTimeout(() => {
+      try {
+        if (!chrome.runtime?.id) return
+        chrome.runtime.sendMessage({ type: 'WATCH_EVENT', payload }).catch(() => {})
+      } catch { }
+    }, 1000)
+  })
 }
 
 // ── DOM scanning ──────────────────────────────────────────────────────────
