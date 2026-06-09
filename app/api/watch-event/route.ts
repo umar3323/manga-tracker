@@ -142,22 +142,28 @@ export async function POST(req: NextRequest) {
   }
   const MATCH_THRESHOLD = 0.65
 
-  // ── Log watch session (always) ──────────────────────────────────────────
-  await supabase.from('watch_sessions').insert({
-    user_id: user.id,
-    manga_id: best && bestScore >= MATCH_THRESHOLD ? best.id : null,
-    title_raw: safeTitle,
-    episode: safeEpisode,
-    season: safeSeason,
-    site: safeSite,
-    duration_seconds: safeDuration,
-    watched_seconds: safeWatched,
-    is_complete: !!is_complete,
-    watched_at: watchedAt,
-  })
+  const hasLibraryMatch = !!(best && bestScore >= MATCH_THRESHOLD)
+
+  // ── Log watch session (only for library matches or known anime sites) ──
+  // Skip logging for non-anime platforms (YouTube, Netflix, etc.) when there
+  // is no library match — prevents non-anime content appearing in stats/session log.
+  if (hasLibraryMatch || isKnownAnimeSite(safeSite)) {
+    await supabase.from('watch_sessions').insert({
+      user_id: user.id,
+      manga_id: hasLibraryMatch ? best!.id : null,
+      title_raw: safeTitle,
+      episode: safeEpisode,
+      season: safeSeason,
+      site: safeSite,
+      duration_seconds: safeDuration,
+      watched_seconds: safeWatched,
+      is_complete: !!is_complete,
+      watched_at: watchedAt,
+    })
+  }
 
   // ── Matched existing entry ──────────────────────────────────────────────
-  if (best && bestScore >= MATCH_THRESHOLD) {
+  if (hasLibraryMatch && best) {
     const updates: Record<string, unknown> = {
       total_watch_time_minutes: (best.total_watch_time_minutes ?? 0) + watchMinutes,
       last_read_at: watchedAt,
