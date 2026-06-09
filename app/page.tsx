@@ -2877,6 +2877,31 @@ export default function Home() {
   const [shelfPickerManga, setShelfPickerManga] = useState<Manga | null>(null)
   const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null)
   const [mood, setMood] = useState<string | null>(null)
+
+  // ── Incremental rendering ──────────────────────────────────────────────
+  // Only render the first N cards in the DOM; an IntersectionObserver sentinel
+  // at the bottom of the grid loads the next batch when it scrolls into view.
+  // This keeps the DOM lean (≈40 nodes max) without any extra dependency.
+  const INITIAL_BATCH = 40
+  const BATCH_SIZE    = 20
+  const [renderCount, setRenderCount] = useState(INITIAL_BATCH)
+  const gridSentinelRef = useRef<HTMLDivElement>(null)
+
+  // Reset to first batch whenever the visible set changes
+  useEffect(() => { setRenderCount(INITIAL_BATCH) }, [filter, typeFilter, search, mood])
+
+  // Load next batch when sentinel scrolls into view
+  useEffect(() => {
+    const el = gridSentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setRenderCount(c => c + BATCH_SIZE) },
+      { rootMargin: '400px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   const [watchPrompt, setWatchPrompt] = useState<{ id: string; epInput: string } | null>(null)
   const [completionManga, setCompletionManga] = useState<Manga | null>(null)
   const [progressPrompt, setProgressPrompt] = useState<{
@@ -4568,7 +4593,7 @@ ${entries}
           <div className="text-zinc-500 text-sm">Nothing here.</div>
         ) : (
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))' }}>
-            {filtered.map(m => (
+            {filtered.slice(0, renderCount).map(m => (
               <div key={m.id}
                 className={`bg-zinc-900 border rounded-xl overflow-hidden flex flex-col h-full transition-colors ${deepSelectMode ? (deepSelected.has(m.id) ? 'border-violet-500 ring-1 ring-violet-500/40' : 'border-zinc-700 cursor-pointer hover:border-zinc-600') : 'border-zinc-800'}`}
                 onClick={deepSelectMode ? () => setDeepSelected(prev => { const s = new Set(prev); s.has(m.id) ? s.delete(m.id) : s.add(m.id); return s }) : undefined}
@@ -5086,6 +5111,10 @@ ${entries}
                 </div>
               )}
             </div>
+            {/* Sentinel — triggers loading the next batch when it scrolls into view */}
+            {renderCount < filtered.length && (
+              <div ref={gridSentinelRef} className="col-span-full h-4" aria-hidden />
+            )}
           </div>
         </div>
       )}

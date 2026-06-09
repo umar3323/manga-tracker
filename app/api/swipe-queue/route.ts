@@ -5,38 +5,71 @@ import type { JikanSearchResult } from '@/lib/jikan'
 
 export const maxDuration = 30
 
-// Map a raw Jikan manga object to JikanSearchResult
-function mapItem(item: Record<string, unknown>): JikanSearchResult | null {
-  const mal_id = item.mal_id as number | null
-  if (!mal_id) return null
-  const images = item.images as Record<string, Record<string, string>> | undefined
-  const cover_url = images?.jpg?.large_image_url ?? images?.jpg?.image_url ?? null
-  if (!cover_url) return null // swipe cards need a cover
-  const genres  = ((item.genres  as { name: string }[] | undefined) ?? []).map(g => g.name)
-  const themes  = ((item.themes  as { name: string }[] | undefined) ?? []).map(g => g.name)
-  const authors = ((item.authors as { name: string }[] | undefined) ?? []).map(a => ({ id: 0, name: a.name }))
+// ── AniList GraphQL catalog source ───────────────────────────────────────────
+// Fetches a random page of top-scored manga from AniList.
+// Two random pages × 50 items = up to 100 varied candidates per request,
+// vs. the previous Jikan approach that returned the same 50 titles every time.
+
+const ANILIST_QUERY = `
+query ($page: Int) {
+  Page(page: $page, perPage: 50) {
+    media(type: MANGA, sort: SCORE_DESC, isAdult: false) {
+      idMal
+      title { romaji english }
+      description(asHtml: false)
+      coverImage { large }
+      genres
+      chapters
+      averageScore
+      status
+    }
+  }
+}
+`
+
+interface AniListMedia {
+  idMal: number | null
+  title: { romaji: string; english: string | null }
+  description: string | null
+  coverImage: { large: string | null }
+  genres: string[]
+  chapters: number | null
+  averageScore: number | null
+  status: string | null
+}
+
+function mapAniListItem(m: AniListMedia): JikanSearchResult | null {
+  if (!m.idMal) return null          // no MAL cross-ref → skip (scorer needs it)
+  const cover_url = m.coverImage?.large ?? null
+  if (!cover_url) return null        // swipe cards need a cover
   return {
-    mal_id,
-    title: (item.title as string) ?? '',
-    synopsis: (item.synopsis as string | null) ?? null,
+    mal_id: m.idMal,
+    title: m.title.english ?? m.title.romaji ?? '',
+    synopsis: m.description ?? null,
     cover_url,
-    genres: [...genres, ...themes],
-    total_chapters: (item.chapters as number | null) ?? null,
-    score: (item.score as number | null) ?? null,
-    status: (item.status as string | null) ?? null,
-    authors,
+    genres: m.genres ?? [],
+    total_chapters: m.chapters ?? null,
+    // AniList averageScore is 0–100; normalise to 0–10 to match Jikan
+    score: m.averageScore != null ? m.averageScore / 10 : null,
+    status: m.status ?? null,
+    authors: [],
+    source: 'anilist',
   }
 }
 
-async function jikanFetch(path: string): Promise<JikanSearchResult[]> {
+async function anilistFetch(page: number): Promise<JikanSearchResult[]> {
   try {
-    const res = await fetch(`https://api.jikan.moe/v4${path}`, {
-      signal: AbortSignal.timeout(8000),
-      next: { revalidate: 3600 }, // cache 1h at the edge
+    const res = await fetch('https://graphql.anilist.co', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ query: ANILIST_QUERY, variables: { page } }),
+      signal: AbortSignal.timeout(10_000),
+      // Each page call is random — do NOT cache at the edge so we get variety
     })
     if (!res.ok) return []
     const json = await res.json()
-    return (json.data ?? []).map(mapItem).filter(Boolean) as JikanSearchResult[]
+    const items: AniListMedia[] = json?.data?.Page?.media ?? []
+    return items.map(mapAniListItem).filter(Boolean) as JikanSearchResult[]
   } catch {
     return []
   }
@@ -56,13 +89,18 @@ export async function GET() {
       }
     )
 
-    // Supabase reads + Jikan fetches run in parallel
-    const [addedRes, swipesRes, libraryRes, topRes, popRes] = await Promise.all([
+    // Pick two distinct random pages (1–100) so the catalog varies each request
+    const pageA = Math.ceil(Math.random() * 100)
+    let pageB = Math.ceil(Math.random() * 100)
+    if (pageB === pageA) pageB = pageB < 100 ? pageB + 1 : pageB - 1
+
+    // Supabase reads + AniList fetches run in parallel
+    const [addedRes, swipesRes, libraryRes, pageARes, pageBRes] = await Promise.all([
       supabase.from('manga_list').select('mal_id'),
       supabase.from('swipe_history').select('mal_id, direction, genres').order('swiped_at', { ascending: false }).limit(500),
       supabase.from('manga_list').select('genres').in('status', ['completed', 'watching']),
-      jikanFetch('/top/manga?limit=25&page=1'),
-      jikanFetch('/top/manga?filter=publishing&limit=25'),
+      anilistFetch(pageA),
+      anilistFetch(pageB),
     ])
 
     const addedMalIds = ((addedRes.data ?? []) as { mal_id: number | null }[])
@@ -117,10 +155,10 @@ export async function GET() {
       return union > 0 ? intersection / union : 0
     }
 
-    // Deduplicate the two Jikan result sets by mal_id
+    // Deduplicate the two AniList result sets by mal_id
     const seen = new Set<number>()
     const catalog: JikanSearchResult[] = []
-    for (const m of [...topRes, ...popRes]) {
+    for (const m of [...pageARes, ...pageBRes]) {
       if (m.mal_id && !seen.has(m.mal_id)) { seen.add(m.mal_id); catalog.push(m) }
     }
 
