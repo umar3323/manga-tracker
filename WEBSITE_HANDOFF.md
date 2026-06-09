@@ -10,6 +10,12 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 28 — pg_trgm DB fuzzy match + atomic merge RPC (2026-06-09, commit `9afbf45`)
+
+- `app/api/watch-event/route.ts` — Replaced full JS library scan (loads entire `manga_list` into serverless memory on every extension heartbeat) with a single `match_library_entry` Supabase RPC. DB uses `pg_trgm` GIN indexes on `title` and `anime_title` columns. Threshold kept at 0.65. JS fallback retained if RPC errors. `normalise()`/`matchScore()` kept in file for fallback — no longer the primary path.
+- `app/page.tsx` — `mergeMultiple` now uses `merge_entries(keep_id, drop_ids[])` RPC for the delete step. Atomically reassigns `watch_sessions.manga_id` and deletes duplicates in one DB transaction (prevents orphaned watch history if connection drops mid-merge). Both update and merge errors are now surfaced via `showToast` instead of silently failing.
+- `scripts/migrations.sql` — Added `pg_trgm` extension, GIN indexes (`manga_list_title_trgm_idx`, `manga_list_anime_title_trgm_idx`), and both RPC function definitions for reproducibility.
+
 #### Session 27 — Fix series total-episodes edit glitch (2026-06-09, commit `4953556`)
 
 - `app/page.tsx` — Fixed `EditableNumber` for total episodes on series-grouped anime cards. **Bug:** `seriesEpTotal` summed ALL members' `total_episodes` (including Jikan-auto-populated sub-entry values), and the save target was `activeEpMember.id` (in-progress member), not the primary card. Typing 56 could result in 56+100=156 and save to the wrong entry. **Fix:** when `epMembers.length > 1`, saves `n` to the primary card (`m.id`) and nulls-out `total_episodes` on all other members so the displayed sum equals exactly what the user typed.
@@ -40,9 +46,9 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 - [ ] **Stats page inline IIFEs** (M-4) — `app/stats/page.tsx` has ~8 large `{(() => { ... })()}` JSX IIFEs (lines ~427, 519, 641, 821, 890, 919, 1110, 1188). Extract into `useMemo` constants. Safe to defer.
 
-- [ ] **Watch-event API fuzzy match at scale** (H-4) — `app/api/watch-event/route.ts` loads full library in JS on every POST. Long-term fix: `pg_trgm` + DB-level RPC. Low urgency for personal use.
+- [x] **Watch-event API fuzzy match at scale** (H-4) — migrated to `match_library_entry` pg_trgm RPC (session 28).
 
-- [ ] **`onMergeMultiple` transaction safety** (H-6) — `app/page.tsx` `onMergeMultiple` fires two separate Supabase calls without a transaction. Fix: create RPC `merge_entries(keep_id, drop_id)`.
+- [x] **`onMergeMultiple` transaction safety** (H-6) — `merge_entries` RPC implemented (session 28).
 
 - [ ] **Jikan direct browser calls** (M-1) — some `lib/jikan.ts` functions call `api.jikan.moe` directly from the browser. Route all through `/api/jikan`.
 
@@ -188,6 +194,13 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 ---
 
 ## Session Log
+
+### Session — 2026-06-09 (session 28)
+- Implemented Gemini's two highest-value recommendations (corrected for actual schema).
+- `match_library_entry` RPC: pg_trgm GIN indexes on `title` + `anime_title`. Watch-event route no longer loads full library into memory — single indexed DB query instead. JS fallback retained.
+- `merge_entries` RPC: atomically reassigns `watch_sessions` + deletes duplicates in one transaction. Both merge errors now surface via `showToast`. Watch history preserved on merge (was silently lost before).
+- Both RPCs added to `migrations.sql`. Applied to production via Supabase MCP.
+- Gemini's SQL bugs corrected: table name `library` → `manga_list`; `library_id` → `manga_id`; `title_english`/`title_romaji` removed (columns don't exist); threshold kept at 0.65 (not 0.4).
 
 ### Session — 2026-06-09 (sessions 25–27)
 - Four code-review findings actioned: (1) cron/warmup paths exempted from auth middleware — chapter-alert cron was silently dead since day one; (2) `pairKey` made order-independent with `.sort()` — dismissals were vanishing after library re-sorts; (3) `.vercel/**` added to ESLint ignores — lint noise dropped from 3,067 to 56; (4) `user_settings` + `chapter_notifications` DDL added to `migrations.sql` — schema was non-reproducible.
