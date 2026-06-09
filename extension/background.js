@@ -14,22 +14,32 @@ const IDLE_THRESHOLD_SECONDS = 900 // 15 minutes
 // ── Offline-first: periodic flush alarm ──────────────────────────────────
 // Wakes the MV3 service worker every 1 min to drain the pending queue,
 // even if the worker was terminated mid-flush.
-chrome.runtime.onInstalled.addListener(async () => {
-  // create() is idempotent when called with the same name — safe on update too.
-  // Use periodInMinutes so Chrome re-registers after every SW restart.
-  await chrome.alarms.create('syncFlush', { periodInMinutes: 1 })
-  // Inject content script into any already-open matching tabs on install/update
-  injectIntoExistingTabs()
-  // Kick off a flush + site refresh now that we know the SW is alive
-  const token = await getAuthToken()
-  if (token) { flushPending(); fetchCustomSites() }
-})
+//
+// NOTE: chrome.alarms requires the "alarms" permission in manifest.json.
+// If the extension is loaded with an old manifest (before the permission was
+// added) chrome.alarms will be undefined — reload the extension to fix it.
+// The guard below prevents a hard crash in that case.
+if (chrome.alarms) {
+  chrome.runtime.onInstalled.addListener(async () => {
+    // create() replaces any existing alarm with the same name — safe on update.
+    chrome.alarms.create('syncFlush', { periodInMinutes: 1 })
+    // Inject content script into any already-open matching tabs on install/update
+    injectIntoExistingTabs()
+    // Kick off a flush + site refresh now that we know the SW is alive
+    const token = await getAuthToken()
+    if (token) { flushPending(); fetchCustomSites() }
+  })
 
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== 'syncFlush') return
-  const token = await getAuthToken()
-  if (token) flushPending()
-})
+  chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (alarm.name !== 'syncFlush') return
+    const token = await getAuthToken()
+    if (token) flushPending()
+  })
+} else {
+  // Alarms permission not yet granted — happens only on first load before
+  // manifest is reloaded. Log once and continue; reload the extension to fix.
+  console.warn('[YOMU] chrome.alarms unavailable — reload the extension at chrome://extensions to apply the new "alarms" permission.')
+}
 
 // Also flush immediately when network comes back online
 self.addEventListener('online', async () => {
