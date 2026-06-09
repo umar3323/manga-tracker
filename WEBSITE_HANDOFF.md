@@ -10,6 +10,10 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 26 — Extension: Netflix/streaming platforms NOW TRACKING fix (2026-06-09)
+
+- `extension/background.js` — Added `KNOWN_STREAMING_PLATFORMS` set (Netflix, Prime Video, Disney+, Max, Hulu, Apple TV+, Tubi). These platforms now update `yomu_last_tracked` and local session stats **immediately** (same as dedicated anime sites), so the popup shows "NOW TRACKING: Saiki K · netflix.com" the instant playback starts — it no longer waits for an API library-match round-trip. DB updates (episode progress, watch time) still require an API match to prevent non-anime content polluting the library. YouTube and other unknown sites remain fully gated. Also fixed double-counting: `sendToAPI` now skips the local stats update for streaming platforms since they already ran it optimistically in `handleEvent`.
+
 #### Session 25 — Code-review fixes: auth middleware, duplicate detector, ESLint, migrations (2026-06-09)
 
 - `proxy.ts` — Fixed cron jobs silently dead: auth middleware was 307-redirecting all Vercel Cron requests (no session cookie) to `/login`. Added `/api/cron/*` and `/api/warmup` to the public-API exemption. Routes secure themselves via `CRON_SECRET` Bearer header. Chapter-alert cron is now reachable.

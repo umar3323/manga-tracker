@@ -174,9 +174,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 })
 
 // ── Dedicated anime streaming sites ─────────────────────────────────────
-// For these sites we trust all content is anime — log locally immediately.
-// For all other sites (YouTube, Netflix, streaming platforms) we wait for the
-// API to confirm a library match before updating local stats / NOW TRACKING.
+// For these sites we trust all content is anime — log locally immediately
+// and allow auto-creating new library entries.
 const DEDICATED_ANIME_SITES = new Set([
   'crunchyroll.com', 'funimation.com', 'hidive.com',
   'aniwatch.to', 'hianime.to', 'aniwatchtv.to',
@@ -187,9 +186,25 @@ const DEDICATED_ANIME_SITES = new Set([
   'bilibili.tv', 'vrv.co', 'retrocrush.tv',
 ])
 
+// ── Known streaming platforms ─────────────────────────────────────────────
+// These carry anime but also other content. We trust the title enough to
+// update NOW TRACKING and local stats immediately (so the popup shows the
+// right show), but we still rely on an API library-match to update the DB
+// and we never auto-create new entries for these sites.
+const KNOWN_STREAMING_PLATFORMS = new Set([
+  'netflix.com', 'primevideo.com', 'disneyplus.com',
+  'max.com', 'hulu.com', 'tv.apple.com',
+  'tubi.tv', 'tubitv.com',
+])
+
 function isDedicatedAnimeSite(site) {
   const lower = (site || '').toLowerCase()
   return [...DEDICATED_ANIME_SITES].some(s => lower === s || lower.endsWith('.' + s) || lower.includes(s))
+}
+
+function isKnownStreamingPlatform(site) {
+  const lower = (site || '').toLowerCase()
+  return [...KNOWN_STREAMING_PLATFORMS].some(s => lower === s || lower.endsWith('.' + s) || lower.includes(s))
 }
 
 // ── Core event handler ────────────────────────────────────────────────────
@@ -201,16 +216,19 @@ async function handleEvent(payload) {
   recentKeys.set(dedupKey, now)
 
   const dedicated = isDedicatedAnimeSite(payload.site)
+  const streaming = !dedicated && isKnownStreamingPlatform(payload.site)
 
-  if (dedicated) {
-    // Known anime site — log locally straight away
+  if (dedicated || streaming) {
+    // Log locally straight away so the popup shows NOW TRACKING immediately.
+    // For streaming platforms this is optimistic — the DB update still requires
+    // an API library match. YouTube and other unknowns are still fully gated.
     chrome.storage.local.set({ yomu_last_tracked: { ...payload, receivedAt: new Date().toISOString() } })
     updateSessionStats(payload)
   }
 
   if (!authToken) {
     if (!dedicated) {
-      // Non-anime site with no auth — skip entirely (can't verify library match)
+      // No auth — skip DB update (streaming platforms already got local stats above)
       return
     }
     queuePending(payload)
@@ -241,10 +259,12 @@ async function sendToAPI(payload, dedicated = true) {
 
     const data = await res.json().catch(() => ({}))
 
-    // For non-dedicated sites (YouTube, Netflix, etc.) only log locally if the
-    // API confirmed a library match. This prevents non-anime content from
-    // appearing in the popup stats or NOW TRACKING panel.
-    if (!dedicated && (data.action === 'updated' || data.action === 'created')) {
+    // For non-dedicated, non-streaming sites (YouTube, unknown sites) only log
+    // locally if the API confirmed a library match. Streaming platforms
+    // (Netflix, Prime, etc.) already got optimistic local tracking in handleEvent
+    // so we skip the double-update here to avoid double-counting stats.
+    const isStreaming = isKnownStreamingPlatform(payload.site)
+    if (!dedicated && !isStreaming && (data.action === 'updated' || data.action === 'created')) {
       chrome.storage.local.set({ yomu_last_tracked: { ...payload, receivedAt: new Date().toISOString() } })
       updateSessionStats(payload)
     }
