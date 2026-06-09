@@ -150,24 +150,28 @@ export async function searchPeople(name: string): Promise<{ id: number; name: st
 }
 
 async function jikanGet(path: string): Promise<Response> {
-  // When running in the browser, route /manga?q=... and /anime?q=... through
-  // our server-side proxy which handles 429 retries and 30 s caching.
-  if (typeof window !== 'undefined' && (path.startsWith('/manga?') || path.startsWith('/anime?'))) {
-    const isAnime = path.startsWith('/anime?')
-    const prefix = isAnime ? '/anime?' : '/manga?'
-    const jikanParams = new URLSearchParams(path.slice(prefix.length))
-    const proxyParams = new URLSearchParams()
-    jikanParams.forEach((v, k) => proxyParams.set(k, v))
-    if (isAnime) proxyParams.set('type', 'anime')
-    const proxyUrl = `/api/jikan-search?${proxyParams.toString()}`
-    const res = await fetch(proxyUrl)
-    if (!res.ok) return res
-    const json = await res.json()
-    return new Response(JSON.stringify(json), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })
+  if (typeof window !== 'undefined') {
+    // Search queries → /api/jikan-search (has 30 s in-memory cache + 429 retry)
+    if (path.startsWith('/manga?') || path.startsWith('/anime?')) {
+      const isAnime = path.startsWith('/anime?')
+      const prefix = isAnime ? '/anime?' : '/manga?'
+      const jikanParams = new URLSearchParams(path.slice(prefix.length))
+      const proxyParams = new URLSearchParams()
+      jikanParams.forEach((v, k) => proxyParams.set(k, v))
+      if (isAnime) proxyParams.set('type', 'anime')
+      const res = await fetch(`/api/jikan-search?${proxyParams.toString()}`)
+      if (!res.ok) return res
+      const json = await res.json()
+      return new Response(JSON.stringify(json), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    // All other paths (detail, relations, episodes, etc.) →
+    // /api/jikan-proxy avoids CORS + shares the server's rate-limit quota.
+    return fetch(`/api/jikan-proxy?path=${encodeURIComponent(path)}`)
   }
+  // Server-side: call Jikan directly (no CORS concerns, server IP quota)
   return fetch(`https://api.jikan.moe/v4${path}`)
 }
 
@@ -328,7 +332,7 @@ export async function getAnimeAdaptations(malId: number): Promise<JikanAnimeAdap
           if (entry.type === 'anime') {
             // Fetch anime episode count
             try {
-              const ar = await fetch(`https://api.jikan.moe/v4/anime/${entry.mal_id}`)
+              const ar = await jikanGet(`/anime/${entry.mal_id}`)
               if (ar.ok) {
                 const aj = await ar.json()
                 adaptations.push({
@@ -506,7 +510,7 @@ export interface SeriesRelation {
 /** Returns ALL relations for a manga (not just anime adaptations). */
 export async function getMangaAllRelations(malId: number): Promise<SeriesRelation[]> {
   try {
-    const res = await fetch(`https://api.jikan.moe/v4/manga/${malId}/relations`)
+    const res = await jikanGet(`/manga/${malId}/relations`)
     if (!res.ok) return []
     const json = await res.json()
     const out: SeriesRelation[] = []
@@ -542,11 +546,8 @@ export async function getSeriesEntryDetail(
   type: 'manga' | 'anime',
 ): Promise<SeriesEntryDetail | null> {
   try {
-    let res = await fetch(`https://api.jikan.moe/v4/${type}/${malId}`)
-    if (res.status === 429) {
-      await new Promise(r => setTimeout(r, 1200))
-      res = await fetch(`https://api.jikan.moe/v4/${type}/${malId}`)
-    }
+    // jikanGet routes through /api/jikan-proxy in the browser (handles 429 retry server-side)
+    const res = await jikanGet(`/${type}/${malId}`)
     if (!res.ok) return null
     const d = (await res.json()).data
     if (!d) return null
@@ -615,14 +616,8 @@ export interface JikanEpisode {
 
 export async function getJikanEpisodes(malId: number, page = 1): Promise<{ episodes: JikanEpisode[]; hasNext: boolean }> {
   try {
-    const res = await fetch(`https://api.jikan.moe/v4/anime/${malId}/episodes?page=${page}`)
-    if (res.status === 429) {
-      await new Promise(r => setTimeout(r, 1200))
-      const retry = await fetch(`https://api.jikan.moe/v4/anime/${malId}/episodes?page=${page}`)
-      if (!retry.ok) return { episodes: [], hasNext: false }
-      const json = await retry.json()
-      return parseEpisodesResponse(json)
-    }
+    // jikanGet routes through /api/jikan-proxy in the browser (handles 429 retry server-side)
+    const res = await jikanGet(`/anime/${malId}/episodes?page=${page}`)
     if (!res.ok) return { episodes: [], hasNext: false }
     const json = await res.json()
     return parseEpisodesResponse(json)
@@ -649,14 +644,8 @@ function parseEpisodesResponse(json: any): { episodes: JikanEpisode[]; hasNext: 
 
 export async function getJikanEpisodeSynopsis(malId: number, episodeId: number): Promise<string | null> {
   try {
-    const res = await fetch(`https://api.jikan.moe/v4/anime/${malId}/episodes/${episodeId}`)
-    if (res.status === 429) {
-      await new Promise(r => setTimeout(r, 1200))
-      const retry = await fetch(`https://api.jikan.moe/v4/anime/${malId}/episodes/${episodeId}`)
-      if (!retry.ok) return null
-      const json = await retry.json()
-      return json.data?.synopsis ?? null
-    }
+    // jikanGet routes through /api/jikan-proxy in the browser (handles 429 retry server-side)
+    const res = await jikanGet(`/anime/${malId}/episodes/${episodeId}`)
     if (!res.ok) return null
     const json = await res.json()
     return json.data?.synopsis ?? null

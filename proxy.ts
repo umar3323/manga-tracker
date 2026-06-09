@@ -35,7 +35,18 @@ export async function proxy(request: NextRequest) {
   const isPublicApi =
     p === '/api/feature-request' ||
     p.startsWith('/api/cron/') ||
-    p === '/api/warmup'
+    p === '/api/warmup' ||
+    // Warmup sub-routes: public catalog aggregation (no per-user data).
+    // The cron job calls /api/warmup which fan-outs to these; they carry no
+    // session cookie so they must be exempt from the auth redirect.
+    p === '/api/catalog' ||
+    p === '/api/shonenjump' ||
+    p === '/api/goodreads' ||
+    p === '/api/webtoons' ||
+    p === '/api/mangaplus' ||
+    // General Jikan proxy — forwards to api.jikan.moe server-side.
+    // Public anime/manga data only; no user data returned.
+    p === '/api/jikan-proxy'
 
   if (!user && !isLoginPage && !isCallback && !isPublicShare && !isPublicApi) {
     return NextResponse.redirect(new URL('/login', request.url))

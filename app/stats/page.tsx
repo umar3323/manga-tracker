@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { ThumbsUp, ThumbsDown, Sparkles, BookOpen, Clapperboard } from 'lucide-react'
 import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
@@ -352,6 +352,155 @@ export default function StatsPage() {
     setEditingGoal(false)
   }
 
+  // ── Memoised page sections ──────────────────────────────────────────────
+  // Must live before the early return so they satisfy the rules of hooks.
+  // With empty initial arrays these run in <0.1ms.
+
+  const animeStatsSection = useMemo(() => {
+    const al = animeList
+    const totalAnimeSeries  = al.filter(e => !e.is_movie).length
+    const totalAnimeMovies  = al.filter(e =>  e.is_movie).length
+    const totalAnimeHours   = al.reduce((s, e) => s + e.total_watch_hours, 0)
+    const activeAnime       = al.filter(e => getStatus(e) === 'active').length
+    const effectiveRating   = (e: AnimeRow) => e.user_rating ?? e.netflix_rating
+    const likedAnime        = al.filter(e => effectiveRating(e) === 'up').length
+    const dislikedAnime     = al.filter(e => effectiveRating(e) === 'down').length
+    const topAnime = [...al]
+      .filter(e => e.total_watch_hours > 0)
+      .sort((a, b) => b.total_watch_hours - a.total_watch_hours)
+      .slice(0, 5)
+    const animeCounts = {
+      active: al.filter(e => getStatus(e) === 'active').length,
+      paused: al.filter(e => getStatus(e) === 'paused').length,
+      older:  al.filter(e => getStatus(e) === 'older').length,
+      movie:  al.filter(e => getStatus(e) === 'movie').length,
+    }
+    const maxAnimeSt = Math.max(...Object.values(animeCounts), 1)
+    const ANIME_STATUS_COLORS: Record<string, string> = {
+      active: '#2FCF7A', paused: '#FFB02E', older: '#6F6E7C', movie: '#a78bfa',
+    }
+    const ANIME_STATUS_LABELS: Record<string, string> = {
+      active: 'Active', paused: 'Paused', older: 'Older', movie: 'Movies',
+    }
+    return (
+      <div className="mb-6">
+        <h2 className="text-lg font-bold mb-3">Anime</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <StatCard value={totalAnimeSeries} label="Series Tracked" />
+          <StatCard value={`${totalAnimeHours.toFixed(0)}h`} label="Hours Watched" />
+          <StatCard value={activeAnime} label="Currently Active" sub="Last 90 Days" />
+          <StatCard value={totalAnimeMovies} label="Movies" />
+        </div>
+        <div className="lg:grid lg:grid-cols-2 lg:gap-4">
+          <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+            <h3 className="text-sm font-semibold mb-4">Status breakdown</h3>
+            <div className="space-y-3">
+              {Object.entries(animeCounts).map(([s, n]) => n > 0 && (
+                <div key={s} className="flex items-center gap-3">
+                  <span className="text-xs text-zinc-400 w-16 shrink-0">{ANIME_STATUS_LABELS[s]}</span>
+                  <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all"
+                      style={{ backgroundColor: ANIME_STATUS_COLORS[s], width: `${(n / maxAnimeSt) * 100}%` }} />
+                  </div>
+                  <span className="text-xs text-zinc-500 w-6 text-right shrink-0">{n}</span>
+                </div>
+              ))}
+            </div>
+            {(likedAnime > 0 || dislikedAnime > 0) && (
+              <div className="mt-4 pt-4 border-t border-zinc-800 flex gap-4 text-xs text-zinc-500">
+                <span className="flex items-center gap-1"><ThumbsUp size={11} strokeWidth={1.5} className="icon-success" /> {likedAnime} Liked</span>
+                <span className="flex items-center gap-1"><ThumbsDown size={11} strokeWidth={1.5} style={{color:'var(--danger)'}} /> {dislikedAnime} Disliked</span>
+              </div>
+            )}
+          </div>
+          {topAnime.length > 0 && (
+            <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+              <h3 className="text-sm font-semibold mb-4">Most time spent</h3>
+              <div className="space-y-3">
+                {topAnime.map((e, i) => (
+                  <div key={e.id} className="flex items-center gap-3">
+                    <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
+                    <span className="text-xs text-zinc-300 flex-1 truncate">{e.title}</span>
+                    <div className="w-20 h-2 bg-zinc-800 rounded-full overflow-hidden shrink-0">
+                      <div className="h-full rounded-full" style={{
+                        width: `${(e.total_watch_hours / topAnime[0].total_watch_hours) * 100}%`,
+                        backgroundColor: 'var(--cyan)',
+                      }} />
+                    </div>
+                    <span className="text-xs text-zinc-500 w-10 text-right shrink-0">{e.total_watch_hours}h</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }, [animeList])
+
+  const readingVelocitySection = useMemo(() => {
+    const now = new Date()
+    const logEntryDate = (l: LogEntry): Date => {
+      if (l.date_precision === 'exact' && l.progress_date) return new Date(l.progress_date)
+      if (!l.date_precision) return new Date(l.logged_at)
+      return new Date(0) // year_only or unknown — exclude
+    }
+    const weeks = Array.from({ length: 12 }, (_, i) => {
+      const weekEnd = new Date(now)
+      weekEnd.setDate(now.getDate() - i * 7)
+      const weekStart = new Date(weekEnd)
+      weekStart.setDate(weekEnd.getDate() - 6)
+      weekStart.setHours(0, 0, 0, 0)
+      weekEnd.setHours(23, 59, 59, 999)
+      const chapters = log
+        .filter(l => {
+          if (l.date_precision === 'year_only' || l.date_precision === 'unknown') return false
+          const d = logEntryDate(l)
+          return d >= weekStart && d <= weekEnd
+        })
+        .reduce((s, l) => s + l.chapters_read, 0)
+      return { label: `${weekStart.getDate()}/${weekStart.getMonth() + 1}`, chapters }
+    }).reverse()
+    const maxW = Math.max(...weeks.map(w => w.chapters), 1)
+    if (weeks.every(w => w.chapters === 0)) return null
+    const W = 400, H = 60, pad = 4
+    const pts = weeks.map((w, i) => {
+      const x = pad + (i / (weeks.length - 1)) * (W - pad * 2)
+      const y = H - pad - (w.chapters / maxW) * (H - pad * 2)
+      return `${x},${y}`
+    }).join(' ')
+    return (
+      <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-sm font-semibold">Reading Velocity</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">Chapters Per Week — Last 12 Weeks</p>
+          </div>
+          <span className="text-xs text-zinc-500">Peak: {maxW} Ch</span>
+        </div>
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 60 }}>
+          <defs>
+            <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--vermillion)" stopOpacity="0.3" />
+              <stop offset="100%" stopColor="var(--vermillion)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <polyline points={`${pad},${H - pad} ${pts} ${W - pad},${H - pad}`} fill="url(#sparkGrad)" stroke="none" />
+          <polyline points={pts} fill="none" stroke="var(--vermillion)" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+          {weeks.map((w, i) => {
+            const x = pad + (i / (weeks.length - 1)) * (W - pad * 2)
+            const y = H - pad - (w.chapters / maxW) * (H - pad * 2)
+            return w.chapters > 0 ? <circle key={i} cx={x} cy={y} r="2.5" fill="var(--vermillion)" /> : null
+          })}
+        </svg>
+        <div className="flex justify-between mt-1">
+          <span className="text-[10px] text-zinc-600">{weeks[0].label}</span>
+          <span className="text-[10px] text-zinc-600">This week</span>
+        </div>
+      </div>
+    )
+  }, [log])
+
   if (loading) return <main className="min-h-screen bg-[#0d0d0d] text-white flex items-center justify-center"><div className="text-zinc-500 text-sm">Loading…</div></main>
 
   // ── Computed stats ─────────────────────────────────────────────────────────
@@ -424,97 +573,7 @@ export default function StatsPage() {
         <NarrativeInsights manga={manga} log={log} />
 
         {/* ── Anime stats ── */}
-        {(() => {
-          const al = animeList
-          const totalAnimeSeries  = al.filter(e => !e.is_movie).length
-          const totalAnimeMovies  = al.filter(e =>  e.is_movie).length
-          const totalAnimeHours   = al.reduce((s, e) => s + e.total_watch_hours, 0)
-          const activeAnime       = al.filter(e => getStatus(e) === 'active').length
-          const effectiveRating   = (e: AnimeRow) => e.user_rating ?? e.netflix_rating
-          const likedAnime        = al.filter(e => effectiveRating(e) === 'up').length
-          const dislikedAnime     = al.filter(e => effectiveRating(e) === 'down').length
-
-          const topAnime = [...al]
-            .filter(e => e.total_watch_hours > 0)
-            .sort((a, b) => b.total_watch_hours - a.total_watch_hours)
-            .slice(0, 5)
-
-          const animeCounts = {
-            active: al.filter(e => getStatus(e) === 'active').length,
-            paused: al.filter(e => getStatus(e) === 'paused').length,
-            older:  al.filter(e => getStatus(e) === 'older').length,
-            movie:  al.filter(e => getStatus(e) === 'movie').length,
-          }
-          const maxAnimeSt = Math.max(...Object.values(animeCounts), 1)
-
-          const ANIME_STATUS_COLORS: Record<string, string> = {
-            active: '#2FCF7A', paused: '#FFB02E', older: '#6F6E7C', movie: '#a78bfa',
-          }
-          const ANIME_STATUS_LABELS: Record<string, string> = {
-            active: 'Active', paused: 'Paused', older: 'Older', movie: 'Movies',
-          }
-
-          return (
-            <div className="mb-6">
-              <h2 className="text-lg font-bold mb-3">Anime</h2>
-
-              {/* Hero cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <StatCard value={totalAnimeSeries} label="Series Tracked" />
-                <StatCard value={`${totalAnimeHours.toFixed(0)}h`} label="Hours Watched" />
-                <StatCard value={activeAnime} label="Currently Active" sub="Last 90 Days" />
-                <StatCard value={totalAnimeMovies} label="Movies" />
-              </div>
-
-              <div className="lg:grid lg:grid-cols-2 lg:gap-4">
-                {/* Status breakdown */}
-                <div className="bg-zinc-900 rounded-xl p-5 mb-4">
-                  <h3 className="text-sm font-semibold mb-4">Status breakdown</h3>
-                  <div className="space-y-3">
-                    {Object.entries(animeCounts).map(([s, n]) => n > 0 && (
-                      <div key={s} className="flex items-center gap-3">
-                        <span className="text-xs text-zinc-400 w-16 shrink-0">{ANIME_STATUS_LABELS[s]}</span>
-                        <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                          <div className="h-full rounded-full transition-all"
-                            style={{ backgroundColor: ANIME_STATUS_COLORS[s], width: `${(n / maxAnimeSt) * 100}%` }} />
-                        </div>
-                        <span className="text-xs text-zinc-500 w-6 text-right shrink-0">{n}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {(likedAnime > 0 || dislikedAnime > 0) && (
-                    <div className="mt-4 pt-4 border-t border-zinc-800 flex gap-4 text-xs text-zinc-500">
-                      <span className="flex items-center gap-1"><ThumbsUp size={11} strokeWidth={1.5} className="icon-success" /> {likedAnime} Liked</span>
-                      <span className="flex items-center gap-1"><ThumbsDown size={11} strokeWidth={1.5} style={{color:'var(--danger)'}} /> {dislikedAnime} Disliked</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Most-watched */}
-                {topAnime.length > 0 && (
-                  <div className="bg-zinc-900 rounded-xl p-5 mb-4">
-                    <h3 className="text-sm font-semibold mb-4">Most time spent</h3>
-                    <div className="space-y-3">
-                      {topAnime.map((e, i) => (
-                        <div key={e.id} className="flex items-center gap-3">
-                          <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
-                          <span className="text-xs text-zinc-300 flex-1 truncate">{e.title}</span>
-                          <div className="w-20 h-2 bg-zinc-800 rounded-full overflow-hidden shrink-0">
-                            <div className="h-full rounded-full" style={{
-                              width: `${(e.total_watch_hours / topAnime[0].total_watch_hours) * 100}%`,
-                              backgroundColor: 'var(--cyan)',
-                            }} />
-                          </div>
-                          <span className="text-xs text-zinc-500 w-10 text-right shrink-0">{e.total_watch_hours}h</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        })()}
+        {animeStatsSection}
 
         <hr className="border-zinc-800 mb-6" />
 
@@ -1081,76 +1140,7 @@ export default function StatsPage() {
         })()}
 
         {/* Reading velocity sparkline — 12 weeks */}
-        {(() => {
-          const now = new Date()
-          const weeks = Array.from({ length: 12 }, (_, i) => {
-            const weekEnd = new Date(now)
-            weekEnd.setDate(now.getDate() - i * 7)
-            const weekStart = new Date(weekEnd)
-            weekStart.setDate(weekEnd.getDate() - 6)
-            weekStart.setHours(0, 0, 0, 0)
-            weekEnd.setHours(23, 59, 59, 999)
-            const chapters = log
-              .filter(l => {
-                if (l.date_precision === 'year_only' || l.date_precision === 'unknown') return false
-                const d = logEntryDate(l)
-                return d >= weekStart && d <= weekEnd
-              })
-              .reduce((s, l) => s + l.chapters_read, 0)
-            return { label: `${weekStart.getDate()}/${weekStart.getMonth() + 1}`, chapters }
-          }).reverse()
-
-          const maxW = Math.max(...weeks.map(w => w.chapters), 1)
-          if (weeks.every(w => w.chapters === 0)) return null
-
-          const W = 400, H = 60, pad = 4
-          const pts = weeks.map((w, i) => {
-            const x = pad + (i / (weeks.length - 1)) * (W - pad * 2)
-            const y = H - pad - (w.chapters / maxW) * (H - pad * 2)
-            return `${x},${y}`
-          }).join(' ')
-
-          return (
-            <div className="bg-zinc-900 rounded-xl p-5 mb-6">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h2 className="text-sm font-semibold">Reading Velocity</h2>
-                  <p className="text-xs text-zinc-500 mt-0.5">Chapters Per Week — Last 12 Weeks</p>
-                </div>
-                <span className="text-xs text-zinc-500">
-                  Peak: {maxW} Ch
-                </span>
-              </div>
-              <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 60 }}>
-                {/* Fill */}
-                <defs>
-                  <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--vermillion)" stopOpacity="0.3" />
-                    <stop offset="100%" stopColor="var(--vermillion)" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                <polyline
-                  points={`${pad},${H - pad} ${pts} ${W - pad},${H - pad}`}
-                  fill="url(#sparkGrad)" stroke="none"
-                />
-                <polyline points={pts} fill="none" stroke="var(--vermillion)" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-                {/* Dots */}
-                {weeks.map((w, i) => {
-                  const x = pad + (i / (weeks.length - 1)) * (W - pad * 2)
-                  const y = H - pad - (w.chapters / maxW) * (H - pad * 2)
-                  return w.chapters > 0 ? (
-                    <circle key={i} cx={x} cy={y} r="2.5" fill="var(--vermillion)" />
-                  ) : null
-                })}
-              </svg>
-              {/* Week labels — first and last */}
-              <div className="flex justify-between mt-1">
-                <span className="text-[10px] text-zinc-600">{weeks[0].label}</span>
-                <span className="text-[10px] text-zinc-600">This week</span>
-              </div>
-            </div>
-          )
-        })()}
+        {readingVelocitySection}
 
         {/* Reading calendar heatmap */}
         <ReadingHeatmap log={log} />
