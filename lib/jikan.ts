@@ -27,6 +27,7 @@ export interface JikanSearchResult {
   published_from?: string    // ISO date string for start of publication
   media_type?: 'manga' | 'anime' | 'movie'  // explicitly set when result comes from anime endpoint
   episodes?: number | null        // anime only — parallel to total_chapters for manga
+  members?: number | null         // MAL member count (readers/watchers)
 }
 
 export interface JikanAnimeAdaptation {
@@ -185,6 +186,7 @@ function mapAnimeResult(a: any): JikanSearchResult {
     authors:        (a.studios ?? []).slice(0, 2).map((s: { mal_id: number; name: string }) => ({ id: s.mal_id, name: s.name })),
     source:         'jikan',
     media_type:     a.type === 'Movie' ? 'movie' : 'anime',
+    members:        a.members ?? null,
   }
 }
 
@@ -414,7 +416,33 @@ function mapMangaResult(item: Record<string, unknown>): JikanSearchResult {
     status: (item.status as string | null) ?? null,
     authors,
     published_from,
+    members: (item.members as number | null) ?? null,
   }
+}
+
+/** Top airing/popular anime. filter: 'airing' | 'bypopularity' | 'favorite' */
+export async function getTopAnime(filter: 'airing' | 'bypopularity' | 'favorite' = 'airing', limit = 16): Promise<JikanSearchResult[]> {
+  try {
+    const res = await jikanGet(`/top/anime?filter=${filter}&limit=${limit}`)
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.data ?? []).map(mapAnimeResult)
+  } catch { return [] }
+}
+
+/** Recently started anime, optionally filtered by genre */
+export async function getNewAnime(limit = 16, genreId: number | null = null): Promise<JikanSearchResult[]> {
+  try {
+    const p = new URLSearchParams({
+      order_by: 'start_date', sort: 'desc',
+      status: 'airing', limit: String(limit),
+    })
+    if (genreId) p.set('genres', String(genreId))
+    const res = await jikanGet(`/anime?${p.toString()}`)
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.data ?? []).map(mapAnimeResult)
+  } catch { return [] }
 }
 
 export async function getAuthorWorks(personId: number): Promise<JikanSearchResult[]> {

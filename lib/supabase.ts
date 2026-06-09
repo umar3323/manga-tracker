@@ -51,7 +51,7 @@ export interface SwipeRecord {
   id: string
   mal_id: number
   title: string
-  direction: 'right' | 'left'
+  direction: 'right' | 'left' | 'skip'
   genres: string[]
   synopsis: string | null
   swiped_at: string
