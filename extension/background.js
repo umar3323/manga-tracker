@@ -289,10 +289,21 @@ function flushPending() {
   chrome.storage.local.get(['yomu_pending'], async d => {
     const queue = d.yomu_pending || []
     if (queue.length === 0) return
-    chrome.storage.local.remove('yomu_pending')
+    // Process one-by-one and remove from storage only after each successful send.
+    // Do NOT bulk-remove upfront: if the MV3 service worker is terminated mid-flush,
+    // any remaining items stay in storage and are retried on the next SW wake.
     for (const payload of queue) {
       await sendToAPI(payload)
-      await delay(300) // gentle rate limiting
+      // Remove this specific payload from the stored queue
+      await new Promise(resolve => {
+        chrome.storage.local.get(['yomu_pending'], d2 => {
+          const remaining = (d2.yomu_pending || []).filter(e =>
+            !(e.title === payload.title && e.episode === payload.episode && e.is_complete === payload.is_complete)
+          )
+          chrome.storage.local.set({ yomu_pending: remaining }, resolve)
+        })
+      })
+      await delay(300)
     }
   })
 }

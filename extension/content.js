@@ -67,7 +67,7 @@ const PARSERS = [
     parse(url, title) {
       // /watch/title-12345?ep=678
       const m    = url.match(/\/watch\/([^/?#]+)/i)
-      const epQS = new URL(url).searchParams.get('ep')
+      let epQS = null; try { epQS = new URL(url).searchParams.get('ep') } catch { /* malformed url */ }
       const name = m ? m[1].replace(/-\d+$/, '').replace(/-/g, ' ').trim() : null
       const ep   = epQS ? +epQS : (title.match(/\bep(?:isode)?\s*\.?\s*(\d+)/i)?.[1] ? +title.match(/\bep(?:isode)?\s*\.?\s*(\d+)/i)[1] : null)
       if (name) return { title: tc(name), episode: ep, season: null }

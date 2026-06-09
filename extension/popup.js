@@ -45,9 +45,15 @@ chrome.runtime.sendMessage({ type: 'GET_SESSION_STATS' }, stats => {
   if (sites.length > 0) {
     const sitesSection = $('section-sites')
     sitesSection.classList.remove('hidden')
-    $('sites-list').innerHTML = sites
-      .map(s => `<span class="site-chip">${s}</span>`)
-      .join('')
+    // Build chips via DOM (not innerHTML) to avoid XSS from stored hostnames
+    const list = $('sites-list')
+    list.textContent = ''
+    sites.forEach(s => {
+      const chip = document.createElement('span')
+      chip.className = 'site-chip'
+      chip.textContent = s
+      list.appendChild(chip)
+    })
   }
 })
 
