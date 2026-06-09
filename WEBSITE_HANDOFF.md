@@ -10,6 +10,11 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 19 — YouTube filter + non-anime auto-create guard (2026-06-09)
+
+- `extension/content.js` — Added YouTube parser (`match: /youtube\.com/i`). Returns `null` (no tracking) unless the video title contains an explicit episode marker (`Episode N`, `Ep N`, `E12`, etc.). Prevents generic YouTube content (documentaries, music, vlogs) from being logged.
+- `app/api/watch-event/route.ts` — Added `KNOWN_ANIME_SITES` set + `isKnownAnimeSite()` helper. Auto-create of new library entries now only fires when `safeSite` matches a known dedicated anime streaming site. General platforms (YouTube, Netflix, Prime Video, Disney+, Max, Hulu, Apple TV+) can still update **existing** library matches but will never create new entries. This prevents non-anime content from auto-populating the library.
+
 #### Session 18 — Wikipedia integration + bug fixes (2026-06-09)
 
 - `app/api/wikipedia/route.ts` *(new)* — Wikipedia REST API proxy. `GET ?title=&mal_id=`. Fetches summary + infobox via `page/summary` + `page/mobile-sections` endpoints. Parses infobox table rows (author, illustrator, publisher, originalRun, volumes, episodes, directed, studio, genres). Finds arc/chapter list section and extracts item names as `arcSummary`. Falls back to search API if exact title not found. 72h cache in `anilist_cache` with `media_type='WIKIPEDIA'`, keyed by `mal_id` (or title hash when mal_id absent). Returns `WikipediaData` interface (also exported for reuse).
@@ -162,6 +167,14 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ## Session Log
 
+### Session — 2026-06-09 (session 19)
+- User noticed extension tracking non-anime YouTube content (e.g. "The Moon Is An Alien Megastructure").
+- Root cause 1: `fromTitle()` fallback ran on every page including YouTube, with no episode-marker filter.
+- Root cause 2: API auto-created library entries from any site on completion — no anime-site guard.
+- Fix 1: YouTube parser added to content.js; returns null unless title has episode markers.
+- Fix 2: `isKnownAnimeSite()` guard added to watch-event API; auto-create only for dedicated anime streaming sites.
+- YouTube anime episodes (e.g. "One Piece Episode 1100 - YouTube") still tracked. Stats page unaffected — `watch_sessions` rows still written for all library-matched events regardless of site.
+
 ### Session — 2026-06-09 (session 18)
 - User requested Wikipedia as a data source for author, publication history, arc info, etc.
 - Built `/api/wikipedia` proxy (2 REST calls: `page/summary` + `page/mobile-sections` for infobox). Regex parses infobox table row HTML. 72h cache. Falls back to search API.
@@ -229,6 +242,10 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 ---
 
 ## Change History
+
+### 2026-06-09 — Session 19
+- `extension/content.js` — YouTube parser: returns null unless title has episode markers
+- `app/api/watch-event/route.ts` — `KNOWN_ANIME_SITES` + `isKnownAnimeSite()` guard on auto-create
 
 ### 2026-06-09 — Session 18
 - `app/api/wikipedia/route.ts` *(new)* — Wikipedia proxy; 72h cache; infobox + arc parsing

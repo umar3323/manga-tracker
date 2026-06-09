@@ -24,6 +24,27 @@ interface LibraryEntry {
   auto_tracked: boolean
 }
 
+// ── Known dedicated anime streaming sites ─────────────────────────────────
+// Auto-create new library entries ONLY when the watch event comes from one
+// of these sites. General sites (YouTube, Netflix, Prime Video, etc.) can
+// update existing library matches but will NOT create new entries — that
+// prevents non-anime content from polluting the library.
+const KNOWN_ANIME_SITES = new Set([
+  'crunchyroll.com', 'funimation.com', 'hidive.com',
+  'aniwatch.to', 'hianime.to', 'aniwatchtv.to',
+  '9anime.to', '9anime.gg', '9anime.rs',
+  'gogoanime.by', 'gogoanime.gg', 'gogoanimes.net',
+  'anitaku.pe', 'anitaku.be',
+  'aniwaves.ru', 'aniwaves.com',
+  'bilibili.tv',
+  'vrv.co', 'retrocrush.tv',
+])
+
+function isKnownAnimeSite(site: string): boolean {
+  const lower = site.toLowerCase()
+  return [...KNOWN_ANIME_SITES].some(s => lower === s || lower.endsWith('.' + s) || lower.includes(s))
+}
+
 // ── Fuzzy title matching ───────────────────────────────────────────────────
 function normalise(s: string) {
   return s
@@ -180,8 +201,11 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // ── No match — create new entry on completion ───────────────────────────
-  if (is_complete) {
+  // ── No match — create new entry on completion (anime sites only) ──────────
+  // Only auto-create for dedicated anime streaming sites. General platforms
+  // (YouTube, Netflix, Prime Video, Disney+, etc.) can match existing entries
+  // but must not create new ones — prevents non-anime content polluting the library.
+  if (is_complete && isKnownAnimeSite(safeSite)) {
     const { data: newEntry } = await supabase
       .from('manga_list')
       .insert({

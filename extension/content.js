@@ -309,6 +309,19 @@ const PARSERS = [
     match: /(vrv\.co|retrocrush\.tv)\//i,
     parse(url, title) { return fromTitle(title) }
   },
+
+  // ── YouTube ───────────────────────────────────────────────────────────
+  // Only track if the title looks like an anime episode (has explicit
+  // "Episode N" / "Ep N" / "E12" marker). Generic/non-anime videos
+  // (documentaries, music, vlogs, etc.) have no episode marker and return null.
+  {
+    match: /youtube\.com/i,
+    parse(url, title) {
+      const hasEpisodeMarker = /\bep(?:isode)?\s*\.?\s*\d+|\bE(\d{1,4})\b|\bEP\s*\d+/i.test(title)
+      if (!hasEpisodeMarker) return null
+      return fromTitle(title)
+    }
+  },
 ];
 
 // Generic title parser — last resort for any unrecognised site
