@@ -46,6 +46,8 @@ function isKnownAnimeSite(site: string): boolean {
 }
 
 // ── Fuzzy title matching ───────────────────────────────────────────────────
+// Primary matching is now done via Supabase RPC (pg_trgm) — no full library
+// load. JS matchScore is kept as a fallback in case the RPC is unavailable.
 function normalise(s: string) {
   return s
     .toLowerCase()
@@ -61,7 +63,6 @@ function matchScore(query: string, candidate: string): number {
   if (q === c) return 1.0
   if (c.startsWith(q) || q.startsWith(c)) return 0.92
   if (c.includes(q) || q.includes(c)) return 0.85
-  // Word-overlap Jaccard
   const wq = new Set(q.split(' ').filter(Boolean))
   const wc = new Set(c.split(' ').filter(Boolean))
   const inter = [...wq].filter(w => wc.has(w)).length
@@ -123,24 +124,36 @@ export async function POST(req: NextRequest) {
   }
   const watchMinutes = Math.max(0, Math.round(safeWatched / 60))
 
-  // ── Load user library ───────────────────────────────────────────────────
-  const { data: library, error: libErr } = await supabase
-    .from('manga_list')
-    .select('id, title, episodes_watched, total_episodes, status, total_watch_time_minutes, content_type, auto_tracked')
-    .eq('user_id', user.id)
-
-  if (libErr || !library) {
-    return NextResponse.json({ error: 'db error' }, { status: 500 })
-  }
-
-  // ── Find best match ─────────────────────────────────────────────────────
+  // ── Find best match via pg_trgm RPC ────────────────────────────────────
+  // Replaces full JS library load — DB does the fuzzy match against both
+  // `title` and `anime_title` columns using GIN indexes. Falls back to the
+  // JS matchScore path if the RPC errors (e.g. during a migration).
+  const MATCH_THRESHOLD = 0.65
   let best: LibraryEntry | null = null
   let bestScore = 0
-  for (const entry of library as LibraryEntry[]) {
-    const score = matchScore(safeTitle, entry.title)
-    if (score > bestScore) { bestScore = score; best = entry }
+
+  const { data: rpcData, error: rpcErr } = await supabase
+    .rpc('match_library_entry', {
+      query_title:     safeTitle,
+      p_user_id:       user.id,
+      match_threshold: MATCH_THRESHOLD,
+    })
+
+  if (!rpcErr && rpcData && rpcData.length > 0) {
+    best      = rpcData[0] as LibraryEntry
+    bestScore = rpcData[0].best_similarity_score ?? 1.0
+  } else if (rpcErr) {
+    // RPC unavailable — fall back to full JS scan
+    console.warn('[watch-event] match_library_entry RPC failed, falling back to JS scan:', rpcErr.message)
+    const { data: library } = await supabase
+      .from('manga_list')
+      .select('id, title, episodes_watched, total_episodes, status, total_watch_time_minutes, content_type, auto_tracked')
+      .eq('user_id', user.id)
+    for (const entry of (library ?? []) as LibraryEntry[]) {
+      const score = matchScore(safeTitle, entry.title)
+      if (score > bestScore) { bestScore = score; best = entry }
+    }
   }
-  const MATCH_THRESHOLD = 0.65
 
   const hasLibraryMatch = !!(best && bestScore >= MATCH_THRESHOLD)
 

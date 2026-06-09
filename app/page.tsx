@@ -3773,8 +3773,18 @@ ${entries}
     }
 
     const removeIds = toRemove.map(r => r.id)
-    await supabase.from('manga_list').update(updates).eq('id', keep.id)
-    await supabase.from('manga_list').delete().in('id', removeIds)
+
+    // 1. Update the kept entry with merged data
+    const { error: updateErr } = await supabase.from('manga_list').update(updates).eq('id', keep.id)
+    if (updateErr) { showToast('Merge failed — could not update entry'); return }
+
+    // 2. Atomically reassign watch_sessions + delete duplicates via RPC
+    // (single DB transaction — prevents orphaned records if the connection drops)
+    const { error: mergeErr } = await supabase.rpc('merge_entries', {
+      keep_id:  keep.id,
+      drop_ids: removeIds,
+    })
+    if (mergeErr) { showToast('Merge failed — could not remove duplicates'); return }
 
     setManga(prev =>
       prev

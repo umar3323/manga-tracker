@@ -94,3 +94,78 @@ CREATE POLICY "Users manage own chapter notifications"
   ON chapter_notifications FOR ALL
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
+
+-- ── pg_trgm fuzzy matching (watch-event RPC) ─────────────────────────────
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE INDEX IF NOT EXISTS manga_list_title_trgm_idx
+  ON manga_list USING GIN (title gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS manga_list_anime_title_trgm_idx
+  ON manga_list USING GIN (anime_title gin_trgm_ops);
+
+DROP FUNCTION IF EXISTS match_library_entry(text, uuid, real);
+
+CREATE OR REPLACE FUNCTION match_library_entry(
+  query_title     text,
+  p_user_id       uuid,
+  match_threshold real DEFAULT 0.65
+)
+RETURNS TABLE (
+  id                       uuid,
+  title                    text,
+  episodes_watched         integer,
+  total_episodes           integer,
+  status                   text,
+  total_watch_time_minutes integer,
+  content_type             text,
+  auto_tracked             boolean,
+  best_similarity_score    real
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    l.id,
+    l.title,
+    l.episodes_watched,
+    l.total_episodes,
+    l.status,
+    l.total_watch_time_minutes,
+    l.content_type,
+    l.auto_tracked,
+    GREATEST(
+      similarity(l.title,       query_title),
+      COALESCE(similarity(l.anime_title, query_title), 0)
+    )::real AS best_similarity_score
+  FROM manga_list l
+  WHERE l.user_id = p_user_id
+    AND GREATEST(
+          similarity(l.title,       query_title),
+          COALESCE(similarity(l.anime_title, query_title), 0)
+        ) >= match_threshold
+  ORDER BY best_similarity_score DESC
+  LIMIT 1;
+END;
+$$;
+
+-- ── Atomic merge RPC (duplicate detector) ────────────────────────────────
+DROP FUNCTION IF EXISTS merge_entries(uuid, uuid[]);
+
+CREATE OR REPLACE FUNCTION merge_entries(
+  keep_id  uuid,
+  drop_ids uuid[]
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  UPDATE watch_sessions
+    SET manga_id = keep_id
+  WHERE manga_id = ANY(drop_ids);
+
+  DELETE FROM manga_list
+  WHERE id = ANY(drop_ids);
+END;
+$$;
