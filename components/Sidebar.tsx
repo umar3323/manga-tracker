@@ -12,7 +12,8 @@ const NAV = [
   { href: '/anime',    label: 'Anime',    icon: '▷' },
   { href: '/stats',    label: 'Stats',    icon: '◈' },
   { href: '/shelves',  label: 'Shelves',  icon: '⊟' },
-  { href: '/sources',  label: 'Sources',  icon: '⊕' },
+  { href: '/sources',   label: 'Sources',   icon: '⊕' },
+  { href: '/extension', label: 'Extension', icon: '⬡' },
 ]
 
 const GOAL_KEY = 'manga_weekly_goal'

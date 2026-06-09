@@ -3,12 +3,19 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
+// Mobile bottom nav (5 items max — keep most-used)
 const tabs = [
   { href: '/',       label: 'Library', icon: '▤' },
   { href: '/search', label: 'Search',  icon: '⌕' },
   { href: '/anime',  label: 'Anime',   icon: '▷' },
   { href: '/stats',  label: 'Stats',   icon: '◈' },
   { href: '/shelves',label: 'Shelves', icon: '⊟' },
+]
+
+// Tablet icon rail gets the extra Extension item
+const tabletTabs = [
+  ...tabs,
+  { href: '/extension', label: 'Extension', icon: '⬡' },
 ]
 
 export default function Nav() {
@@ -32,7 +39,7 @@ export default function Nav() {
           <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: '#fff', lineHeight: 1 }}>Y</span>
         </Link>
 
-        {tabs.map(t => {
+        {tabletTabs.map(t => {
           const active = path === t.href || (t.href === '/search' && path === '/discover')
           return (
             <Link key={t.href} href={t.href} title={t.label} style={{

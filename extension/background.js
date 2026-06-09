@@ -11,11 +11,30 @@ const YOMU_HOST  = 'manga-tracker-hazel.vercel.app'
 // ── Auth state ────────────────────────────────────────────────────────────
 let authToken = null
 
-// Load token from storage on startup and flush any pending events
-chrome.storage.local.get(['yomu_auth_token'], d => {
+// Load token + custom sites from storage on startup
+chrome.storage.local.get(['yomu_auth_token', 'yomu_custom_sites'], d => {
   authToken = d.yomu_auth_token || null
-  if (authToken) flushPending()
+  if (authToken) {
+    flushPending()
+    fetchCustomSites()
+  }
 })
+
+// ── Custom streaming sites ────────────────────────────────────────────────
+// Fetched from YOMU after auth; stored in chrome.storage.local so content.js
+// can read them synchronously via GET_CUSTOM_SITES message.
+async function fetchCustomSites() {
+  if (!authToken) return
+  try {
+    const res = await fetch(`${YOMU_URL}/api/streaming-sites`, {
+      headers: { 'Authorization': `Bearer ${authToken}` },
+    })
+    if (!res.ok) return
+    const sites = await res.json()
+    const hostnames = Array.isArray(sites) ? sites.map(s => s.hostname) : []
+    chrome.storage.local.set({ yomu_custom_sites: hostnames })
+  } catch { /* network error — keep last cached list */ }
+}
 
 // ── Grab auth token whenever user visits YOMU ─────────────────────────────
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
@@ -72,6 +91,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       chrome.storage.local.set({ yomu_auth_token: token })
       // Flush any pending events now that we're authenticated
       flushPending()
+      fetchCustomSites()
       // Update badge to show we're connected
       chrome.action.setBadgeText({ text: '✓' })
       chrome.action.setBadgeBackgroundColor({ color: '#22c55e' })
@@ -107,6 +127,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         // Store only the access token — never the full session object
         chrome.storage.local.set({ yomu_auth_token: authToken })
         flushPending()
+        fetchCustomSites()
         chrome.action.setBadgeText({ text: '✓' })
         chrome.action.setBadgeBackgroundColor({ color: '#22c55e' })
         setTimeout(() => chrome.action.setBadgeText({ text: '' }), 3000)
@@ -127,6 +148,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true
     case 'GET_SESSION_STATS':
       chrome.storage.local.get(['yomu_session_stats'], d => sendResponse(d.yomu_session_stats || {}))
+      return true
+    case 'GET_CUSTOM_SITES':
+      chrome.storage.local.get(['yomu_custom_sites'], d => sendResponse(d.yomu_custom_sites || []))
       return true
     case 'GET_TAB_CONTEXT': {
       // Content script running inside an iframe needs the parent tab's URL

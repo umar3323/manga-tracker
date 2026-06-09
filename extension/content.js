@@ -357,12 +357,34 @@ function tc(s) {
   })
 }
 
+// Custom sites loaded from YOMU DB (user-added via Sources page).
+// Populated async; stored in _customHostnames so getBestParser can use it.
+let _customHostnames = []
+try {
+  chrome.runtime.sendMessage({ type: 'GET_CUSTOM_SITES' }, res => {
+    if (Array.isArray(res)) _customHostnames = res
+  })
+} catch { }
+
 function getBestParser() {
   // When inside an iframe, match parsers against the parent page URL (which
   // has the recognisable site hostname), not the iframe's CDN URL.
   const testUrl = (isIframe() && _parentContext?.url) ? _parentContext.url : location.href
-  return PARSERS.find(p => p.match.test(testUrl))
-    || { parse: (u, t) => fromTitle(t) }
+
+  // 1. Check dedicated parsers first
+  const dedicated = PARSERS.find(p => p.match.test(testUrl))
+  if (dedicated) return dedicated
+
+  // 2. Check user-added custom sites — use generic fromTitle() for them
+  try {
+    const host = new URL(testUrl).hostname.replace(/^www\./, '')
+    if (_customHostnames.some(h => host === h || host.endsWith('.' + h))) {
+      return { parse: (u, t) => fromTitle(t) }
+    }
+  } catch { }
+
+  // 3. Fallback: fromTitle() on any site (catches everything else)
+  return { parse: (u, t) => fromTitle(t) }
 }
 
 // When running inside an iframe (e.g. video player hosted on a CDN domain),
