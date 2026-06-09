@@ -3,6 +3,7 @@ import Nav from '@/components/Nav'
 import Sidebar from '@/components/Sidebar'
 import { FeatureRequestButton } from '@/components/FeatureRequestModal'
 import ServiceWorkerRegistrar from '@/components/ServiceWorkerRegistrar'
+import ExtensionAuthPush from '@/components/ExtensionAuthPush'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         </div>
         <FeatureRequestButton />
         <ServiceWorkerRegistrar />
+        <ExtensionAuthPush />
       </body>
     </html>
   )

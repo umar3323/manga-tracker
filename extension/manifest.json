@@ -1,27 +1,21 @@
 {
   "manifest_version": 3,
   "name": "YOMU Watch Tracker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Automatically tracks your anime watch progress and stats on any streaming site.",
   "permissions": [
     "storage",
     "tabs",
     "notifications",
-    "scripting"
+    "scripting",
+    "alarms",
+    "idle"
   ],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_idle",
-      "all_frames": true
-    }
-  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "YOMU Watch Tracker"

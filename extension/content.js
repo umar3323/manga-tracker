@@ -1,9 +1,19 @@
 // YOMU Watch Tracker — Content Script
-// Injected into every page. Finds video elements, tracks playback,
-// parses the anime title + episode from the URL/page title,
-// and sends events to the background worker.
+// Dynamically injected only into known streaming/anime sites.
+// Finds video elements, tracks playback, parses the anime title + episode
+// from the URL/page title, and sends events to the background worker.
 
 'use strict';
+
+// ── Injection guard ───────────────────────────────────────────────────────
+// Dynamic injection (via chrome.scripting.executeScript) can fire more than
+// once on the same tab (e.g. on SPA navigations or extension reload).
+// Exit immediately if this script is already running in this frame.
+if (window.__yomuContentScriptLoaded) {
+  // Already loaded in this frame — bail out silently
+  throw new Error('YOMU content script already loaded')
+}
+window.__yomuContentScriptLoaded = true
 
 // ── Site parsers ──────────────────────────────────────────────────────────
 // Each parser: { match: RegExp, parse(url, title, doc) → {title, episode, season} | null }
@@ -619,74 +629,8 @@ if (typeof navigation !== 'undefined' && navigation.addEventListener) {
 }
 
 // ── YOMU auth token harvesting ────────────────────────────────────────────
-// @supabase/ssr (used by this project) stores the session in COOKIES, not
-// localStorage. The cookie is split across two parts:
-//   sb-<ref>-auth-token.0  →  "base64-<first-half-of-base64>"
-//   sb-<ref>-auth-token.1  →  "<second-half-of-base64>"
-// We reassemble them, decode, and extract access_token.
-if (!isIframe() && location.hostname.includes('manga-tracker-hazel')) {
-  function grabToken() {
-    try {
-      // ── Cookie approach (supabase/ssr) ──────────────────────────────────
-      const jar = {}
-      document.cookie.split(';').forEach(c => {
-        const eq = c.indexOf('=')
-        if (eq < 0) return
-        jar[c.slice(0, eq).trim()] = c.slice(eq + 1).trim()
-      })
-
-      // Collect all sb-*-auth-token.N parts and sort them
-      const PREFIX = 'sb-'
-      const SUFFIX = '-auth-token'
-      const parts = Object.keys(jar)
-        .filter(k => k.startsWith(PREFIX) && k.includes(SUFFIX))
-        .sort() // .0 before .1
-
-      if (parts.length > 0) {
-        // Reconstruct the base64 payload: strip leading "base64-" from part 0,
-        // then concatenate all parts' values
-        let b64 = ''
-        parts.forEach((k, i) => {
-          let v = decodeURIComponent(jar[k])
-          if (i === 0 && v.startsWith('base64-')) v = v.slice(7)
-          b64 += v
-        })
-        try {
-          const parsed = JSON.parse(atob(b64))
-          const token = parsed?.access_token
-          if (token && typeof token === 'string' && token.length > 100) return token
-        } catch { /* bad base64 */ }
-      }
-
-      // ── localStorage fallback (supabase-js v1/v2 non-SSR) ───────────────
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (!key) continue
-        try {
-          const val = JSON.parse(localStorage.getItem(key) || '')
-          const token = val?.access_token || val?.currentSession?.access_token || val?.session?.access_token
-          if (token && typeof token === 'string' && token.length > 100) return token
-        } catch { /* not JSON */ }
-      }
-    } catch { /* sandboxed */ }
-    return null
-  }
-
-  function tryHarvest() {
-    const token = grabToken()
-    if (token) {
-      chrome.runtime.sendMessage({ type: 'SET_AUTH_TOKEN', token }).catch(() => {})
-      return true
-    }
-    return false
-  }
-
-  // Try immediately, then retry a few times to handle async Supabase restore
-  if (!tryHarvest()) {
-    let attempts = 0
-    const retryTimer = setInterval(() => {
-      attempts++
-      if (tryHarvest() || attempts >= 10) clearInterval(retryTimer)
-    }, 800)
-  }
-}
+// Token harvesting from YOMU cookies is now handled entirely in background.js
+// via chrome.scripting.executeScript (runs in MAIN world with cookie access)
+// when the user visits the YOMU tab, and via the explicit window.postMessage
+// push from the Next.js app (ExtensionAuthPush component).
+// content.js no longer needs to run on the YOMU domain at all.
