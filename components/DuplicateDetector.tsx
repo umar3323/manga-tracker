@@ -50,7 +50,8 @@ export default function DuplicateDetector({
   const dismiss = async (key: string) => {
     const next = new Set([...dismissed, key])
     setDismissed(next)
-    await supabase.from('user_settings').upsert({ key: 'dismissed_duplicates', value: JSON.stringify([...next]), updated_at: new Date().toISOString() })
+    const { error } = await supabase.from('user_settings').upsert({ key: 'dismissed_duplicates', value: JSON.stringify([...next]), updated_at: new Date().toISOString() })
+    if (error) showToast('Could not save dismissal — it will reappear on reload')
   }
 
   const pairs = useMemo<Pair[]>(() => {
@@ -65,7 +66,7 @@ export default function DuplicateDetector({
     return results.sort((a, b) => b.score - a.score)
   }, [checked, manga])
 
-  const pairKey = (p: Pair) => `${p.a.id}::${p.b.id}`
+  const pairKey = (p: Pair) => [p.a.id, p.b.id].sort().join('::')
 
   const visible = pairs.filter(p => !dismissed.has(pairKey(p)) && !merged.has(pairKey(p)))
 

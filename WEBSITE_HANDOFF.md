@@ -10,6 +10,38 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 25 — Code-review fixes: auth middleware, duplicate detector, ESLint, migrations (2026-06-09)
+
+- `proxy.ts` — Fixed cron jobs silently dead: auth middleware was 307-redirecting all Vercel Cron requests (no session cookie) to `/login`. Added `/api/cron/*` and `/api/warmup` to the public-API exemption. Routes secure themselves via `CRON_SECRET` Bearer header. Chapter-alert cron is now reachable.
+- `components/DuplicateDetector.tsx` — Fixed `pairKey` order-dependence: was `${p.a.id}::${p.b.id}` (positional). If library re-sorted between sessions the same pair produced a different key and dismissed duplicates reappeared. Now `[p.a.id, p.b.id].sort().join('::')`. Also surfaced upsert errors: `dismiss()` now checks the Supabase result and calls `showToast` if it fails, instead of silently dropping the persistence error.
+- `eslint.config.mjs` — Added `".vercel/**"` to `globalIgnores`. ESLint was linting minified build output in `.vercel/output/`, inflating problem count from 56 real issues to 3,067 noise entries.
+- `scripts/migrations.sql` — Added `user_settings` and `chapter_notifications` table definitions with RLS (both keyed on `auth.uid()`). These tables existed only in the live Supabase instance; the repo had no DDL for them, making the schema non-reproducible. Both tables confirmed to exist in production (verified via Supabase MCP).
+
+#### Session 24 — Extension code review + 3 bug fixes (2026-06-09, commit `ee9a469`)
+
+- `extension/background.js` — Fixed `flushPending` data loss: previously bulk-removed the entire pending queue from storage before sending. MV3 SW termination mid-flush would permanently lose unprocessed payloads. Now removes each item from storage only after it is successfully sent.
+- `extension/content.js` — Fixed aniwatch parser crash: `new URL(url).searchParams.get('ep')` was uncaught. Malformed/empty `_parentContext.url` (race on iframe load) would throw and silently kill all tracking on the tab. Wrapped in try-catch.
+- `extension/popup.js` — Fixed XSS in popup: `sites-list` was rendered via `innerHTML` with raw hostname strings from storage. A crafted custom-site hostname could execute JS in the popup's privileged extension context. Replaced with `createElement`/`textContent`.
+
+#### Session 23 — Calendar detail panel + streaming links (2026-06-09, commit `6820bcc`)
+
+- `components/ReleaseCalendar.tsx` — Each calendar row is now clickable. Selecting an entry opens a detail panel below the calendar: **Where To Watch** (colour-coded streaming platform buttons sourced from AniList `externalLinks[type=STREAMING]`), meta row (score, episode count, studio, status badge), genres, synopsis. AniList queried direct from browser (no CORS restriction). Clicking same row or × closes the panel. Works for All Anime (Jikan) and Library/Watching (AniList) tabs.
+
+#### Session 22 — Movie cards: runtime gauge instead of episode/chapter tracker (2026-06-09, commit `a40a945`)
+
+- `app/page.tsx` — Movie cards no longer show the chapter or episode tracker. Instead: a 🎬 runtime row shows total runtime formatted as `1h 52m` (stored in `total_episodes` repurposed as runtime minutes for movies), a yellow progress bar (watch time vs runtime from extension tracking), and an editable runtime field. Chapter and episode steppers suppressed entirely for `content_type === 'movie'`.
+
+#### Session 21 — Quick-details panel on Add form (2026-06-09, commit `d79bf56`)
+
+- `app/page.tsx` — After confirming a title (green chip), an expandable "Add details" section appears below the search row. Fields: **Status** (context-aware pill set — manga/anime/movie each get relevant statuses), **Progress** (chapter or episode count), **Date watched/read** (stored as `last_read_at`), **Notes** (textarea), **Rating** (👍/👎). All fields are optional — plain Add still works unchanged. Collapsed state shows a small summary chip of filled values. Resets on ×, content-type toggle, and Escape. New state: `addShowDetails`, `addDetailStatus`, `addDetailProgress`, `addDetailDate`, `addDetailNotes`, `addDetailRating`. New helper: `resetAddDetails()`.
+
+#### Session 20 — Fix TS2551 build errors, deploy Wikipedia (2026-06-09, commit `79da91c`)
+
+- `app/api/wikipedia/route.ts` — Removed `.catch(() => {})` from upsert call at line 194 (was `TS2551`: `PostgrestFilterBuilder` is `PromiseLike`, not `Promise`). This was blocking the entire Vercel build.
+- `app/api/notifymoe/route.ts` — Same fix at line 62. Both files now use bare `await` for non-critical cache writes.
+
+All features from sessions 18–19 are now live: Wikipedia panel in DetailModal, Wikipedia on Sources page, YouTube library-match gating, extension delta-time tracking, and extension non-anime site guard.
+
 #### Session 19 — YouTube filter + non-anime auto-create guard (2026-06-09)
 
 - `extension/content.js` — Added YouTube parser (`match: /youtube\.com/i`). Returns `null` (no tracking) unless the video title contains an explicit episode marker (`Episode N`, `Ep N`, `E12`, etc.). Prevents generic YouTube content (documentaries, music, vlogs) from being logged.
@@ -139,6 +171,12 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 - **Fix:** `app/api/notifymoe/route.ts` — now upserts `payload: null` on miss; read path uses `ttl = payload ? 24h : 2h`.
 - **Prevention rule:** Always cache null/miss results with a shorter TTL. Never let a "no data found" path return without writing to cache.
 
+### Vercel build fails silently on `.catch()` on Supabase upsert — 2026-06-09
+- **Symptom:** `/api/wikipedia` returned 404 in production; entire commit failed to build on Vercel despite no visible error in the UI.
+- **Root cause:** `supabase.from(...).upsert(...).catch(() => {})` — `PostgrestFilterBuilder` implements `PromiseLike` (only `.then()`), not `Promise` (which has `.catch()`). TypeScript rejects this with `TS2551`. Build error caused the entire deployment to fail.
+- **Fix:** `app/api/wikipedia/route.ts:194` and `app/api/notifymoe/route.ts:62` — removed `.catch(() => {})` from both upsert calls. Bare `await` is sufficient since cache writes are non-critical.
+- **Prevention rule:** Never call `.catch()` directly on a Supabase query builder return value. Use `try/catch` around the `await` instead if you need error handling. Run `npx tsc --noEmit | grep "app/api"` before pushing any API route changes.
+
 ### Turbopack RocksDB corruption in dev — 2026-06-09
 - **Symptom:** `next dev` failed with `Failed to open database / invalid digit found in string`.
 - **Root cause:** RocksDB SSTable files in `.next/dev/cache/turbopack/` corrupt when the path contains a space (`Anime Website`). Stale cache from a prior session triggers the error.
@@ -150,6 +188,24 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 - **Root cause:** Netflix parser fell through all extraction paths (DOM scrape + title string parsing both failed), resulting in `show = ""` or `show = "Netflix"`.
 - **Fix:** `extension/content.js` — added guard: `if (!show || /^netflix$/i.test(show)) return null` so the parser returns null instead of logging a broken entry.
 - **Prevention rule:** All extension site parsers must return `null` (not an object with empty title) when title extraction fails. The `send()` function skips null results.
+
+### Extension flushPending data loss on SW termination — 2026-06-09
+- **Symptom:** Offline-queued watch events disappeared after the service worker woke up and flushed.
+- **Root cause:** `chrome.storage.local.remove('yomu_pending')` was called before the loop. MV3 SWs terminate after ~30s; any payloads not yet sent were permanently lost.
+- **Fix:** `extension/background.js` — now removes each item from storage individually after its send call completes.
+- **Prevention rule:** Never bulk-remove a pending queue before processing it in an MV3 service worker. Always remove per-item after success.
+
+### Extension aniwatch parser crash on malformed iframe URL — 2026-06-09
+- **Symptom:** Tracking silently stopped on tabs where aniwatch content was embedded in an iframe.
+- **Root cause:** `new URL(url).searchParams.get('ep')` threw when `_parentContext.url` was empty or malformed (race condition where the tab context message hadn't resolved yet).
+- **Fix:** `extension/content.js` line 70 — wrapped `new URL(url)` in try-catch.
+- **Prevention rule:** Always wrap `new URL(untrustedString)` in try-catch in content scripts. `_parentContext.url` is populated asynchronously and may be empty.
+
+### Extension popup XSS via custom site hostname — 2026-06-09
+- **Symptom:** Potential JS execution in popup context if a user-added custom streaming site hostname contained HTML/script characters.
+- **Root cause:** `$('sites-list').innerHTML = sites.map(s => \`<span>${s}</span>\`)` injected raw strings into HTML.
+- **Fix:** `extension/popup.js` — replaced with `createElement`/`textContent` per chip.
+- **Prevention rule:** Never use `innerHTML` with data from `chrome.storage.local` or any user-controlled source in extension pages. Always use `textContent` or DOM creation.
 
 ### swipe_history insert failed with user_id column — 2026-06-09
 - **Symptom:** Dismiss X on Discover cards threw Supabase insert error referencing unknown column `user_id`.
@@ -166,6 +222,25 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 ---
 
 ## Session Log
+
+### Session — 2026-06-09 (sessions 22–24)
+- Movie cards: repurposed `total_episodes` as runtime minutes; replaced chapter/episode tracker with yellow progress gauge (extension watch time ÷ runtime). `isMangaPrimary` check simplified now that the block is gated on `content_type !== 'movie'`.
+- Calendar: AniList queried directly from browser on row click (no proxy needed). Detail panel shows streaming links, score, genres, synopsis. Panel toggled by clicking row again or ×.
+- Extension code review found 3 bugs: `flushPending` data loss on SW termination, aniwatch `new URL()` crash on malformed iframe URL, popup `innerHTML` XSS. All fixed (`ee9a469`). Functional review: all other logic (delta tracking, dedup, library-match gate, auth harvesting) confirmed correct.
+- `watch_sessions` junk rows deleted from Supabase (23 rows: YouTube non-anime + bare "Netflix"/"YouTube" titles). API now gates session logging on library match or known anime site.
+
+### Session — 2026-06-09 (session 21)
+- User wanted to fill in details (status, progress, date watched, notes, rating) at add time instead of hunting the card afterwards.
+- Added collapsible "quick details" section that appears once a title is confirmed. All fields optional — default Add flow unchanged.
+- Status pills are context-aware (manga/anime/movie each show relevant statuses). Date stored in `last_read_at`. Progress writes `current_chapter` or `episodes_watched` depending on content type.
+- State resets cleanly on × / type toggle / Escape.
+
+### Session — 2026-06-09 (session 20)
+- Critical Vercel build failure from previous session: two `TS2551` errors caused commit `6ba416e` and subsequent `972c30f` to fail, leaving `/api/wikipedia` 404 in production.
+- Root cause: `PostgrestFilterBuilder` implements `PromiseLike` (only `.then()`), not `Promise`. Calling `.catch(() => {})` on upsert return values is a TypeScript error.
+- Fixed both: `app/api/wikipedia/route.ts` line 194 and `app/api/notifymoe/route.ts` line 62 — removed `.catch(() => {})` from bare upsert calls.
+- `npx tsc --noEmit` confirmed zero `app/api` errors. Committed `79da91c` and pushed.
+- All session 18/19 changes (Wikipedia route, Sources Wikipedia entry, YouTube parser, extension delta tracking, extension library-match gating) should now deploy successfully.
 
 ### Session — 2026-06-09 (session 19)
 - User noticed extension tracking non-anime YouTube content (e.g. "The Moon Is An Alien Megastructure").

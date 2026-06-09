@@ -29,7 +29,13 @@ export async function proxy(request: NextRequest) {
   const isLoginPage = request.nextUrl.pathname === '/login'
   const isCallback = request.nextUrl.pathname.startsWith('/auth/')
   const isPublicShare = request.nextUrl.pathname.startsWith('/share/')
-  const isPublicApi = request.nextUrl.pathname === '/api/feature-request'
+  const p = request.nextUrl.pathname
+  // Cron + warmup routes secure themselves (CRON_SECRET Bearer header) —
+  // Vercel sends no session cookie, so they must be exempt from auth redirect.
+  const isPublicApi =
+    p === '/api/feature-request' ||
+    p.startsWith('/api/cron/') ||
+    p === '/api/warmup'
 
   if (!user && !isLoginPage && !isCallback && !isPublicShare && !isPublicApi) {
     return NextResponse.redirect(new URL('/login', request.url))
