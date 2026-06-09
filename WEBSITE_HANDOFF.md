@@ -10,6 +10,32 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 32 — Phase 2: container-query grid + card visual hierarchy (2026-06-10, commits `08e4884` + `bc...`)
+
+**2a — Container-query grid (`app/page.tsx`)**
+- Replaced `style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))' }}` with a `@container` wrapper + Tailwind CSS 4 container-query classes.
+- Structure: outer `<div className="@container">` wraps inner `<div className="grid grid-cols-1 @[740px]:grid-cols-2 @[1120px]:grid-cols-3 gap-3">`.
+- Breakpoints chosen to match the ~360px card minimum (740px ≈ 2 cards + gap; 1120px ≈ 3 cards + gap).
+- No new dependencies — Tailwind CSS 4 has container queries built in.
+
+**2b — Card visual hierarchy (`app/page.tsx`)**
+
+Tier 1 (always visible, full contrast — no hover required):
+- `ThumbsUp` / `ThumbsDown` buttons: base colour raised from `text-zinc-700` (near-invisible) → `text-zinc-500`.
+- Rating label text (`Liked` / `Disliked` / `Not Rated`): was always `text-zinc-700`; now colour-coded — `text-emerald-400` (liked), `text-red-400` (disliked), `text-zinc-500` (unrated). Visible on touch devices without hover.
+- "Rating" section label: `text-zinc-700` → `text-zinc-500`.
+- Chapter progress label (`Ch. X / Y`): `text-zinc-500` → `text-zinc-300` so current progress reads clearly at a glance.
+
+Tier 2 (always visible, reduced contrast):
+- `"Studio:"` prefix label: `text-zinc-700` → `text-zinc-500`.
+- `"Unknown author/studio"` fallback: `text-zinc-700` → `text-zinc-500`.
+- Genre tags: `text-zinc-500` → `text-zinc-400`; capped at 3 (was 5) per spec.
+- `"No Genres Listed"` fallback: `text-zinc-700` → `text-zinc-500`.
+
+No information is now hover-only. Hover effects remain as enhancements only.
+
+---
+
 #### Session 31 — Phase 1: DetailModal extracted into components/DetailView.tsx (2026-06-10, commit `1d001d3`)
 
 **Extraction: `components/DetailView.tsx` (new file)**
@@ -90,7 +116,7 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Outstanding Tasks
 
-- [ ] **Phase 2: container-query card grid** — Wrap the library grid in a `@container` div; children use `@md:grid-cols-2 @xl:grid-cols-3` etc. Tier-1/Tier-2 visual hierarchy: status badge and user rating always visible on cards (text-neutral-400 minimum — NOT hover-only). Platform pills (Netflix/Crunchyroll) may remain hover-revealed on desktop. Read `components/DetailView.tsx` and `app/page.tsx` card section before starting. Do NOT redesign the card — hierarchy change only.
+- [x] **Phase 2: container-query card grid + card visual hierarchy** — Completed session 32. Grid uses `@container` / `@[740px]:grid-cols-2` / `@[1120px]:grid-cols-3`. Rating and progress are now Tier 1 (visible without hover). Genres capped at 3.
 
 - [ ] **Phase 3: filter dock reconciliation with Sidebar** — Decide whether filters live inside `components/Sidebar.tsx` or alongside it. Do NOT add a second left rail. Flag the choice before implementing.
 
@@ -252,6 +278,13 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ## Session Log
 
+### Session — 2026-06-10 (session 32)
+- Phase 2 of UI layout refactor. Two separate commits: grid change first, card hierarchy second (as requested).
+- Container-query breakpoints chosen to match 360px card min-width: 740px for 2-col, 1120px for 3-col. Tailwind CSS 4 has no plugin needed for container queries.
+- Card hierarchy: the only Tier 1 items that were hidden were the rating buttons and the chapter progress label — all bumped to readable base contrast. No hover-only information remains on cards.
+- Genre count reduced from 5 → 3 per spec. Genre tags nudged from `zinc-500` → `zinc-400` (Tier 2, slightly more readable without being Tier 1).
+- Build clean; no new ESLint errors.
+
 ### Session — 2026-06-10 (session 31)
 - Phase 1 of the UI layout refactor: extracted `DetailModal` (~1 500 lines) from `app/page.tsx` into `components/DetailView.tsx`. Also moved `RelationMergeButton`, `SeriesPanel`, `EditableNumber`.
 - Key structural change: the original single monolithic `useEffect` (all 8 API calls) was split into 8 isolated effects, each with its own loading state. Slow APIs (Wikipedia, notify.moe, Jikan recs) now show per-section skeletons instead of blocking the whole view.
@@ -337,6 +370,10 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 ---
 
 ## Change History
+
+### 2026-06-10 — Session 31 (Phase 1: DetailModal extraction)
+- `components/DetailView.tsx` (new) — `DetailModal`, `RelationMergeButton`, `SeriesPanel`, `EditableNumber` extracted from `app/page.tsx`. Single monolithic `useEffect` split into 8 isolated effects with per-section skeletons (`ScoresSkeleton`, `WikiSkeleton`, `RecsSkeleton`, etc.).
+- `app/page.tsx` — ~1 500 lines removed; imports `{ DetailModal, EditableNumber, RelationMergeButton }` from `@/components/DetailView`.
 
 ### 2026-06-09 — Sessions 22–24
 - `app/page.tsx` — Movie runtime gauge (total_episodes repurposed as runtime_minutes); quick-details panel on Add form
