@@ -10,6 +10,11 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+- `extension/content.js` — **Multi-platform streaming support (session 11)**:
+  - Added dedicated parsers: **Disney+** (DOM scrape), **Max/HBO** (DOM scrape), **Hulu** (title), **Apple TV+** (title), **Bilibili.tv** (title `EP N` pattern), **Tubi** (URL `s01e01` pattern)
+  - Fixed **HiDive** parser to extract season/episode from URL (`/stream/show/s01e01`) instead of falling back to title
+  - Split Funimation into its own stub entry (kept for legacy URLs)
+  - Improved **`fromTitle()` fallback**: now strips branded suffixes without TLD (Netflix, Disney+, Max, etc.), handles `S1:E5` inline format, more robust episode extraction — any unknown site with episode info in the tab title will parse correctly
 - `extension/content.js` — **Netflix tracking fixes (session 11)**:
   - Netflix parser now DOM-scrapes the player UI for `S1:E5` patterns using several known Netflix selector candidates before falling back to title parsing.
   - Parser also handles `S1:E5`-style format in the tab title itself.
@@ -151,6 +156,7 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 ## Session Log
 
 ### Session — 2026-06-09 (session 11)
+- Extended extension to cover all major streaming platforms: Disney+, Max, Hulu, Apple TV+, Bilibili.tv, Tubi — all with episode extraction where possible. DOM scraping used for Disney+ and Max (title has no episode info). Improved `fromTitle()` fallback so any unrecognised site with episode info in the tab title works automatically.
 - Netflix episode tracking was broken in two ways: (1) parser only scraped title — Netflix anime titles are just "Show | Netflix" with no episode info, so `episode` was always `null`; (2) `watch-event` API skipped `episodes_watched` update entirely when `safeEpisode == null`.
 - Fixed parser to DOM-scrape Netflix player UI selectors for `S1:E5` patterns and also parse `S1:E5` in the title string.
 - Fixed API to increment `episodes_watched` by 1 when `is_complete` but no episode number (fallback for any site that doesn't expose episode in title/DOM).
