@@ -4794,8 +4794,49 @@ ${entries}
                     })()}
 
                     {/* 4. Chapter tracker + inline stepper + progress bar — dimmed when anime is primary */}
-                    {(() => {
-                      const isMangaPrimary = m.content_type !== 'anime' && m.content_type !== 'movie'
+                    {/* Movie runtime gauge — replaces chapter/episode tracker for movies */}
+                    {m.content_type === 'movie' && (() => {
+                      // total_episodes repurposed as runtime_minutes for movies
+                      const runtimeMin = m.total_episodes ?? null
+                      const watchedMin = m.total_watch_time_minutes ?? 0
+                      const fmtMin = (mins: number) => {
+                        if (mins <= 0) return null
+                        const h = Math.floor(mins / 60), mn = mins % 60
+                        return h > 0 ? `${h}h ${mn > 0 ? mn + 'm' : ''}`.trim() : `${mn}m`
+                      }
+                      const pct = runtimeMin && runtimeMin > 0
+                        ? Math.min(100, Math.round((watchedMin / runtimeMin) * 100))
+                        : 0
+                      return (
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] text-zinc-500 flex items-center gap-1">
+                              🎬 {runtimeMin ? fmtMin(runtimeMin) ?? '—' : <span className="italic text-zinc-700">Runtime not set</span>}
+                              {watchedMin > 0 && runtimeMin && (
+                                <span className="text-zinc-700 ml-1">· {fmtMin(watchedMin)} watched · {pct}%</span>
+                              )}
+                            </span>
+                            <EditableNumber
+                              value={runtimeMin ?? 0}
+                              label={`Runtime (minutes) for ${m.title}`}
+                              className="w-10 text-[11px] text-zinc-600 py-0"
+                              onSave={n => updateTotalEpisodes(m.id, n, m.anime_mal_id ?? m.mal_id, m.content_type)}
+                            />
+                          </div>
+                          {(runtimeMin ?? 0) > 0 && (
+                            <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden"
+                              role="progressbar" aria-valuenow={watchedMin} aria-valuemax={runtimeMin ?? 0}>
+                              <div className="h-full rounded-full transition-all bg-yellow-500/70"
+                                style={{ width: `${pct}%` }} />
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+
+                    {/* 4. Chapter tracker + inline stepper + progress bar — dimmed when anime is primary */}
+                    {m.content_type !== 'movie' && (() => {
+                      const isMangaPrimary = m.content_type !== 'anime'
                       // Series-aware totals
                       const members = m.series_id ? (seriesMap.get(m.series_id) ?? []) : []
                       const seriesCurrent = members.length > 1 ? members.reduce((s, e) => s + e.current_chapter, 0) : m.current_chapter
