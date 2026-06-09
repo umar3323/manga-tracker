@@ -915,6 +915,13 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
                 className="text-sm w-full"
                 onSave={async (n) => {
                   await supabase.from('manga_list').update({ total_chapters: n }).eq('id', manga.id)
+                  if (manga.mal_id) {
+                    fetch('/api/community-totals', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ mal_id: manga.mal_id, content_type: manga.content_type ?? 'manga', total_chapters: n }),
+                    }).catch(() => {})
+                  }
                   onTotalChaptersUpdated?.(n)
                 }}
               />
@@ -931,7 +938,25 @@ function DetailModal({ manga, allManga, onClose, onStatusChange, onMerge, onMerg
             <div className="bg-zinc-800 rounded-lg p-3 mb-4 flex items-center gap-2">
               <span className="text-violet-400">🎬</span>
               <span className="text-sm text-zinc-300">{manga.anime_title}</span>
-              {manga.total_episodes && <span className="text-xs text-zinc-500 ml-auto">{manga.total_episodes} eps</span>}
+              <div className="flex items-center gap-1 ml-auto">
+                <EditableNumber
+                  value={manga.total_episodes ?? 0}
+                  label="Total episodes"
+                  className="text-xs text-zinc-400 w-10"
+                  onSave={async (n) => {
+                    await supabase.from('manga_list').update({ total_episodes: n }).eq('id', manga.id)
+                    const epMalId = manga.anime_mal_id ?? manga.mal_id
+                    if (epMalId) {
+                      fetch('/api/community-totals', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mal_id: epMalId, content_type: 'anime', total_episodes: n }),
+                      }).catch(() => {})
+                    }
+                  }}
+                />
+                <span className="text-xs text-zinc-500">eps</span>
+              </div>
             </div>
           )}
           {/* Deep Search + URL Import buttons */}
@@ -3162,6 +3187,33 @@ ${entries}
     setProgressPrompt({ id, delta, current, type: 'episode', title: m?.title ?? '' })
   }
 
+  // Community totals — write to manga_list + community_totals table
+  const updateTotalChapters = async (id: string, n: number, malId?: number | null, contentType?: string | null) => {
+    await supabase.from('manga_list').update({ total_chapters: n }).eq('id', id)
+    setManga(prev => prev.map(x => x.id === id ? { ...x, total_chapters: n } : x))
+    if (malId) {
+      await fetch('/api/community-totals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mal_id: malId, content_type: contentType ?? 'manga', total_chapters: n }),
+      })
+      showToast('Total chapters shared with community ✓')
+    }
+  }
+
+  const updateTotalEpisodes = async (id: string, n: number, malId?: number | null, contentType?: string | null) => {
+    await supabase.from('manga_list').update({ total_episodes: n }).eq('id', id)
+    setManga(prev => prev.map(x => x.id === id ? { ...x, total_episodes: n } : x))
+    if (malId) {
+      await fetch('/api/community-totals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mal_id: malId, content_type: contentType ?? 'anime', total_episodes: n }),
+      })
+      showToast('Total episodes shared with community ✓')
+    }
+  }
+
   const confirmDelete = (id: string) => setPendingDelete(id)
   const cancelDelete = () => setPendingDelete(null)
 
@@ -3264,6 +3316,23 @@ ${entries}
         setShowAdd(false)
         setAddSuggestions([])
         setShowAddSuggestions(false)
+        // Check community totals to fill in missing totals (runs async after add)
+        const malIdForCommunity = newEntry.mal_id ?? newEntry.anime_mal_id
+        if (malIdForCommunity) {
+          const ct = newEntry.content_type === 'anime' ? 'anime' : 'manga'
+          fetch(`/api/community-totals?mal_id=${malIdForCommunity}&content_type=${ct}`)
+            .then(r => r.json())
+            .then(async (communityData: { total_chapters?: number | null; total_episodes?: number | null } | null) => {
+              if (!communityData) return
+              const updates: Partial<Manga> = {}
+              if (communityData.total_chapters && !newEntry.total_chapters) updates.total_chapters = communityData.total_chapters
+              if (communityData.total_episodes && !newEntry.total_episodes) updates.total_episodes = communityData.total_episodes
+              if (Object.keys(updates).length > 0) {
+                await supabase.from('manga_list').update(updates).eq('id', newEntry.id)
+                setManga(prev => prev.map(x => x.id === newEntry.id ? { ...x, ...updates } : x))
+              }
+            }).catch(() => {})
+        }
         if (!selectedJikan && !isAnime) {
           fetchMangaInfo(newEntry.title).then(async info => {
             if (info.coverUrl || info.totalChapters) {
@@ -4354,7 +4423,13 @@ ${entries}
                           <div className="flex items-center gap-1 ml-auto shrink-0">
                             <button onClick={() => updateEpisodes(activeEpMember.id, -1, activeEpMember.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
                             <EditableNumber value={seriesEpCurrent} onSave={n => updateEpisodes(m.id, n - m.episodes_watched, m.episodes_watched)} label={`Episodes for ${m.title}`} className="w-8 text-xs py-0.5" />
-                            {seriesEpTotal && <span className="text-[11px] text-zinc-600 font-mono">/{seriesEpTotal}</span>}
+                            <span className="text-[11px] text-zinc-600 font-mono">/</span>
+                            <EditableNumber
+                              value={epMembers.length <= 1 ? (m.total_episodes ?? 0) : (seriesEpTotal ?? 0)}
+                              label={`Total episodes for ${m.title}`}
+                              className="w-8 text-[11px] text-zinc-500 py-0.5"
+                              onSave={n => updateTotalEpisodes(activeEpMember.id, n, activeEpMember.anime_mal_id ?? activeEpMember.mal_id, activeEpMember.content_type)}
+                            />
                             <button onClick={() => updateEpisodes(activeEpMember.id, 1, activeEpMember.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
                           </div>
                         </div>
@@ -4387,8 +4462,14 @@ ${entries}
                         </div>
                       )}
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] text-zinc-500 tabular-nums">
-                          Ch.&nbsp;{seriesCurrent}&nbsp;/&nbsp;{seriesTotal ?? '?'}
+                        <span className="text-[11px] text-zinc-500 tabular-nums flex items-center gap-0.5">
+                          Ch.&nbsp;{seriesCurrent}&nbsp;/&nbsp;
+                          <EditableNumber
+                            value={members.length <= 1 ? (m.total_chapters ?? 0) : (seriesTotal ?? 0)}
+                            label={`Total chapters for ${m.title}`}
+                            className="w-9 text-[11px] text-zinc-500 py-0"
+                            onSave={n => updateTotalChapters(activeMember.id, n, activeMember.mal_id, activeMember.content_type)}
+                          />
                           {isMangaPrimary && seriesTotal && seriesTotal > 0 && <span className="text-zinc-700 ml-1">{Math.min(100, Math.round((seriesCurrent / seriesTotal) * 100))}%</span>}
                         </span>
                         <div className="flex items-center gap-1 shrink-0">
