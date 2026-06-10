@@ -52,6 +52,7 @@ export default function DiscoverySection({ onSelect }: Props) {
   const [loadingAnimeNew, setLoadingAnimeNew] = useState(true)
   const [collapsed, setCollapsed] = useState(false)
   const [dismissedIds, setDismissedIds] = useState<Set<number>>(new Set())
+  const userIdRef = useRef<string | null>(null)
 
   // Cache keyed by `${hourKey()}-${genreId}` so data refreshes each hour
   const popularCache    = useRef<Map<string, JikanSearchResult[]>>(new Map())
@@ -59,29 +60,42 @@ export default function DiscoverySection({ onSelect }: Props) {
   const animePopCache   = useRef<Map<string, JikanSearchResult[]>>(new Map())
   const animeNewCache   = useRef<Map<string, JikanSearchResult[]>>(new Map())
 
-  // Load dismissed IDs from Supabase on mount
+  // Load user + dismissed IDs on mount
   useEffect(() => {
-    supabase.from('swipe_history')
-      .select('mal_id')
-      .eq('direction', 'skip')
-      .then(({ data }) => {
-        if (data) setDismissedIds(new Set(data.map((r: { mal_id: number }) => r.mal_id)))
-      })
+    supabase.auth.getUser().then(({ data }) => {
+      const uid = data.user?.id ?? null
+      userIdRef.current = uid
+      if (!uid) return
+      supabase.from('swipe_history')
+        .select('mal_id')
+        .eq('direction', 'skip')
+        .eq('user_id', uid)
+        .then(({ data: rows }) => {
+          if (rows) setDismissedIds(new Set(rows.map((r: { mal_id: number }) => r.mal_id)))
+        })
+    })
   }, [])
 
   const dismiss = useCallback(async (item: JikanSearchResult, e: React.MouseEvent) => {
     e.stopPropagation()
     if (!item.mal_id) return
+    // Optimistic — hide immediately
     setDismissedIds(prev => new Set([...prev, item.mal_id!]))
-    // Record in swipe_history with direction 'skip' — feeds the taste profile negatively
+    const uid = userIdRef.current
+    if (!uid) return
     const { error } = await supabase.from('swipe_history').insert({
+      user_id: uid,
       mal_id: item.mal_id,
       title: item.title,
       direction: 'skip',
       genres: item.genres ?? [],
       swiped_at: new Date().toISOString(),
     })
-    if (error) console.error('[DiscoverySection] dismiss insert failed:', error)
+    if (error) {
+      console.error('[DiscoverySection] dismiss insert failed:', error)
+      // Roll back optimistic hide so the item doesn't silently vanish without being saved
+      setDismissedIds(prev => { const next = new Set(prev); next.delete(item.mal_id!); return next })
+    }
   }, [])
 
   // Featured — hourly
@@ -91,7 +105,19 @@ export default function DiscoverySection({ onSelect }: Props) {
     })
   }, [])
 
-  // Popular manga — hourly cache
+  // Deduplicate a list against a set of already-seen mal_ids (mutates seenIds)
+  function dedupeAgainst(items: JikanSearchResult[], seenIds: Set<number>): JikanSearchResult[] {
+    const out: JikanSearchResult[] = []
+    for (const item of items) {
+      if (!item.mal_id || !seenIds.has(item.mal_id)) {
+        if (item.mal_id) seenIds.add(item.mal_id)
+        out.push(item)
+      }
+    }
+    return out
+  }
+
+  // Popular manga — hourly cache, fetch 25 so dismissed items have replacements
   useEffect(() => {
     const key = `${hourKey()}-${popularGenre ?? 'all'}`
     if (popularCache.current.has(key)) {
@@ -100,7 +126,7 @@ export default function DiscoverySection({ onSelect }: Props) {
     setLoadingPopular(true)
     const fn = popularGenre
       ? searchMangaWithFilters({ includeGenres: [popularGenre], status: 'publishing', orderBy: 'members', sort: 'desc' })
-      : getTopManga('publishing', 16)
+      : getTopManga('publishing', 25)
     fn.then(items => {
       popularCache.current.set(key, items)
       setPopular(items)
@@ -108,21 +134,24 @@ export default function DiscoverySection({ onSelect }: Props) {
     })
   }, [popularGenre])
 
-  // New manga — hourly cache
+  // New manga — deduplicated against popular, fetch 25
   useEffect(() => {
     const key = `${hourKey()}-${newGenre ?? 'all'}`
     if (newCache.current.has(key)) {
       setNewReleases(newCache.current.get(key)!); return
     }
     setLoadingNew(true)
-    getNewManga(16, newGenre).then(items => {
-      newCache.current.set(key, items)
-      setNewReleases(items)
+    getNewManga(25, newGenre).then(items => {
+      // Remove any title that's already in popular manga
+      const popularIds = new Set(popular.map(m => m.mal_id).filter(Boolean) as number[])
+      const deduped = dedupeAgainst(items, popularIds)
+      newCache.current.set(key, deduped)
+      setNewReleases(deduped)
       setLoadingNew(false)
     })
-  }, [newGenre])
+  }, [newGenre, popular])
 
-  // Popular anime — hourly cache
+  // Popular anime — hourly cache, fetch 25
   useEffect(() => {
     const key = `${hourKey()}-${animePopularGenre ?? 'all'}`
     if (animePopCache.current.has(key)) {
@@ -131,7 +160,7 @@ export default function DiscoverySection({ onSelect }: Props) {
     setLoadingAnimePopular(true)
     const fn = animePopularGenre
       ? (async () => {
-          const res = await fetch(`/api/jikan?path=${encodeURIComponent(`/anime?genres=${animePopularGenre}&order_by=members&sort=desc&limit=16&status=airing`)}`)
+          const res = await fetch(`/api/jikan?path=${encodeURIComponent(`/anime?genres=${animePopularGenre}&order_by=members&sort=desc&limit=25&status=airing`)}`)
           const j = await res.json(); return (j.data ?? []).map((a: Record<string, unknown>) => ({
             mal_id: a.mal_id, title: (a as any).title_english ?? (a as any).title,
             cover_url: (a as any).images?.jpg?.large_image_url ?? null,
@@ -140,7 +169,7 @@ export default function DiscoverySection({ onSelect }: Props) {
             members: a.members ?? null, media_type: 'anime' as const,
           }))
         })()
-      : getTopAnime('airing', 16)
+      : getTopAnime('airing', 25)
     fn.then(items => {
       animePopCache.current.set(key, items)
       setPopularAnime(items)
@@ -148,19 +177,21 @@ export default function DiscoverySection({ onSelect }: Props) {
     })
   }, [animePopularGenre])
 
-  // New anime — hourly cache
+  // New anime — deduplicated against popular anime, fetch 25
   useEffect(() => {
     const key = `${hourKey()}-${animeNewGenre ?? 'all'}`
     if (animeNewCache.current.has(key)) {
       setNewAnime(animeNewCache.current.get(key)!); return
     }
     setLoadingAnimeNew(true)
-    getNewAnime(16, animeNewGenre).then(items => {
-      animeNewCache.current.set(key, items)
-      setNewAnime(items)
+    getNewAnime(25, animeNewGenre).then(items => {
+      const popularAnimeIds = new Set(popularAnime.map(m => m.mal_id).filter(Boolean) as number[])
+      const deduped = dedupeAgainst(items, popularAnimeIds)
+      animeNewCache.current.set(key, deduped)
+      setNewAnime(deduped)
       setLoadingAnimeNew(false)
     })
-  }, [animeNewGenre])
+  }, [animeNewGenre, popularAnime])
 
   // Re-fetch when hour changes (poll every 5 min, bust cache only when hour actually flips)
   useEffect(() => {
@@ -170,7 +201,7 @@ export default function DiscoverySection({ onSelect }: Props) {
         setLoadingPopular(true)
         const fn = popularGenre
           ? searchMangaWithFilters({ includeGenres: [popularGenre], status: 'publishing', orderBy: 'members', sort: 'desc' })
-          : getTopManga('publishing', 16)
+          : getTopManga('publishing', 25)
         fn.then(items => { popularCache.current.set(key, items); setPopular(items); setLoadingPopular(false) })
       }
     }, 5 * 60 * 1000)
