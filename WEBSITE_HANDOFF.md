@@ -10,6 +10,24 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 38 — Phase 2 architecture modernisation: SWR migration in DetailModal (2026-06-10, commit `8967098`)
+
+- `components/DetailView.tsx` — Replaced all 8 `useEffect`+`useState` data fetch pairs in `DetailModal` with `useSWR` calls. Each SWR key is `null` when the required IDs are absent (skips fetch). All calls share `{ revalidateOnFocus: false, revalidateOnReconnect: false, dedupingInterval: 300_000 }`. The 8 sources:
+  1. **AniList manga** — key `/api/anilist?mal_id=…&type=MANGA`; provides `alManga`.
+  2. **AniList anime** — key `/api/anilist?mal_id=…&type=ANIME`; provides `alAnime`.
+  3. **notify.moe** — key `/api/notifymoe?mal_id=…&title=…`; provides `notifyMoe`.
+  4. **Wikipedia** — key `/api/wikipedia?title=…&mal_id=…`; provides `wikiData`.
+  5. **MangaUpdates** — key `/api/mangaupdates?title=…`; provides `muData`.
+  6. **ANN** — key `/api/ann?title=…` (null when `has_anime` is true); provides `annAnime`.
+  7. **Jikan recs** — key `jikan-recs-{malId}-{type}`; fetcher calls `getJikanRecommendations()`; provides `jikanRecs`.
+  8. **OMDB/IMDb** — key `omdb-{title}-{contentType}` (null when no stored API key); fetcher calls `omdbapi.com` directly; provides `imdbRating` / `imdbId`.
+- `animeSuggestionDismissed` derivation moved to two small `useEffect` hooks (AniList manga data → suggest adaptation; ANN data → fallback suggestion). These are derive-from-data effects, not fetches.
+- OMDB mid-session key save: inline "Save" + Enter handlers now call `setOmdbOverride({ imdbRating, imdbID })` (local state) instead of removed `setImdbRating`/`setImdbId` setters. `imdbRating` / `imdbId` values prefer `omdbOverride` over SWR result.
+- Error states added for 5 sections (notify.moe, Wikipedia, MangaUpdates, AniList, Jikan recs): inline `text-[10px] text-zinc-600` message shown if the SWR call errors and a key was present.
+- `package.json` + `package-lock.json` — `swr` added as a dependency.
+
+---
+
 #### Session 37 — Phase 1 architecture modernisation: Zustand store + QuickPeekSheet (2026-06-10)
 
 **New files**
@@ -196,7 +214,9 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 - [x] **CLAUDE.md codebase navigation** — Completed session 36. Full component map, API routes, env vars, and navigation guide written. Any new agent session starts with the correct file to read.
 
-- [ ] **Phase 2: Migrate DetailModal open/close to store** — `activeDetailId` and `closeDetail` are in the store but DetailModal is still driven by `selectedManga` local state in `app/page.tsx`. Phase 2 should replace `selectedManga` with `useLibraryStore(s => s.mangaList.find(m => m.id === s.activeDetailId))` and wire all `setSelectedManga(m)` calls to `openDetail(m.id)`. Read `app/page.tsx` lines 56–61 and the DetailModal block (~line 1820) before starting — the `openDetailStore` shim written in session 37 is the bridge.
+- [x] **Phase 2: SWR migration in DetailModal** — All 8 data fetches migrated to `useSWR`. Per-section skeletons and error states in place. Committed `8967098`. (session 38)
+
+- [ ] **Phase 2b: Migrate DetailModal open/close to store** — `activeDetailId` and `closeDetail` are in the store but DetailModal is still driven by `selectedManga` local state in `app/page.tsx`. Replace `selectedManga` with `useLibraryStore(s => s.mangaList.find(m => m.id === s.activeDetailId))` and wire all `setSelectedManga(m)` calls to `openDetail(m.id)`. Read `app/page.tsx` lines 56–61 and the DetailModal block (~line 1820) before starting — the `openDetailStore` shim written in session 37 is the bridge.
 
 - [ ] **Phase 3: patchEntry wired to +1 buttons** — `patchEntry` in `lib/store.ts` is ready but the `onChapterUpdate` / `onEpisodeUpdate` callbacks in `app/page.tsx` still do their own optimistic update + Supabase call. In Phase 3: replace the Supabase calls inside `commitChapterProgress` and `commitEpisodeProgress` with `patchEntry()`. Pass the page-level `showToast` as the third argument. This removes ~30 lines of duplicated optimistic-update logic and ensures all patch paths go through the store.
   - Files to read: `app/page.tsx` lines 279–312 (`commitChapterProgress`) and 546–578 (`commitEpisodeProgress`); `lib/store.ts` `patchEntry`.
@@ -221,6 +241,14 @@ No information is now hover-only. Hover effects remain as enhancements only.
 - [ ] **menome.in.th integration** — No public API found. Currently listed as "planned" on Sources page.
 
 - [ ] **Infra: move repo out of synced folder** — stale `.git/index 2` / `.git/index 3` files from iCloud/Drive/Dropbox sync inside `.git/`. Risk of repository corruption. Exclude `.git`, `.next`, `node_modules`, `.vercel` from sync scope and delete the stale numbered files.
+
+- [ ] **Mobile access guide** — Document how to set up and access the site on phones. Cover: (1) logging in via mobile browser, (2) adding to home screen (PWA-style shortcut on iOS Safari + Android Chrome), (3) any viewport/layout issues to fix so the library grid and modals work well on small screens. Read `app/layout.tsx` and check for existing viewport meta tags before starting.
+
+- [ ] **Extension reliability + live card/stat updates** — Two issues to investigate and fix together, ideally with Gemini:
+  - **Disconnects:** the extension sometimes loses its connection to the site. Likely a service worker lifecycle issue (`background.js`) — the MV3 service worker can be killed by Chrome after 30s idle. Investigate `chrome.alarms` keepalive and whether the persistent connection pattern needs changing.
+  - **Live updates not reaching the site:** when the extension logs a watch/read event, the library cards and Stats page on the site should reflect the new count without a manual refresh. Currently unclear if this is happening. Investigate the `visibilitychange` refresh in `app/page.tsx`, the `/api/watch-event/batch` endpoint response, and whether `useLibraryStore.patchEntry()` or a SWR revalidation should be triggered after a successful batch flush. Read `extension/background.js` (`syncFlush` function) and `app/page.tsx` (`visibilitychange` listener) before starting.
+
+- [ ] **Deep Search via Gemini (free)** — The current Deep Search uses paid APIs (OMDB, AniList, Jikan, MangaUpdates in sequence). Investigate whether Gemini's free API tier (Gemini Flash via Google AI Studio) could replace or augment this for richer text synthesis — e.g. auto-filling synopsis, genre tags, or trivia from a single Gemini call instead of 4–5 separate API calls. Check `app/api/deep-search/route.ts` for current implementation. Key question: does the free Gemini API allow server-side calls from Vercel? If yes, prototype a `lib/gemini.ts` helper. ⚠️ API COST: Gemini Flash free tier has rate limits — do NOT replace the existing fallback chain, add Gemini as an optional enrichment step that runs only when other sources return sparse data.
 
 ---
 
@@ -358,6 +386,14 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 ## Session Log
 
+### Session — 2026-06-10 (session 38)
+- Phase 2 of architecture modernisation: migrated all 8 DetailModal external-API fetches from `useEffect`+`useState` to `useSWR`.
+- SWR key is `null` when required IDs are absent — SWR natively skips the fetch, replacing the old `if (!manga.mal_id) return` guards.
+- `animeSuggestionDismissed` derivation kept as two thin `useEffect` hooks (not fetches); they react to SWR data landing rather than driving fetches themselves.
+- OMDB is the only source that calls an external domain directly from the browser (OMDB doesn't block CORS). The inline key-save flow was updated to `setOmdbOverride` since SWR's cached result can't be mutated without a `mutate()` call — local override is simpler for a one-shot user action.
+- 5 error states added (subtle inline text); OMDB and Jikan relations silently fail (no error UI needed — OMDB shows nothing, relations button just hides).
+- `npm run build` passes clean. No layout or data changes.
+
 ### Session — 2026-06-10 (session 37)
 - Phase 1 of architecture modernisation: Zustand store (`lib/store.ts`) + QuickPeekSheet bottom sheet.
 - `setManga` shim pattern used to keep all 40+ existing call sites working without a full sweep — delegates to `useLibraryStore.getState().setLibrary()`. This is intentional tech debt; Phase 2/3 will remove it progressively.
@@ -480,6 +516,12 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Change History
+
+### 2026-06-10 — Session 37 (Phase 1 architecture: Zustand store + QuickPeekSheet)
+- `lib/store.ts` *(new)* — Zustand store: `mangaList`, `isLoading`, `activePeekId`, `activeDetailId`; actions: `setLibrary`, `openPeek`, `closePeek`, `openDetail`, `closeDetail`, `patchEntry` (optimistic with snapshot rollback).
+- `components/QuickPeekSheet.tsx` *(new)* — Bottom-sheet peek: cover, title, author, status badge, progress, synopsis (200-char), genres, "Full Details" / "Close" buttons. Reads from store, zero network calls.
+- `app/page.tsx` — `setManga` shim delegates to `setLibrary()`; `onOpenPeek` prop added to `<LibraryCard>`; `QuickPeekSheet` rendered at root level.
+- `components/LibraryCard.tsx` — Cover + title now call `onOpenPeek(id)` with fallback to `onOpenDetail`.
 
 ### 2026-06-10 — Session 36 (CLAUDE.md navigation map)
 - `CLAUDE.md` — Full codebase navigation map (7 tables: entry points, component map, API routes, lib files, env vars, known issues, navigation guide). Replaces minimal stub.
