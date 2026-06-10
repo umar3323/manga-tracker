@@ -207,6 +207,151 @@ export const BADGES: Badge[] = [
     category: 'genre',
     check: (m) => m.filter(x => x.genres?.includes('Mystery')).length >= 5,
   },
+  {
+    id: 'genre_sports',
+    name: 'Sports Fan',
+    description: 'Track 5 Sports titles',
+    emoji: '⚽',
+    category: 'genre',
+    check: (m) => m.filter(x => x.genres?.includes('Sports')).length >= 5,
+  },
+  {
+    id: 'genre_psychological',
+    name: 'Mind Games',
+    description: 'Track 5 Psychological titles',
+    emoji: '🧠',
+    category: 'genre',
+    check: (m) => m.filter(x => x.genres?.includes('Psychological')).length >= 5,
+  },
+  {
+    id: 'genre_comedy',
+    name: 'Comic Relief',
+    description: 'Track 5 Comedy titles',
+    emoji: '😂',
+    category: 'genre',
+    check: (m) => m.filter(x => x.genres?.includes('Comedy')).length >= 5,
+  },
+
+  // ── Content-type badges ───────────────────────────────────────────────────
+  {
+    id: 'type_anime',
+    name: 'Anime Tracker',
+    description: 'Track 5 anime series',
+    emoji: '📺',
+    category: 'milestone',
+    check: (m) => m.filter(x => x.content_type === 'anime').length >= 5,
+  },
+  {
+    id: 'type_manhwa',
+    name: 'Manhwa Fan',
+    description: 'Track 5 manhwa titles',
+    emoji: '🇰🇷',
+    category: 'milestone',
+    check: (m) => m.filter(x => x.content_type === 'manhwa').length >= 5,
+  },
+  {
+    id: 'type_webtoon',
+    name: 'Webtoon Reader',
+    description: 'Track 5 webtoon titles',
+    emoji: '📱',
+    category: 'milestone',
+    check: (m) => m.filter(x => x.content_type === 'webtoon').length >= 5,
+  },
+  {
+    id: 'type_movie',
+    name: 'Cinephile',
+    description: 'Track 3 anime movies',
+    emoji: '🎬',
+    category: 'milestone',
+    check: (m) => m.filter(x => x.content_type === 'movie').length >= 3,
+  },
+  {
+    id: 'type_variety',
+    name: 'Omnivore',
+    description: 'Track at least one of each: manga, anime, manhwa, and webtoon',
+    emoji: '🌍',
+    category: 'milestone',
+    check: (m) => {
+      const types = new Set(m.map(x => x.content_type))
+      return types.has('manga') && types.has('anime') && types.has('manhwa') && types.has('webtoon')
+    },
+  },
+
+  // ── Score / quality badges ────────────────────────────────────────────────
+  {
+    id: 'quality_10',
+    name: 'Connoisseur',
+    description: 'Have 10 titles with a score of 8 or higher',
+    emoji: '💎',
+    category: 'milestone',
+    check: (m) => m.filter(x => x.score != null && x.score >= 8).length >= 10,
+  },
+  {
+    id: 'chapters_10000',
+    name: 'The Endless Reader',
+    description: 'Read 10,000 chapters',
+    emoji: '♾️',
+    category: 'count',
+    check: (_, t) => t >= 10000,
+  },
+
+  // ── Library diversity badges ──────────────────────────────────────────────
+  {
+    id: 'all_statuses',
+    name: 'Well Rounded',
+    description: 'Have entries in 5 different statuses',
+    emoji: '🎭',
+    category: 'milestone',
+    check: (m) => new Set(m.map(x => x.status)).size >= 5,
+  },
+  {
+    id: 'saga_collector',
+    name: 'Saga Collector',
+    description: 'Read 5 titles each with 100+ chapters',
+    emoji: '📜',
+    category: 'milestone',
+    check: (m) => m.filter(x => x.current_chapter >= 100).length >= 5,
+  },
+  {
+    id: 'completed_25',
+    name: 'Serial Finisher',
+    description: 'Complete 25 titles',
+    emoji: '🎖️',
+    category: 'milestone',
+    check: (m) => m.filter(x => x.status === 'completed').length >= 25,
+  },
+  {
+    id: 'reader_50',
+    name: 'Collector',
+    description: 'Track 50 titles',
+    emoji: '🗂️',
+    category: 'count',
+    check: (m) => m.length >= 50,
+  },
+  {
+    id: 'reader_250',
+    name: 'Archivist',
+    description: 'Track 250 titles',
+    emoji: '🏰',
+    category: 'count',
+    check: (m) => m.length >= 250,
+  },
+  {
+    id: 'rated_50',
+    name: 'Prolific Critic',
+    description: 'Rate 50 titles',
+    emoji: '🏆',
+    category: 'milestone',
+    check: (m) => m.filter(x => x.user_rating !== null).length >= 50,
+  },
+  {
+    id: 'chapters_2500',
+    name: 'Volume Eater',
+    description: 'Read 2,500 chapters',
+    emoji: '🍜',
+    category: 'count',
+    check: (_, t) => t >= 2500,
+  },
 ]
 
 /** Evaluate which badges a user has earned, returns array of badge IDs */

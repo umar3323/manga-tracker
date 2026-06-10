@@ -446,12 +446,26 @@ export default function Home() {
   }
 
   // MAL XML format — compatible with MyAnimeList import
+  // Generates two files if both manga and anime entries exist (MAL has separate import pages)
   const exportMALXML = () => {
-    const statusMap: Record<string, string> = {
-      reading: 'Reading', completed: 'Completed', on_hold: 'On-Hold',
-      dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Reading',
-    }
-    const entries = manga.map(m => `  <manga>
+    const date = new Date().toISOString().slice(0, 10)
+    const scoreOf = (m: { score: number | null; user_rating: 'up' | 'down' | null }) =>
+      m.score != null ? Math.round(m.score) : m.user_rating === 'up' ? 8 : m.user_rating === 'down' ? 4 : 0
+    const finishDate = (m: { status: string; last_read_at: string | null }) =>
+      m.status === 'completed' && m.last_read_at ? m.last_read_at.slice(0, 10) : '0000-00-00'
+
+    const isAnime = (m: { content_type: string | null }) =>
+      m.content_type === 'anime' || m.content_type === 'movie'
+
+    const mangaEntries = manga.filter(m => !isAnime(m))
+    const animeEntries = manga.filter(m => isAnime(m))
+
+    if (mangaEntries.length > 0) {
+      const mangaStatusMap: Record<string, string> = {
+        reading: 'Reading', completed: 'Completed', on_hold: 'On-Hold',
+        dropped: 'Dropped', plan_to_read: 'Plan To Read', watching: 'Reading', unwatched: 'Plan To Read',
+      }
+      const entries = mangaEntries.map(m => `  <manga>
     <manga_mangadb_id>${m.mal_id ?? 0}</manga_mangadb_id>
     <manga_title><![CDATA[${m.title}]]></manga_title>
     <manga_volumes>0</manga_volumes>
@@ -460,48 +474,95 @@ export default function Home() {
     <my_read_volumes>0</my_read_volumes>
     <my_read_chapters>${m.current_chapter}</my_read_chapters>
     <my_start_date>0000-00-00</my_start_date>
-    <my_finish_date>${m.status === 'completed' && m.last_read_at ? m.last_read_at.slice(0, 10) : '0000-00-00'}</my_finish_date>
-    <my_score>${m.user_rating === 'up' ? 8 : m.user_rating === 'down' ? 4 : 0}</my_score>
-    <my_status>${statusMap[m.status] ?? 'Reading'}</my_status>
+    <my_finish_date>${finishDate(m)}</my_finish_date>
+    <my_score>${scoreOf(m)}</my_score>
+    <my_status>${mangaStatusMap[m.status] ?? 'Reading'}</my_status>
     <my_reread_value></my_reread_value>
     <my_comments><![CDATA[${m.notes ?? ''}]]></my_comments>
     <update_on_import>1</update_on_import>
   </manga>`).join('\n')
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<myanimelist>\n  <myinfo>\n    <user_export_type>2</user_export_type>\n  </myinfo>\n${entries}\n</myanimelist>`
+      triggerDownload(new Blob([xml], { type: 'application/xml' }), `yomu-mal-manga-${date}.xml`)
+    }
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<myanimelist>
-  <myinfo>
-    <user_export_type>2</user_export_type>
-  </myinfo>
-${entries}
-</myanimelist>`
-    triggerDownload(new Blob([xml], { type: 'application/xml' }), `yomu-mal-${new Date().toISOString().slice(0, 10)}.xml`)
+    if (animeEntries.length > 0) {
+      const animeStatusMap: Record<string, string> = {
+        watching: 'Watching', completed: 'Completed', on_hold: 'On-Hold',
+        dropped: 'Dropped', unwatched: 'Plan to Watch', plan_to_read: 'Plan to Watch', reading: 'Watching',
+      }
+      const entries = animeEntries.map(m => `  <anime>
+    <series_animedb_id>${m.anime_mal_id ?? m.mal_id ?? 0}</series_animedb_id>
+    <series_title><![CDATA[${m.anime_title ?? m.title}]]></series_title>
+    <my_id>0</my_id>
+    <my_watched_episodes>${m.episodes_watched}</my_watched_episodes>
+    <my_start_date>0000-00-00</my_start_date>
+    <my_finish_date>${finishDate(m)}</my_finish_date>
+    <my_score>${scoreOf(m)}</my_score>
+    <my_status>${animeStatusMap[m.status] ?? 'Watching'}</my_status>
+    <my_rewatching>0</my_rewatching>
+    <my_rewatching_ep>0</my_rewatching_ep>
+    <my_comments><![CDATA[${m.notes ?? ''}]]></my_comments>
+    <update_on_import>1</update_on_import>
+  </anime>`).join('\n')
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<myanimelist>\n  <myinfo>\n    <user_export_type>1</user_export_type>\n  </myinfo>\n${entries}\n</myanimelist>`
+      triggerDownload(new Blob([xml], { type: 'application/xml' }), `yomu-mal-anime-${date}.xml`)
+    }
   }
 
   // AniList JSON format — compatible with AniList import
   const exportAniListJSON = () => {
-    const statusMap: Record<string, string> = {
+    const mangaStatusMap: Record<string, string> = {
       reading: 'CURRENT', completed: 'COMPLETED', on_hold: 'PAUSED',
-      dropped: 'DROPPED', plan_to_read: 'PLANNING', watching: 'CURRENT',
+      dropped: 'DROPPED', plan_to_read: 'PLANNING', watching: 'CURRENT', unwatched: 'PLANNING',
     }
-    const lists: Record<string, object[]> = {}
+    const animeStatusMap: Record<string, string> = {
+      watching: 'CURRENT', completed: 'COMPLETED', on_hold: 'PAUSED',
+      dropped: 'DROPPED', unwatched: 'PLANNING', plan_to_read: 'PLANNING', reading: 'CURRENT',
+    }
+    const scoreOf = (m: { score: number | null; user_rating: 'up' | 'down' | null }) =>
+      m.score != null ? Math.round(m.score) : m.user_rating === 'up' ? 8 : m.user_rating === 'down' ? 4 : 0
+    const isAnime = (m: { content_type: string | null }) =>
+      m.content_type === 'anime' || m.content_type === 'movie'
+
+    const mangaLists: Record<string, object[]> = {}
+    const animeLists: Record<string, object[]> = {}
+
     for (const m of manga) {
-      const s = statusMap[m.status] ?? 'CURRENT'
-      if (!lists[s]) lists[s] = []
-      lists[s].push({
-        mediaId: m.mal_id ?? null,
-        title: m.title,
-        status: s,
-        score: m.user_rating === 'up' ? 8 : m.user_rating === 'down' ? 4 : 0,
-        progress: m.current_chapter,
-        progressVolumes: 0,
-        startedAt: null,
-        completedAt: m.status === 'completed' && m.last_read_at ? m.last_read_at.slice(0, 10) : null,
-        notes: m.notes ?? '',
-        genres: m.genres,
-      })
+      if (isAnime(m)) {
+        const s = animeStatusMap[m.status] ?? 'CURRENT'
+        if (!animeLists[s]) animeLists[s] = []
+        animeLists[s].push({
+          mediaId: m.anime_mal_id ?? m.mal_id ?? null,
+          title: m.anime_title ?? m.title,
+          status: s,
+          score: scoreOf(m),
+          progress: m.episodes_watched,
+          completedAt: m.status === 'completed' && m.last_read_at ? m.last_read_at.slice(0, 10) : null,
+          notes: m.notes ?? '',
+          genres: m.genres,
+        })
+      } else {
+        const s = mangaStatusMap[m.status] ?? 'CURRENT'
+        if (!mangaLists[s]) mangaLists[s] = []
+        mangaLists[s].push({
+          mediaId: m.mal_id ?? null,
+          title: m.title,
+          status: s,
+          score: scoreOf(m),
+          progress: m.current_chapter,
+          progressVolumes: 0,
+          completedAt: m.status === 'completed' && m.last_read_at ? m.last_read_at.slice(0, 10) : null,
+          notes: m.notes ?? '',
+          genres: m.genres,
+        })
+      }
     }
-    const json = JSON.stringify({ lists, exportedAt: new Date().toISOString(), source: 'YOMU' }, null, 2)
+    const json = JSON.stringify({
+      manga: mangaLists,
+      anime: animeLists,
+      exportedAt: new Date().toISOString(),
+      source: 'YOMU',
+    }, null, 2)
     triggerDownload(new Blob([json], { type: 'application/json' }), `yomu-anilist-${new Date().toISOString().slice(0, 10)}.json`)
   }
 
