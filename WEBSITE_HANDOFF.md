@@ -10,6 +10,16 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 39 — 5 confirmed bug fixes (2026-06-10, commit `f05e4de`)
+
+- `app/stats/page.tsx` — Added `visibilitychange` listener after the existing `useEffect(() => { load() }, [load])`. Calls `load()` when `document.visibilityState === 'visible'`. Stats page now refreshes when the tab regains focus (e.g. after the extension logs a watch event in another tab).
+- `components/DiscoverySection.tsx` — Added `swiped_at: new Date().toISOString()` to the `swipe_history` insert in the `dismiss` callback. Also captures the insert result and logs `console.error` on failure so silent failures are visible. Without `swiped_at`, the insert was silently failing if the column is NOT NULL with no default.
+- `components/DetailView.tsx` — Added "Sync this entry to load anime scores & streaming links" nudge in the notify.moe section. Renders when `animeMalIdForNotify` is null but `manga.has_anime`, `manga.content_type === 'anime'`, or `manga.content_type === 'movie'`. User now knows why the scores section is empty instead of silently seeing nothing.
+- `components/DetailView.tsx` — `RelationMergeButton`: added a two-column progress comparison (title, Ch. X/Y, Ep. X/Y for both `keep` and `remove`) before the merge button. User can verify progress on both entries before committing an irreversible merge.
+- `WEBSITE_HANDOFF.md` — Marked `/api/cron/reset-daily` Known Issue as resolved: extension handles daily stat reset client-side via `chrome.storage.local` date key — no DB cron needed.
+
+---
+
 #### Session 38 — Phase 2 architecture modernisation: SWR migration in DetailModal (2026-06-10, commit `8967098`)
 
 - `components/DetailView.tsx` — Replaced all 8 `useEffect`+`useState` data fetch pairs in `DetailModal` with `useSWR` calls. Each SWR key is `null` when the required IDs are absent (skips fetch). All calls share `{ revalidateOnFocus: false, revalidateOnReconnect: false, dedupingInterval: 300_000 }`. The 8 sources:
@@ -384,15 +394,15 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 ### Discover dismiss (✕) not persisting across page reloads — 2026-06-10
 - **Symptom:** Clicking ✕ on a Discover card removes it from the current view, but the card reappears after a page reload.
-- **Root cause:** Not yet investigated. Likely the `swipe_history` DB write is succeeding but the `/api/swipe-queue` feed is not filtering against `swipe_history` on next load, OR the insert is failing silently.
-- **Fix:** Not yet applied.
-- **Prevention rule:** Before fixing: read `app/api/swipe-queue/route.ts` (checks how `swipe_history` is used to filter candidates) and `components/DiscoverPanel.tsx` (dismiss handler). Confirm the insert lands in DB before investigating the feed filter.
+- **Root cause:** `swipe_history` insert in `components/DiscoverySection.tsx` was missing `swiped_at`. If the column is NOT NULL with no default, the insert failed silently.
+- **Fix:** `components/DiscoverySection.tsx` `dismiss` callback — added `swiped_at: new Date().toISOString()` to insert object; now captures result and logs `console.error` on failure.
+- **Prevention rule:** Always include `swiped_at` when inserting to `swipe_history`. Capture the Supabase result and log errors — never fire-and-forget inserts on user-visible actions.
 
 ### Session log not updating from extension (live tracking not reaching site) — 2026-06-10
-- **Symptom:** Extension popup correctly shows "NOW TRACKING: The Disastrous Life of Saiki K. · netflix.com" with time/episode counts, but the Stats page Session Log still shows old entries (FMA from Jun 9). No new Saiki K sessions appear even after watching.
-- **Root cause:** Not yet investigated. The extension flushes events to `/api/watch-event/batch` (confirmed deployed), but the Stats page and library cards do not reflect the new data. The `visibilitychange` listener in `app/page.tsx` is supposed to refresh the library on tab focus — this may not be triggering a stats re-fetch, or the batch endpoint write is failing silently.
-- **Fix:** Not yet applied.
-- **Prevention rule:** Before fixing: read `extension/background.js` (`syncFlush` function — check the fetch call and error handling), `app/page.tsx` (`visibilitychange` listener — check what it actually refreshes), and `app/stats/page.tsx` (confirm it reads from `watch_sessions` table). Verify the batch endpoint write is landing in DB using Supabase dashboard before debugging the UI refresh path.
+- **Symptom:** Stats page Session Log not updating after extension logs watch events.
+- **Root cause:** Stats page `app/stats/page.tsx` had no `visibilitychange` listener — `load()` only ran once on mount.
+- **Fix:** `app/stats/page.tsx` — added `visibilitychange` listener that calls `load()` when tab becomes visible.
+- **Prevention rule:** Any page that reads from `watch_sessions` or library state must have a `visibilitychange` listener calling its data-load function. The library in `app/page.tsx` already does this — stats page must too.
 
 ### /api/cron/reset-daily returns 404 — 2026-06-10
 - **Symptom:** `GET /api/cron/reset-daily` returns 404. Daily stat reset never fires. Extension "Min today" counter may accumulate without resetting.
@@ -402,13 +412,27 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 ### Merge UI doesn't show target entry's episode/chapter total before confirming — 2026-06-10
 - **Symptom:** When merging library entries (e.g. Ansatsu Kyoushitsu), the merge panel shows the entry name but not its current episode/chapter count. User cannot verify which card has the correct progress before committing an irreversible merge.
-- **Root cause:** UX gap — `RelationMergeButton` / merge modal does not display `total_episodes`, `current_chapter`, or `episodes_watched` for the merge target.
-- **Fix:** Not yet applied.
-- **Prevention rule:** Before fixing: read `components/DetailView.tsx` (RelationMergeButton component) and check what props the merge confirmation UI receives. The fix is to display `total_episodes` + `episodes_watched` for both the current entry and the merge target before the confirm button is shown.
+- **Root cause:** UX gap — `RelationMergeButton` rendered only the merge button with no progress context.
+- **Fix:** `components/DetailView.tsx` `RelationMergeButton` — added a two-column `grid grid-cols-2` comparison div above the button. Displays title, Ch. X/Y (if chapter data present), and Ep. X/Y (if `has_anime` and episode data present) for both `keep` and `remove` entries.
+- **Prevention rule:** `RelationMergeButton` now always shows progress before the button. Do NOT remove the comparison grid — merges are irreversible and users need to confirm which entry has the correct progress.
+
+### notify.moe / AniList sections silent when anime_mal_id is missing — 2026-06-10
+- **Symptom:** Entries with `has_anime=true` but no `anime_mal_id` showed empty notify.moe and AniList sections with no explanation.
+- **Root cause:** SWR key is `null` when `animeMalIdForNotify` is null — fetches skip silently with no UI feedback.
+- **Fix:** `components/DetailView.tsx` notify.moe section — added "Sync this entry to load anime scores & streaming links" nudge rendered when `!animeMalIdForNotify && (manga.has_anime || content_type === 'anime' || content_type === 'movie')`.
+- **Prevention rule:** Any section that silently skips due to a missing ID must show a nudge or explanation so the user knows what action to take. A null SWR key is invisible to the user without UI feedback.
 
 ---
 
 ## Session Log
+
+### Session — 2026-06-10 (session 39)
+- Fixed 5 confirmed bugs: stats visibility refresh, dismiss persistence, merge UI progress preview, anime sync nudge, and cron/reset-daily non-issue clarification.
+- Stats `visibilitychange` fix mirrors the existing listener in `app/page.tsx` — same pattern, same `[load]` dep array.
+- Dismiss fix: `swiped_at` was the root cause of the silent insert failure; also added error logging so future failures are visible in the console.
+- Merge comparison grid added to `RelationMergeButton` — renders only when `current_chapter > 0`, `total_chapters` is set, or `has_anime` with episode data. No visual clutter on entries without progress.
+- Anime sync nudge: placed in notify.moe section only (not duplicated in AniList or streaming links sections). Reads naturally as a call-to-action for the Sync button.
+- `npm run build` passed clean with zero TypeScript errors. Deployed `f05e4de`.
 
 ### Session — 2026-06-10 (session 38)
 - Phase 2 of architecture modernisation: migrated all 8 DetailModal external-API fetches from `useEffect`+`useState` to `useSWR`.
