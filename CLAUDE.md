@@ -36,9 +36,9 @@ For any task not covered above, check `/Users/hossain/Documents/Claude/Skills/` 
 | `app/sources/page.tsx` | Sources & integrations overview (16 entries). |
 | `app/extension/page.tsx` | Extension setup + token harvesting page. |
 | `app/share/[id]/page.tsx` | Public share view — no auth required (exempted in proxy.ts). |
-| `extension/background.js` | MV3 service worker — `chrome.alarms` 1-min flush, offline-first batch sync, DOM scraping for 8+ platforms. |
+| `extension/background.js` | MV3 service worker — `chrome.alarms` 1-min flush, offline-first batch sync, DOM scraping for 8+ platforms. Library title cache (`yomu_library_titles`) gates streaming-site tracking. `notifyYomuTabs()` pushes `YOMU_REFRESH_LIBRARY` to open YOMU tabs after confirmed watch events. |
 | `extension/content.js` | Content script — injected on streaming sites, detects title/episode, sends to background. |
-| `extension/popup.js` | Extension popup UI — shows NOW TRACKING, library stats, quick-add. |
+| `extension/popup.js` | Extension popup UI — shows NOW TRACKING, library stats, quick-add. `chrome.storage.onChanged` listener updates stats live while popup is open. |
 | `scripts/migrations.sql` | All Supabase DDL — run this to recreate schema. Includes `match_library_entry` (pg_trgm fuzzy) and `merge_entries` RPCs. |
 
 ## Component map
@@ -106,8 +106,9 @@ For any task not covered above, check `/Users/hossain/Documents/Claude/Skills/` 
 | `/api/swipe-queue` | GET | AniList discovery queue with Jaccard taste scoring | yes | none |
 | `/api/sync` | POST | Sync entry metadata from Jikan (cover, genres, etc.) | yes | none |
 | `/api/warmup` | GET | Cron warmup — pre-fetches catalog/feeds (CRON_SECRET) | no | none |
-| `/api/watch-event` | POST | Log a watch/read event from extension (idempotent upsert) | yes | none |
-| `/api/watch-event/batch` | POST | Batch offline-first watch events (UUID idempotency_key) | yes | none |
+| `/api/library-titles` | GET | Normalised title list for extension library gate (bug-c fix) | Bearer/cookie | 5 min (private) |
+| `/api/watch-event` | POST | Log a watch/read event from extension (idempotent upsert) | Bearer/cookie | none |
+| `/api/watch-event/batch` | POST | Batch offline-first watch events (UUID idempotency_key) | Bearer/cookie | none |
 | `/api/webtoons` | GET | Webtoons episode feed | no | 24h |
 | `/api/wikipedia` | GET | Wikipedia summary + infobox proxy (72h DB cache) | yes | 72h DB |
 
@@ -157,7 +158,7 @@ If working on **detail panel / relations / series** → read `components/DetailV
 If working on **airing calendar** → read `components/ReleaseCalendar.tsx`
 If working on **Jikan API calls** → read `lib/jikan.ts` + `app/api/jikan-proxy/route.ts`
 If working on **AniList data** → read `lib/anilist.ts` + `app/api/anilist/route.ts`
-If working on **Chrome extension** → read `extension/background.js`, `extension/content.js`, `extension/popup.js`
+If working on **Chrome extension** → read `extension/background.js`, `extension/content.js`, `extension/popup.js`. All extension-facing API routes (`/api/streaming-sites`, `/api/library-titles`, `/api/watch-event`, `/api/watch-event/batch`) must be in `isPublicApi` in `proxy.ts` and must do their own Bearer token auth internally.
 If working on **auth / middleware** → read `proxy.ts`
 If working on **DB schema / RPCs** → read `scripts/migrations.sql`
 If working on **Web Push** → read `app/api/push/route.ts` + `components/ServiceWorkerRegistrar.tsx`

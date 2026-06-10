@@ -2,13 +2,48 @@
 
 ## Project Overview
 
-YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, and Supabase (Postgres + auth). Live at `manga-tracker-hazel.vercel.app`. All core features are active: library tracking, series grouping, discovery, airing calendar, sync, stats, sharing, Chrome extension for watch tracking, and community totals crowd-sourcing. This session fixed four code-review regressions (cron auth, duplicate detector, ESLint noise, missing migrations), corrected Netflix tracking in the extension popup, and fixed a series total-episodes edit bug that was producing wrong sums on grouped anime cards.
+YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, and Supabase (Postgres + auth). Live at `manga-tracker-hazel.vercel.app`. All core features are active: library tracking, series grouping, discovery, airing calendar, sync, stats, sharing, Chrome extension for watch tracking, and community totals crowd-sourcing. This session fixed all 5 Chrome extension bugs identified by research: watch-time inflation, dedup over-suppression, non-anime tracking gate, stale popup stats, and slow UI refresh after a watch event. Also added `/api/library-titles` route, wired extension-facing API routes into the proxy middleware exemption list, and expanded achievements to 38 badges.
 
 ---
 
 ## Current State
 
 ### Latest Changes
+
+#### Session 46 — 5 Chrome extension bug fixes + /api/library-titles + achievements (2026-06-10, commit `0e3687c`)
+
+**Bug (a): watch-time inflation fixed**
+- `extension/background.js` `updateSessionStats` — was calling `Math.round(30/60) = 1` per heartbeat, producing 2× over-counting. Now accumulates `delta/60` (fractional float) into `total_watch_minutes`. `Math.round` moved to display time only (in `popup.js` `fmtTime` which already takes an integer).
+
+**Bug (b): dedup window too long**
+- `extension/background.js` `isDuplicate()` — was using a single 300 s window for all events. 30 s heartbeats were suppressed (only 1 in 10 registered). Fixed: 10 s window for progress pings, 300 s for `is_complete` events. 6/10 heartbeats now reach the API.
+
+**Bug (c): non-anime tracking gate**
+- `extension/background.js` — added `fetchLibraryTitles()` (calls `/api/library-titles`, stores normalised title array in `chrome.storage.local` as `yomu_library_titles`), `normaliseTitle()`, `matchesLibraryTitle()`. Called alongside `fetchCustomSites()` on every auth event. `handleEvent` now gates streaming-platform tracking: if title not in library, event is dropped immediately (no API call).
+- `app/api/library-titles/route.ts` *(new)* — GET endpoint; Bearer-token + cookie auth. Returns `{ titles: string[] }` — all `title` + `anime_title` values from `manga_list` for the authed user. `Cache-Control: private, max-age=300`.
+
+**Bug (d): stale popup stats**
+- `extension/popup.js` — extracted `renderStats()` and `renderLastTracked()` helpers. Added `chrome.storage.onChanged` listener that calls them whenever `yomu_session_stats` or `yomu_last_tracked` changes in `chrome.storage.local`. Popup now updates live while open without close + reopen. Also fixed `fmtTime` call to use `Math.round(stats.total_watch_minutes)` — was passing raw float from bug-(a) fix.
+
+**Bug (e): slow UI refresh after watch event**
+- `extension/background.js` `sendToAPI` — after `data.action === 'updated' || 'created'`, calls `notifyYomuTabs()`. That function queries for open YOMU tabs and sends `{ type: 'YOMU_REFRESH_LIBRARY' }` via `chrome.tabs.sendMessage`.
+- `extension/background.js` injected YOMU-page content script (inline in `executeScript`) — added `chrome.runtime.onMessage` listener that relays `YOMU_REFRESH_LIBRARY` as `window.dispatchEvent(new CustomEvent('yomu:watch-event'))`.
+- `app/page.tsx` — added `useEffect` listening for `'yomu:watch-event'` CustomEvent; calls `fetchManga()` immediately on receipt. Co-exists with the existing 60 s `setInterval` (fallback).
+
+**Proxy middleware**
+- `proxy.ts` — added `/api/streaming-sites`, `/api/library-titles`, `/api/watch-event`, `/api/watch-event/*` to `isPublicApi` exemption. These routes authenticate via Bearer token inside the handler; without this exemption the middleware redirected cookie-less extension requests to `/login` before the handler ran.
+
+**Achievements expansion**
+- `lib/achievements.ts` — expanded from 22 to 38 badges. New categories: Genre (Sports Fan, Mind Games, Comic Relief), Content-type (Anime Tracker, Manhwa Fan, Webtoon Reader, Cinephile, Omnivore), Score (Connoisseur — ≥8 score on 10+ titles), Count (Volume Eater 2,500ch, Endless Reader 10,000ch, Collector 50, Archivist 250), Milestone (Well Rounded, Saga Collector, Serial Finisher, Prolific Critic).
+
+**MAL/AniList exports fixed**
+- `app/page.tsx` `exportMALXML` — now produces two separate XML downloads (manga + anime). Anime uses `<anime>` element with `my_watched_episodes`. `scoreOf()` helper prefers numeric `m.score`; falls back to thumbs mapping. `finishDate()` returns ISO date for completed entries with dates, else `0000-00-00`.
+- `app/page.tsx` `exportAniListJSON` — separate `manga` + `anime` sections; anime uses `episodes_watched` + `anime_mal_id`; `unwatched` mapped to `PLANNING`.
+
+**swipe_history DB fixes**
+- `scripts/migrations.sql` — added `user_id uuid` column to `swipe_history` + index + RLS policies (SELECT and INSERT scoped to `auth.uid()`). Updated `swipe_history_direction_check` constraint to include `'skip'` (was only `'right'|'left'`; code uses `'skip'` for dismissed cards → every dismiss was a DB constraint violation).
+
+---
 
 #### Session 45 — Install page, Gemini enrichment, stale index cleanup (2026-06-10)
 
@@ -413,11 +448,12 @@ No information is now hover-only. Hover effects remain as enhancements only.
 - **Fix:** `extension/popup.js` — `createElement`/`textContent` per chip.
 - **Prevention rule:** Never use `innerHTML` with data from `chrome.storage.local`. Always use `textContent` or DOM creation.
 
-### swipe_history insert failed with user_id column — 2026-06-09
-- **Symptom:** Dismiss X on Discover cards threw Supabase insert error.
-- **Root cause:** `swipe_history` table has no `user_id` column.
-- **Fix:** Removed `user_id` reference from dismiss insert.
-- **Prevention rule:** `swipe_history` does not have `user_id`. Never add it to inserts on that table.
+### swipe_history dismiss not persisting (user_id + direction constraint) — 2026-06-09 / 2026-06-10
+- **Symptom:** Dismiss X on Discover cards threw Supabase insert error; dismissed cards reappeared on reload.
+- **Root cause 1:** `swipe_history` table was missing `user_id` column. RLS SELECT filtered by user_id but inserts stored null → inserts were invisible to the SELECT on next load.
+- **Root cause 2:** `direction` CHECK constraint was `'right'|'left'` only. Code passes `'skip'` for dismiss → every dismiss was a constraint violation returning 400.
+- **Fix:** `scripts/migrations.sql` — added `user_id uuid` column + index + RLS policies; dropped and recreated `direction` CHECK to include `'skip'`. Both applied to production via Supabase.
+- **Prevention rule:** `swipe_history` inserts must include `user_id: session.user.id`. Always include `swiped_at`. Valid `direction` values: `'right'`, `'left'`, `'skip'`.
 
 ### Duplicate detection falsely flagging series members — 2026-06-08
 - **Symptom:** Series members with similar titles appeared in Duplicates tab.
@@ -468,6 +504,24 @@ No information is now hover-only. Hover effects remain as enhancements only.
 - **Fix:** Not needed. Extension tracks daily stats in chrome.storage.local (yomu_session_stats with date key). GET_SESSION_STATS auto-resets when date !== todayKey(). No DB cron required. Resolved.
 - **Prevention rule:** Before fixing: run `find app/api/cron -type f` to confirm the actual filename. Check `vercel.json` (or project settings) for the cron schedule and the path it calls. The file must be `app/api/cron/reset-daily/route.ts` for the path `/api/cron/reset-daily` to resolve.
 
+### Extension watch-time 2× inflation — 2026-06-10
+- **Symptom:** Watch time accumulates at double the real duration (30 min watched → ~60 min logged).
+- **Root cause:** `Math.round(30/60) = 1` minute per 30 s heartbeat → 2 minutes per minute watched.
+- **Fix:** `extension/background.js` `updateSessionStats` — accumulates `delta/60` (fractional). `Math.round` only in `popup.js` `fmtTime` at display time.
+- **Prevention rule:** Never call `Math.round` on sub-minute deltas before accumulating. Store `total_watch_minutes` as a float; round only at display time.
+
+### Extension dedup suppressing ~90% of heartbeats — 2026-06-10
+- **Symptom:** Episode progress rarely advanced despite watching. Extension appeared to track but DB barely updated.
+- **Root cause:** Single 300 s dedup window for all events. 30 s heartbeats matched the same key → suppressed. Only 1 in 10 heartbeats reached the API.
+- **Fix:** `extension/background.js` `isDuplicate()` — 10 s window for progress pings, 300 s for `is_complete` events.
+- **Prevention rule:** Dedup windows must be type-specific. Progress heartbeats (30 s cadence) require ≤ 15 s window. Completion events can use 5 min.
+
+### Extension-facing API routes blocked by middleware (Bearer token) — 2026-06-10
+- **Symptom:** Extension calls to `/api/streaming-sites`, `/api/watch-event`, `/api/library-titles` were 302-redirected to `/login`. Extension doesn't send session cookies.
+- **Root cause:** `proxy.ts` `isPublicApi` exemption only covered cron/warmup/public routes. Bearer-token routes were not exempted.
+- **Fix:** `proxy.ts` — added `/api/streaming-sites`, `/api/library-titles`, `/api/watch-event`, `/api/watch-event/*` to `isPublicApi`. Routes authenticate via Bearer header inside the handler.
+- **Prevention rule:** Any API route called by the Chrome extension must be in `isPublicApi` in `proxy.ts`. Extension requests carry no session cookies. All such routes do their own Bearer auth internally.
+
 ### Merge UI doesn't show target entry's episode/chapter total before confirming — 2026-06-10
 - **Symptom:** When merging library entries (e.g. Ansatsu Kyoushitsu), the merge panel shows the entry name but not its current episode/chapter count. User cannot verify which card has the correct progress before committing an irreversible merge.
 - **Root cause:** UX gap — `RelationMergeButton` rendered only the merge button with no progress context.
@@ -483,6 +537,14 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Session Log
+
+### Session — 2026-06-10 (session 46)
+- Fixed all 5 extension bugs from research doc. Root causes were: float rounding at wrong point (a), single dedup window (b), no library title cache (c), no storage change listener (d), no push from background to open YOMU tabs (e).
+- `/api/library-titles` was missing — `fetchLibraryTitles()` referenced it but it didn't exist. Created with dual Bearer/cookie auth. Added `Cache-Control: private, max-age=300` to reduce DB load.
+- Discovered `proxy.ts` was blocking ALL extension Bearer-token routes (streaming-sites, watch-event, library-titles) because none were in `isPublicApi`. Added all three to the exemption.
+- swipe_history had two separate DB bugs: missing `user_id` column (RLS blocked reads) and `direction` constraint missing `'skip'`. Both were already in `migrations.sql` from a prior session but applied to production now.
+- `popup.js` `chrome.storage.onChanged` approach: no explicit cleanup needed — Chrome removes listeners automatically when the popup closes.
+- Commit `0e3687c`. **Extension must be reloaded** (background.js changed).
 
 ### Session — 2026-06-10 (session 45)
 - All remaining outstanding tasks completed.
@@ -642,6 +704,19 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Change History
+
+### 2026-06-10 — Session 45 (install page, Gemini enrichment, stale index cleanup)
+- `app/install/page.tsx` *(new)* — Public `/install` page: iOS/Android/desktop guides + FAQ.
+- `proxy.ts` — `/install` added to `isPublicPage`.
+- `app/login/page.tsx` — Link to `/install` added.
+- `app/extension/page.tsx` — PWA nudge card added.
+- `lib/gemini.ts` *(new)* — `gemini-2.0-flash` REST helper, gated on `GEMINI_API_KEY`.
+- `app/api/deep-search/route.ts` — Gemini enrichment runs in parallel with Claude arc detection.
+- `components/DeepSearchModal.tsx` — Synopsis, themes, trivia from Gemini; "Save to entry" checkbox.
+- `app/page.tsx` — `content_type` passed to `<DeepSearchModal>`.
+- `CLAUDE.md` — `GEMINI_API_KEY` added to env vars table.
+- Stale `.git/index 2/3/4` and `.next/*2.*` files deleted.
+- `app/sources/page.tsx` — menome.in.th: `in_progress` → `declined`.
 
 ### 2026-06-10 — Session 39 (5 bug fixes: stats visibility, dismiss persistence, merge progress preview, sync nudge, cron clarification)
 - `app/stats/page.tsx` — `visibilitychange` listener added; stats refresh on tab focus.
