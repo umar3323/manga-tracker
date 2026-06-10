@@ -4,6 +4,9 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import Image from 'next/image'
 import { supabase, type Manga, type MangaStatus, type Author } from '@/lib/supabase'
 import { fetchMangaInfo, getAuthorWorks, getAuthorInfo, getMangaById, getAnimeAdaptations, searchMangaWithFilters, searchAnimeWithFiltersTyped, searchAnimeByProducer, type JikanSearchResult } from '@/lib/jikan'
+import LibraryToolbar from '@/components/LibraryToolbar'
+import LibraryFilters from '@/components/LibraryFilters'
+import LibraryCard from '@/components/LibraryCard'
 import TrendingSection from '@/components/TrendingSection'
 import DiscoverySection from '@/components/DiscoverySection'
 import ReleaseCalendar from '@/components/ReleaseCalendar'
@@ -23,14 +26,13 @@ import CompletionModal from '@/components/CompletionModal'
 import DateAttributionModal, { type DateAttribution } from '@/components/DateAttributionModal'
 import DeepSearchModal from '@/components/DeepSearchModal'
 import UrlImportModal from '@/components/UrlImportModal'
-import NotificationBell from '@/components/NotificationBell'
 import { getStatus as getAnimeStatus, type AnimeRow } from '@/lib/anime-data'
 import { deepDiveSeries, TAKEOUT_ENTRIES } from '@/lib/data/takeout-series'
 import { DetailModal, EditableNumber, RelationMergeButton } from '@/components/DetailView'
 import {
-  Tv, Timer, Play, Clapperboard, BookOpen, PenLine, ThumbsUp, ThumbsDown,
-  Folder, MapPin, Flag, Zap, Sword, Cloud, Moon, Flame, Heart, Search,
-  ChevronDown, ChevronUp, RefreshCw, GitMerge, X,
+  Tv, Timer, Play, Clapperboard, BookOpen,
+  Zap, Sword, Cloud, Moon, Flame, Heart,
+  GitMerge, X,
 } from 'lucide-react'
 
 // EditableNumber, RelationMergeButton, SeriesPanel, and DetailModal are now in components/DetailView.tsx
@@ -869,89 +871,6 @@ function HealthCheckModal({
   )
 }
 
-// ─── Mobile Menu ─────────────────────────────────────────────────────────────
-
-function MobileMenu({ onRecommend, onSync, onSignOut, onExportCSV, onExportMAL, onExportAniList, onShare, onCheckCards, onTakeoutImport, loadingRec, syncing }: {
-  onRecommend: () => void; onSync: () => void; onSignOut: () => void
-  onExportCSV: () => void; onExportMAL: () => void; onExportAniList: () => void
-  onShare: () => void; onCheckCards: () => void; onTakeoutImport: () => void; loadingRec: boolean; syncing: boolean
-}) {
-  const [open, setOpen] = useState(false)
-  const [exportOpen, setExportOpen] = useState(false)
-  return (
-    <div className="relative">
-      <button onClick={() => setOpen(v => !v)} aria-label="More actions"
-        className="w-10 h-10 rounded-xl bg-zinc-800 text-zinc-300 text-xl flex items-center justify-center hover:bg-zinc-700">
-        ⋮
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => { setOpen(false); setExportOpen(false) }} />
-          <div className="absolute right-0 top-12 z-20 bg-zinc-800 border border-zinc-700 rounded-xl overflow-hidden shadow-xl w-48">
-            <button onClick={() => { onRecommend(); setOpen(false) }} disabled={loadingRec}
-              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40">
-              <span>✦</span> {loadingRec ? 'Thinking…' : 'Recommend'}
-            </button>
-            <button onClick={() => { onSync(); setOpen(false) }} disabled={syncing}
-              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40 border-t border-zinc-700">
-              <span>⟳</span> {syncing ? 'Syncing…' : 'Sync from MAL'}
-            </button>
-            {/* Export sub-menu */}
-            <button onClick={() => setExportOpen(v => !v)}
-              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center justify-between gap-2 border-t border-zinc-700">
-              <span className="flex items-center gap-2"><span>↓</span> Export</span>
-              <span className="text-zinc-500 text-xs">{exportOpen ? '▲' : '▼'}</span>
-            </button>
-            {exportOpen && (
-              <>
-                <button onClick={() => { onExportCSV(); setOpen(false) }}
-                  className="w-full px-6 py-2.5 text-xs text-left text-zinc-300 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700/50">
-                  CSV
-                </button>
-                <button onClick={() => { onExportMAL(); setOpen(false) }}
-                  className="w-full px-6 py-2.5 text-xs text-left text-zinc-300 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700/50">
-                  MAL XML
-                </button>
-                <button onClick={() => { onExportAniList(); setOpen(false) }}
-                  className="w-full px-6 py-2.5 text-xs text-left text-zinc-300 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700/50">
-                  AniList JSON
-                </button>
-              </>
-            )}
-            <button onClick={() => { onCheckCards(); setOpen(false) }}
-              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
-              <span>🩺</span> Check Cards
-            </button>
-            <button onClick={() => { onTakeoutImport(); setOpen(false) }}
-              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
-              <span>📦</span> Takeout Import
-            </button>
-            <button onClick={() => { onShare(); setOpen(false) }}
-              className="w-full px-4 py-3 text-sm text-left text-zinc-200 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
-              <span>🔗</span> Share List
-            </button>
-            <button onClick={() => { onSignOut(); setOpen(false) }}
-              className="w-full px-4 py-3 text-sm text-left text-zinc-400 hover:bg-zinc-700 flex items-center gap-2 border-t border-zinc-700">
-              <span>↩</span> Sign Out
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-function RecommendationText({ text }: { text: string }) {
-  return (
-    <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
-      {text.split('\n').map((line, i) => (
-        <p key={i} className={line === '' ? 'mt-2' : ''}>
-          <MarkdownBold text={line} />
-        </p>
-      ))}
-    </div>
-  )
-}
 
 export default function Home() {
   const [manga, setManga] = useState<Manga[]>([])
@@ -2023,103 +1942,33 @@ ${entries}
       <div className="max-w-[1800px] mx-auto px-6 py-6 md:py-10">
 
         {/* Header — responsive */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Manga Tracker</h1>
-            <p className="text-zinc-500 text-xs md:text-sm mt-0.5">{manga.length} Titles</p>
-          </div>
-
-          {/* Desktop actions (all visible) */}
-          <div className="hidden md:flex gap-2">
-            <button onClick={getRecommendations} disabled={manga.length === 0 || loadingRec} aria-label="Get AI recommendations"
-              className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 disabled:opacity-40 transition-colors">
-              {loadingRec ? 'Thinking…' : '✦ Recommend'}
-            </button>
-            <button onClick={() => setShowAdd(v => !v)} aria-label="Add manga"
-              className="px-4 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-zinc-200 transition-colors">
-              + Add
-            </button>
-            <button onClick={runSync} disabled={syncing} aria-label="Sync from MAL"
-              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white disabled:opacity-40 transition-colors">
-              {syncing ? '⟳ Syncing…' : '⟳ Sync'}
-            </button>
-            <button onClick={() => setShowHealthCheck(true)} aria-label="Check card health"
-              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
-              🩺 Check Cards
-            </button>
-            {deepSelectMode ? (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    if (deepSelected.size === 0) return
-                    const first = manga.find(m => deepSelected.has(m.id))
-                    if (first) setDeepSearchTarget(first)
-                  }}
-                  disabled={deepSelected.size === 0}
-                  className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 disabled:opacity-40 transition-colors"
-                >
-                  🔍 Search {deepSelected.size > 0 ? `${deepSelected.size} Card${deepSelected.size > 1 ? 's' : ''}` : '…'}
-                </button>
-                <button
-                  onClick={() => { setDeepSelectMode(false); setDeepSelected(new Set()) }}
-                  className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button onClick={() => setDeepSelectMode(true)} aria-label="Deep search cards"
-                className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
-                🔍 Deep Search
-              </button>
-            )}
-            <div className="relative group">
-              <button aria-label="Export list"
-                className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
-                ↓ Export
-              </button>
-              <div className="absolute right-0 top-10 z-20 hidden group-hover:flex flex-col bg-zinc-800 border border-zinc-700 rounded-xl overflow-hidden shadow-xl w-36">
-                <button onClick={exportCSV} className="px-4 py-2.5 text-xs text-left text-zinc-200 hover:bg-zinc-700">CSV</button>
-                <button onClick={exportMALXML} className="px-4 py-2.5 text-xs text-left text-zinc-200 hover:bg-zinc-700 border-t border-zinc-700/50">MAL XML</button>
-                <button onClick={exportAniListJSON} className="px-4 py-2.5 text-xs text-left text-zinc-200 hover:bg-zinc-700 border-t border-zinc-700/50">AniList JSON</button>
-              </div>
-            </div>
-            <NotificationBell />
-            <button onClick={() => setShareModal(true)} aria-label="Share my list"
-              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
-              🔗 Share
-            </button>
-            <button onClick={() => setShowTakeoutImport(true)} aria-label="Takeout import"
-              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
-              📦 Import
-            </button>
-            <button onClick={signOut} aria-label="Sign out"
-              className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-colors">
-              Sign Out
-            </button>
-          </div>
-
-          {/* Mobile actions (compact) */}
-          <div className="flex md:hidden gap-2">
-            <button onClick={() => setShowAdd(v => !v)} aria-label="Add manga"
-              className="w-10 h-10 rounded-xl bg-white text-black text-lg font-medium hover:bg-zinc-200 transition-colors flex items-center justify-center">
-              +
-            </button>
-            <MobileMenu
-              onRecommend={getRecommendations}
-              onSync={runSync}
-              onSignOut={signOut}
-              onExportCSV={exportCSV}
-              onExportMAL={exportMALXML}
-              onExportAniList={exportAniListJSON}
-              onShare={() => setShareModal(true)}
-              onCheckCards={() => setShowHealthCheck(true)}
-              onTakeoutImport={() => setShowTakeoutImport(true)}
-              loadingRec={loadingRec}
-              syncing={syncing}
-            />
-          </div>
-        </div>
+        <LibraryToolbar
+          mangaCount={manga.length}
+          loadingRec={loadingRec}
+          syncing={syncing}
+          deepSelectMode={deepSelectMode}
+          deepSelectedCount={deepSelected.size}
+          onRecommend={getRecommendations}
+          onAdd={() => setShowAdd(v => !v)}
+          onSync={runSync}
+          onHealthCheck={() => setShowHealthCheck(true)}
+          onDeepSearchLaunch={() => {
+            if (deepSelectMode) {
+              if (deepSelected.size === 0) return
+              const first = manga.find(m => deepSelected.has(m.id))
+              if (first) setDeepSearchTarget(first)
+            } else {
+              setDeepSelectMode(true)
+            }
+          }}
+          onDeepSelectCancel={() => { setDeepSelectMode(false); setDeepSelected(new Set()) }}
+          onExportCSV={exportCSV}
+          onExportMAL={exportMALXML}
+          onExportAniList={exportAniListJSON}
+          onShare={() => setShareModal(true)}
+          onTakeoutImport={() => setShowTakeoutImport(true)}
+          onSignOut={signOut}
+        />
 
         {/* Stats — 2 cols on mobile, responsive on desktop (hide watching if 0) */}
         <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-2">
@@ -2576,79 +2425,19 @@ ${entries}
           {mood && <button onClick={() => setMood(null)} className="text-xs text-zinc-600 hover:text-zinc-400 px-2">✕ clear</button>}
         </div>
 
-        {/* Type filter — only show if there's more than one type in the library */}
-        {Object.keys(typeCounts).length > 1 && (
-          <div className="flex gap-1.5 flex-wrap mb-3">
-            {([
-              { id: 'all',    label: 'All Types',  color: '' },
-              { id: 'manga',  label: 'Manga',      color: typeFilter === 'manga'   ? 'bg-zinc-700 border-zinc-500 text-white' : '' },
-              { id: 'manhwa', label: 'Manhwa',     color: typeFilter === 'manhwa'  ? 'bg-violet-600/30 border-violet-500/50 text-violet-300' : '' },
-              { id: 'webtoon',label: 'Webtoon',    color: typeFilter === 'webtoon' ? 'bg-orange-600/30 border-orange-500/50 text-orange-300' : '' },
-              { id: 'manhua', label: 'Manhua',     color: typeFilter === 'manhua'  ? 'bg-blue-600/30 border-blue-500/50 text-blue-300' : '' },
-              { id: 'anime',  label: 'Anime',      color: typeFilter === 'anime'   ? 'bg-cyan-600/30 border-cyan-500/50 text-cyan-300' : '' },
-              { id: 'movie',  label: 'Movie',      color: typeFilter === 'movie'   ? 'bg-yellow-600/30 border-yellow-500/50 text-yellow-300' : '' },
-            ]
-              .filter(t => t.id === 'all' || typeCounts[t.id] > 0)
-              .map(t => {
-                const count = t.id === 'all' ? manga.length : (typeCounts[t.id] ?? 0)
-                const active = typeFilter === t.id
-                return (
-                  <button key={t.id}
-                    onClick={() => setTypeFilter(t.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all
-                      ${active
-                        ? (t.color || 'bg-white/10 border-white/20 text-white')
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'
-                      }`}>
-                    {t.label}
-                    <span className={`text-[10px] px-1 rounded ${active ? 'opacity-70' : 'text-zinc-700'}`}>
-                      {count}
-                    </span>
-                  </button>
-                )
-              })
-            )}
-          </div>
-        )}
-
-        {/* Controls — stacked on mobile */}
-        <div className="flex flex-col gap-2 mb-5 md:flex-row md:items-center md:flex-wrap md:gap-3">
-          {/* Filter tabs — horizontal scroll on mobile */}
-          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
-            <div className="flex gap-1 bg-zinc-900 p-1 rounded-xl w-fit min-w-full md:min-w-0" role="group" aria-label="Filter by status">
-              {(['all', ...Object.keys(STATUS_LABELS)] as (MangaStatus | 'all')[]).map(s => (
-                <button key={s} onClick={() => setFilter(s)} aria-pressed={filter === s}
-                  className={`px-3 py-2 rounded-lg text-base whitespace-nowrap transition-colors ${filter === s ? 'bg-white text-black font-medium' : 'text-zinc-300 hover:text-white'}`}>
-                  {s === 'all' ? 'All' : STATUS_LABELS[s as MangaStatus]}
-                </button>
-              ))}
-              <button onClick={() => setFilter('duplicates')} aria-pressed={filter === 'duplicates'}
-                className={`px-3 py-2 rounded-lg text-base whitespace-nowrap transition-colors flex items-center gap-1.5 ${filter === 'duplicates' ? 'bg-amber-500 text-black font-medium' : 'text-zinc-300 hover:text-white'}`}>
-                <GitMerge size={13} strokeWidth={1.5} />
-                Duplicates
-                {duplicatePairs.length > 0 && (
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${filter === 'duplicates' ? 'bg-black/20 text-black' : 'bg-amber-500/20 text-amber-400'}`}>
-                    {duplicatePairs.length}
-                  </span>
-                )}
-              </button>
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => e.key === 'Escape' && setSearch('')}
-              placeholder="Search…" aria-label="Search manga"
-              className="flex-1 md:w-36 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-sm outline-none focus:border-zinc-600 placeholder:text-zinc-600"
-            />
-            <select value={sort} onChange={e => setSort(e.target.value as SortKey)} aria-label="Sort order"
-              className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-300 outline-none cursor-pointer">
-              <option value="last_read">Recent</option>
-              <option value="title">A → Z</option>
-              <option value="chapter">Chapters</option>
-            </select>
-          </div>
-        </div>
+        <LibraryFilters
+          filter={filter}
+          typeFilter={typeFilter}
+          search={search}
+          sort={sort}
+          duplicateCount={duplicatePairs.length}
+          typeCounts={typeCounts}
+          totalCount={manga.length}
+          onFilterChange={setFilter}
+          onTypeFilterChange={setTypeFilter}
+          onSearchChange={setSearch}
+          onSortChange={setSort}
+        />
 
         {/* Duplicates view */}
         {filter === 'duplicates' && !loading && (
@@ -2711,450 +2500,45 @@ ${entries}
           <div className="@container">
           <div className="grid grid-cols-1 @[740px]:grid-cols-2 @[1120px]:grid-cols-3 gap-3">
             {filtered.slice(0, renderCount).map(m => (
-              <div key={m.id}
-                className={`bg-zinc-900 border rounded-xl overflow-hidden flex flex-col h-full transition-colors ${deepSelectMode ? (deepSelected.has(m.id) ? 'border-violet-500 ring-1 ring-violet-500/40' : 'border-zinc-700 cursor-pointer hover:border-zinc-600') : 'border-zinc-800'}`}
-                onClick={deepSelectMode ? () => setDeepSelected(prev => { const s = new Set(prev); s.has(m.id) ? s.delete(m.id) : s.add(m.id); return s }) : undefined}
-              >
-                {deepSelectMode && (
-                  <div className="px-3 pt-2.5 pb-0 flex items-center gap-2 text-xs text-zinc-400">
-                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${deepSelected.has(m.id) ? 'bg-violet-600 border-violet-600 text-white' : 'border-zinc-600'}`}>
-                      {deepSelected.has(m.id) && <span className="text-[10px] leading-none">✓</span>}
-                    </div>
-                    <span className="truncate">{m.title}</span>
-                  </div>
-                )}
-                <div className="flex gap-3 p-3 flex-1" onClick={deepSelectMode ? e => e.stopPropagation() : undefined}>
-
-                  {/* Cover — slightly larger, vertically centred */}
-                  <div className="shrink-0 w-20 h-28 rounded-lg overflow-hidden bg-zinc-800 self-center">
-                    {m.cover_url ? (
-                      <Image
-                        src={m.cover_url}
-                        alt={`Cover for ${m.title}`}
-                        width={80}
-                        height={112}
-                        className="w-full h-full object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs" aria-hidden>?</div>
-                    )}
-                  </div>
-
-                  {/* Info — always renders all 6 sections */}
-                  <div className="flex-1 min-w-0 flex flex-col gap-2">
-
-                    {/* 1. Title + author */}
-                    <div>
-                      <div className="flex items-start gap-1.5 min-w-0">
-                        {m.publishing_status && m.status === 'reading' && (
-                          <span title={m.publishing_status} className="shrink-0 w-2 h-2 rounded-full mt-[5px]"
-                            style={{ backgroundColor: m.publishing_status === 'Publishing' ? '#2FCF7A' : m.publishing_status === 'On Hiatus' ? '#FFB02E' : '#52525b' }} />
-                        )}
-                        <button onClick={() => setSelectedManga(m)}
-                          className="font-semibold text-sm leading-snug text-left hover:text-violet-300 transition-colors flex-1 min-w-0 truncate">
-                          {m.title}
-                        </button>
-                        {m.total_chapters && m.current_chapter < m.total_chapters && m.status === 'reading' && (
-                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full whitespace-nowrap">
-                            +{m.total_chapters - m.current_chapter}
-                          </span>
-                        )}
-                        {deepDiveSeries.some(s => s.title.toLowerCase() === m.title.toLowerCase()) && (
-                          <span title="YouTube rabbit hole — hundreds of analysis & lore videos watched"
-                            className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap"
-                            style={{ background: 'rgba(255,45,70,0.12)', color: 'var(--vermillion)', border: '1px solid rgba(255,45,70,0.25)' }}>
-                            🔥 yt deep-dive
-                          </span>
-                        )}
-                        {(() => {
-                          const ct = m.content_type ?? 'manga'
-                          const typeStyles: Record<string, { bg: string; color: string; border: string }> = {
-                            manga:   { bg: 'rgba(113,113,122,0.18)', color: '#a1a1aa', border: '1px solid rgba(113,113,122,0.35)' },
-                            manhwa:  { bg: 'rgba(167,139,250,0.12)', color: '#A78BFA', border: '1px solid rgba(167,139,250,0.3)' },
-                            webtoon: { bg: 'rgba(251,146,60,0.12)',  color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)' },
-                            manhua:  { bg: 'rgba(96,165,250,0.12)',  color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' },
-                            anime:   { bg: 'rgba(34,211,238,0.10)',  color: '#22d3ee', border: '1px solid rgba(34,211,238,0.3)' },
-                            movie:   { bg: 'rgba(251,191,36,0.12)',  color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' },
-                          }
-                          const s = typeStyles[ct] ?? typeStyles.manga
-                          const animeS = typeStyles.anime
-                          // Show both badges when entry has an anime AND is not already purely anime/movie
-                          const showAnimeBadge = m.has_anime && ct !== 'anime' && ct !== 'movie'
-                          return (
-                            <>
-                              <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide font-semibold whitespace-nowrap"
-                                style={{ background: s.bg, color: s.color, border: s.border }}>
-                                {ct}
-                              </span>
-                              {showAnimeBadge && (
-                                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide font-semibold whitespace-nowrap"
-                                  style={{ background: animeS.bg, color: animeS.color, border: animeS.border }}>
-                                  anime
-                                </span>
-                              )}
-                            </>
-                          )
-                        })()}
-                      </div>
-                      {m.authors?.length > 0 ? (
-                        <div className="flex gap-1 flex-wrap mt-0.5 items-center">
-                          {(m.content_type === 'anime' || m.content_type === 'movie') && (
-                            <span className="text-[10px] text-zinc-500 mr-0.5">Studio:</span>
-                          )}
-                          {m.authors.map((a: Author) => (
-                            <button key={a.id}
-                              onClick={() => (m.content_type === 'anime' || m.content_type === 'movie') ? setSelectedStudio(a) : setSelectedAuthor(a)}
-                              className="text-[11px] text-zinc-500 hover:text-violet-400 transition-colors">
-                              {a.name}
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-[11px] text-zinc-500 mt-0.5 italic">Unknown {(m.content_type === 'anime' || m.content_type === 'movie') ? 'studio' : 'author'}</p>
-                      )}
-                    </div>
-
-                    {/* 2. Status dropdown + action buttons */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <select value={m.status} onChange={e => updateStatus(m.id, e.target.value as MangaStatus)}
-                        aria-label={`Status for ${m.title}`}
-                        className={`text-xs px-2 py-0.5 rounded-full border bg-transparent cursor-pointer outline-none ${STATUS_COLORS[m.status]}`}>
-                        {(Object.keys(STATUS_LABELS) as MangaStatus[]).filter(s => (s !== 'watching' && s !== 'unwatched') || m.has_anime).map(s => (
-                          <option key={s} value={s} className="bg-zinc-900 text-white">{STATUS_LABELS[s]}</option>
-                        ))}
-                      </select>
-                      <span className="text-[11px] text-zinc-600" suppressHydrationWarning>{timeAgo(m.last_read_at)}</span>
-                      {m.auto_tracked && (() => {
-                        const siteLabelMap: Record<string, string> = {
-                          'netflix.com': 'Netflix', 'netflix': 'Netflix',
-                          'crunchyroll.com': 'Crunchyroll', 'crunchyroll': 'Crunchyroll',
-                          'funimation.com': 'Funimation', 'funimation': 'Funimation',
-                          'hidive.com': 'HiDive', 'hidive': 'HiDive',
-                          'disneyplus.com': 'Disney+', 'disney+': 'Disney+',
-                          'max.com': 'Max', 'hbomax.com': 'Max', 'max': 'Max',
-                          'hulu.com': 'Hulu', 'hulu': 'Hulu',
-                          'vrv.co': 'VRV', 'vrv': 'VRV',
-                          'bilibili.tv': 'Bilibili', 'bilibili': 'Bilibili',
-                          'tubi.tv': 'Tubi', 'tubi': 'Tubi',
-                        }
-                        const sk = m.last_watched_site?.toLowerCase() ?? ''
-                        const sn = siteLabelMap[sk] ?? (m.last_watched_site ? m.last_watched_site.replace(/\.com$/, '') : null)
-                        const watchHrs = m.total_watch_time_minutes > 0 ? Math.round(m.total_watch_time_minutes / 60 * 10) / 10 + 'h' : null
-                        return (
-                          <span title={`Auto-tracked${sn ? ` on ${sn}` : ''}${watchHrs ? ` · ${watchHrs} watched` : ''}`}
-                            className="text-[10px] bg-green-950 text-green-400 border border-green-800/50 px-1.5 py-0.5 rounded-full">
-                            🎬 {sn ?? 'tracked'}
-                          </span>
-                        )
-                      })()}
-                      {m.status === 'reading' && finishEstimate(m) && (
-                        <span className="text-[11px] text-zinc-600 flex items-center gap-1">
-                          <Flag size={10} strokeWidth={1.5} /> {finishEstimate(m)}
-                        </span>
-                      )}
-                      <button onClick={() => toggleNotes(m.id)}
-                        className={`transition-colors ${expandedNotes.has(m.id) || m.notes ? 'text-violet-400' : 'text-zinc-700 hover:text-zinc-400'}`}>
-                        <PenLine size={12} strokeWidth={1.5} />
-                      </button>
-                      <div className="ml-auto flex items-center gap-1.5">
-                        {m.status === 'reading' && (
-                          <button onClick={() => activeSession?.mangaId === m.id ? setActiveSession(null) : startSession(m)}
-                            title={activeSession?.mangaId === m.id ? 'Stop session' : 'Start reading session'}
-                            className={`transition-colors ${activeSession?.mangaId === m.id ? 'text-violet-400 animate-pulse' : 'text-zinc-700 hover:text-violet-400'}`}>
-                            {activeSession?.mangaId === m.id ? <Timer size={13} strokeWidth={1.5} /> : <Play size={13} strokeWidth={1.5} />}
-                          </button>
-                        )}
-                        <button onClick={() => setShelfPickerManga(m)} title="Add to shelf" className="text-zinc-700 hover:text-violet-400 transition-colors">
-                          <Folder size={13} strokeWidth={1.5} />
-                        </button>
-                        <a href={`/search?q=${encodeURIComponent(m.title)}`} title="Search for more info" className="text-zinc-700 hover:text-cyan-400 transition-colors">
-                          <Search size={12} strokeWidth={1.5} />
-                        </a>
-                        <button onClick={() => refreshCardInfo(m)} disabled={refreshingId === m.id} title="Refresh info"
-                          className={`transition-colors ${refreshingId === m.id ? 'text-cyan-400 animate-spin' : 'text-zinc-700 hover:text-cyan-400'}`}>
-                          <RefreshCw size={12} strokeWidth={1.5} />
-                        </button>
-                        <button onClick={() => confirmDelete(m.id)} aria-label={`Delete ${m.title}`} className="text-zinc-700 hover:text-red-400 transition-colors text-lg leading-none">×</button>
-                      </div>
-                    </div>
-
-                    {/* 3. Description */}
-                    <p className={`text-[11px] leading-[1.5] ${m.synopsis ? 'text-zinc-500' : 'text-zinc-700 italic'} ${expandedSynopsis.has(m.id) ? '' : 'line-clamp-3'}`}
-                      style={{ minHeight: '3.375rem', cursor: m.synopsis ? 'pointer' : 'default' }}
-                      onClick={() => m.synopsis && toggleSynopsis(m.id)}>
-                      {m.synopsis ?? 'No Description Available.'}
-                    </p>
-
-                    {/* Arc / re-read / re-watch badges */}
-                    {(() => {
-                      const arc = currentArc(m)
-                      const rereadCount = rereadCounts[m.id] ?? 0
-                      const rewatchCount = rewatchCounts[m.id] ?? 0
-                      if (!arc && !rereadCount && !rewatchCount) return null
-                      return (
-                        <div className="flex items-center gap-2">
-                          {arc && <span className="text-[11px] text-zinc-600 truncate flex items-center gap-1"><MapPin size={10} strokeWidth={1.5} /> {arc.label}</span>}
-                          {rereadCount > 0 && <span className="text-[11px] text-violet-500 shrink-0">×{rereadCount} Re-Read</span>}
-                          {rewatchCount > 0 && <span className="text-[11px] text-cyan-600 shrink-0">×{rewatchCount} Re-Watch</span>}
-                        </div>
-                      )
-                    })()}
-
-                    {/* Anime episode tracker — hidden for movies, dimmed when manga is primary */}
-                    {m.has_anime && m.content_type !== 'movie' && (() => {
-                      const isAnimePrimary = m.content_type === 'anime'
-                      const epMembers = m.series_id ? (seriesMap.get(m.series_id) ?? []).filter(e => e.has_anime) : []
-                      const seriesEpCurrent = epMembers.length > 1 ? epMembers.reduce((s, e) => s + e.episodes_watched, 0) : m.episodes_watched
-                      const seriesEpTotal = epMembers.length > 1 ? (epMembers.reduce((s, e) => s + (e.total_episodes ?? 0), 0) || null) : m.total_episodes
-                      const activeEpMember = epMembers.length > 1
-                        ? epMembers.find(e => !e.total_episodes || e.episodes_watched < e.total_episodes) ?? m
-                        : m
-                      return (
-                      <div className={`flex flex-col gap-0.5 ${!isAnimePrimary ? 'opacity-40' : ''}`}>
-                        {epMembers.length > 1 && (
-                          <div className="flex items-center gap-1 mb-0.5">
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
-                              style={{ background: 'rgba(34,211,238,0.10)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.3)' }}>
-                              📺 {epMembers.length} Parts
-                            </span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <Clapperboard size={11} strokeWidth={1.5} className={isAnimePrimary ? 'text-violet-400 shrink-0' : 'text-zinc-600 shrink-0'} />
-                          <span className="text-[11px] text-zinc-600 truncate">{epMembers.length > 1 ? 'Series Total' : (m.anime_title ?? 'Anime')}</span>
-                          {isAnimePrimary && seriesEpTotal && seriesEpCurrent < seriesEpTotal && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded-full whitespace-nowrap shrink-0">
-                              +{seriesEpTotal - seriesEpCurrent} ep
-                            </span>
-                          )}
-                          <div className="flex items-center gap-1 ml-auto shrink-0">
-                            <button onClick={() => updateEpisodes(activeEpMember.id, -1, activeEpMember.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
-                            <EditableNumber value={seriesEpCurrent} onSave={n => updateEpisodes(m.id, n - m.episodes_watched, m.episodes_watched)} label={`Episodes for ${m.title}`} className="w-8 text-xs py-0.5" />
-                            <span className="text-[11px] text-zinc-600 font-mono">/</span>
-                            <EditableNumber
-                              value={epMembers.length <= 1 ? (m.total_episodes ?? 0) : (seriesEpTotal ?? 0)}
-                              label={`Total episodes for ${m.title}`}
-                              className="w-8 text-[11px] text-zinc-500 py-0.5"
-                              onSave={async n => {
-                                if (epMembers.length > 1) {
-                                  // Series mode: save total on the primary card and null-out
-                                  // other members so the displayed sum equals what the user typed.
-                                  await updateTotalEpisodes(m.id, n, m.anime_mal_id ?? m.mal_id, m.content_type)
-                                  for (const mem of epMembers.filter(e => e.id !== m.id)) {
-                                    await supabase.from('manga_list').update({ total_episodes: null }).eq('id', mem.id)
-                                    setManga(prev => prev.map(x => x.id === mem.id ? { ...x, total_episodes: null } : x))
-                                  }
-                                } else {
-                                  updateTotalEpisodes(activeEpMember.id, n, activeEpMember.anime_mal_id ?? activeEpMember.mal_id, activeEpMember.content_type)
-                                }
-                              }}
-                            />
-                            <button onClick={() => updateEpisodes(activeEpMember.id, 1, activeEpMember.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
-                          </div>
-                        </div>
-                      </div>
-                      )
-                    })()}
-
-                    {/* 4. Chapter tracker + inline stepper + progress bar — dimmed when anime is primary */}
-                    {/* Movie runtime gauge — replaces chapter/episode tracker for movies */}
-                    {m.content_type === 'movie' && (() => {
-                      // total_episodes repurposed as runtime_minutes for movies
-                      const runtimeMin = m.total_episodes ?? null
-                      const watchedMin = m.total_watch_time_minutes ?? 0
-                      const fmtMin = (mins: number) => {
-                        if (mins <= 0) return null
-                        const h = Math.floor(mins / 60), mn = mins % 60
-                        return h > 0 ? `${h}h ${mn > 0 ? mn + 'm' : ''}`.trim() : `${mn}m`
-                      }
-                      const pct = runtimeMin && runtimeMin > 0
-                        ? Math.min(100, Math.round((watchedMin / runtimeMin) * 100))
-                        : 0
-                      return (
-                        <div className="flex flex-col gap-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] text-zinc-500 flex items-center gap-1">
-                              🎬 {runtimeMin ? fmtMin(runtimeMin) ?? '—' : <span className="italic text-zinc-700">Runtime not set</span>}
-                              {watchedMin > 0 && runtimeMin && (
-                                <span className="text-zinc-700 ml-1">· {fmtMin(watchedMin)} watched · {pct}%</span>
-                              )}
-                            </span>
-                            <EditableNumber
-                              value={runtimeMin ?? 0}
-                              label={`Runtime (minutes) for ${m.title}`}
-                              className="w-10 text-[11px] text-zinc-600 py-0"
-                              onSave={n => updateTotalEpisodes(m.id, n, m.anime_mal_id ?? m.mal_id, m.content_type)}
-                            />
-                          </div>
-                          {(runtimeMin ?? 0) > 0 && (
-                            <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden"
-                              role="progressbar" aria-valuenow={watchedMin} aria-valuemax={runtimeMin ?? 0}>
-                              <div className="h-full rounded-full transition-all bg-yellow-500/70"
-                                style={{ width: `${pct}%` }} />
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })()}
-
-                    {/* 4. Chapter tracker + inline stepper + progress bar — dimmed when anime is primary */}
-                    {m.content_type !== 'movie' && (() => {
-                      const isMangaPrimary = m.content_type !== 'anime'
-                      // Series-aware totals
-                      const members = m.series_id ? (seriesMap.get(m.series_id) ?? []) : []
-                      const seriesCurrent = members.length > 1 ? members.reduce((s, e) => s + e.current_chapter, 0) : m.current_chapter
-                      const seriesTotal = members.length > 1 ? members.reduce((s, e) => s + (e.total_chapters ?? 0), 0) || null : m.total_chapters
-                      const partCount = members.length
-                      // Active member: first not-yet-completed part (for +/- routing)
-                      const activeMember = members.length > 1
-                        ? members.find(e => !e.total_chapters || e.current_chapter < e.total_chapters) ?? m
-                        : m
-                      // Skip chapter tracker entirely if pure anime with no chapter data
-                      if (m.content_type === 'anime' && !m.total_chapters && m.current_chapter === 0) return null
-                      return (
-                    <div className={!isMangaPrimary ? 'opacity-40' : ''}>
-                      {partCount > 1 && (
-                        <div className="flex items-center gap-1 mb-0.5">
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
-                            style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>
-                            📚 {partCount} Parts
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] text-zinc-300 tabular-nums flex items-center gap-0.5">
-                          Ch.&nbsp;{seriesCurrent}&nbsp;/&nbsp;
-                          <EditableNumber
-                            value={members.length <= 1 ? (m.total_chapters ?? 0) : (seriesTotal ?? 0)}
-                            label={`Total chapters for ${m.title}`}
-                            className="w-9 text-[11px] text-zinc-500 py-0"
-                            onSave={n => updateTotalChapters(activeMember.id, n, activeMember.mal_id, activeMember.content_type)}
-                          />
-                          {isMangaPrimary && seriesTotal && seriesTotal > 0 && <span className="text-zinc-700 ml-1">{Math.min(100, Math.round((seriesCurrent / seriesTotal) * 100))}%</span>}
-                        </span>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button onClick={() => updateChapter(activeMember.id, -1, activeMember.current_chapter)} aria-label={`Decrease chapter for ${m.title}`}
-                            className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
-                          <EditableNumber value={seriesCurrent} onSave={n => updateChapter(m.id, n - m.current_chapter, m.current_chapter)}
-                            label={`Chapter for ${m.title}`} className="w-9 text-xs py-0.5" />
-                          <button onClick={() => updateChapter(activeMember.id, 1, activeMember.current_chapter)} aria-label={`Increase chapter for ${m.title}`}
-                            className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
-                        </div>
-                      </div>
-                      <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden"
-                        role="progressbar" aria-valuenow={seriesCurrent} aria-valuemax={seriesTotal ?? 0}>
-                        <div className={`h-full rounded-full transition-all ${isMangaPrimary ? 'bg-violet-500' : 'bg-zinc-600'}`}
-                          style={{ width: seriesTotal && seriesTotal > 0 ? `${Math.min(100, Math.round((seriesCurrent / seriesTotal) * 100))}%` : '0%' }} />
-                      </div>
-                    </div>
-                      )
-                    })()}
-
-                    {/* 5. Genre tags */}
-                    <div className="flex flex-wrap gap-1">
-                      {m.genres?.length > 0
-                        ? m.genres.slice(0, 3).map(g => <span key={g} className="text-[10px] px-1.5 py-0.5 bg-zinc-800 text-zinc-400 rounded-full">{g}</span>)
-                        : <span className="text-[10px] text-zinc-500 italic">No Genres Listed</span>
-                      }
-                    </div>
-
-                    {/* 6. Rating row — Tier 1: always visible at readable contrast */}
-                    <div className="flex items-center gap-2 pt-1.5 border-t border-zinc-800/70 mt-auto">
-                      <span className="text-[10px] text-zinc-500 uppercase tracking-widest">Rating</span>
-                      <div className="flex items-center gap-1.5 ml-auto">
-                        <button onClick={async (e) => {
-                            e.stopPropagation()
-                            const prev_rating = m.user_rating
-                            const next = m.user_rating === 'up' ? null : 'up'
-                            setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: next } : x))
-                            const { error } = await supabase.from('manga_list').update({ user_rating: next }).eq('id', m.id)
-                            if (error) setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: prev_rating } : x))
-                          }}
-                          title={m.user_rating === 'up' ? 'Remove like' : 'Like'}
-                          className={`transition-colors ${m.user_rating === 'up' ? 'text-emerald-400' : 'text-zinc-500 hover:text-emerald-400'}`}>
-                          <ThumbsUp size={13} strokeWidth={1.5} />
-                        </button>
-                        <button onClick={async (e) => {
-                            e.stopPropagation()
-                            const prev_rating = m.user_rating
-                            const next = m.user_rating === 'down' ? null : 'down'
-                            setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: next } : x))
-                            const { error } = await supabase.from('manga_list').update({ user_rating: next }).eq('id', m.id)
-                            if (error) setManga(prev => prev.map(x => x.id === m.id ? { ...x, user_rating: prev_rating } : x))
-                          }}
-                          title={m.user_rating === 'down' ? 'Remove dislike' : 'Dislike'}
-                          className={`transition-colors ${m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-500 hover:text-red-400'}`}>
-                          <ThumbsDown size={13} strokeWidth={1.5} />
-                        </button>
-                        <span className={`text-[10px] ml-1 ${m.user_rating === 'up' ? 'text-emerald-400' : m.user_rating === 'down' ? 'text-red-400' : 'text-zinc-500'}`}>
-                          {m.user_rating === 'up' ? 'Liked' : m.user_rating === 'down' ? 'Disliked' : 'Not Rated'}
-                        </span>
-                      </div>
-                    </div>
-
-                  </div>
-                </div>
-
-                {/* Watching episode prompt */}
-                {watchPrompt?.id === m.id && (
-                  <div className="border-t border-zinc-800 px-3 py-3 bg-violet-900/10">
-                    <p className="text-xs text-violet-300 font-medium mb-2 flex items-center gap-1.5"><Tv size={12} strokeWidth={1.5} /> How Many Episodes Have You Watched?</p>
-                    <div className="flex gap-2 items-center">
-                      <input
-                        type="number" min={0}
-                        value={watchPrompt.epInput}
-                        onChange={e => setWatchPrompt(p => p ? { ...p, epInput: e.target.value } : null)}
-                        onKeyDown={e => { if (e.key === 'Enter') confirmWatching(); if (e.key === 'Escape') setWatchPrompt(null) }}
-                        autoFocus
-                        placeholder="0"
-                        className="w-24 bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-center outline-none focus:border-violet-500 text-white"
-                      />
-                      {m.total_episodes && (
-                        <span className="text-xs text-zinc-500">/ {m.total_episodes} eps</span>
-                      )}
-                      <button onClick={confirmWatching}
-                        className="px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-xs font-medium transition-colors">
-                        Confirm
-                      </button>
-                      <button onClick={() => setWatchPrompt(null)}
-                        className="text-xs text-zinc-600 hover:text-zinc-400">Cancel</button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Notes + optional public review */}
-                {(expandedNotes.has(m.id) || m.notes) && (
-                  <div className="border-t border-zinc-800 px-3 pb-3 pt-2">
-                    <textarea
-                      value={m.notes ?? ''}
-                      onChange={e => updateNotes(m.id, e.target.value)}
-                      placeholder="Add a note… (supports [spoiler]text[/spoiler])"
-                      aria-label={`Notes for ${m.title}`}
-                      rows={2}
-                      className="w-full bg-transparent text-xs text-zinc-400 placeholder:text-zinc-700 outline-none resize-none"
-                    />
-                    {/* Make public review toggle */}
-                    {m.notes && m.notes.trim().length > 10 && (
-                      <label className="flex items-center gap-2 mt-2 cursor-pointer select-none w-fit">
-                        <div className={`relative w-7 h-4 rounded-full transition-colors ${m.is_public_review ? 'bg-violet-600' : 'bg-zinc-700'}`}>
-                          <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${m.is_public_review ? 'left-3.5' : 'left-0.5'}`} />
-                        </div>
-                        <input type="checkbox" className="sr-only"
-                          checked={m.is_public_review ?? false}
-                          onChange={async e => {
-                            const val = e.target.checked
-                            setManga(prev => prev.map(x => x.id === m.id ? { ...x, is_public_review: val } : x))
-                            await supabase.from('manga_list').update({ is_public_review: val }).eq('id', m.id)
-                          }} />
-                        <span className="text-[10px] text-zinc-500">
-                          {m.is_public_review ? 'Visible On Share Page' : 'Make This A Public Review'}
-                        </span>
-                      </label>
-                    )}
-                  </div>
-                )}
-              </div>
+              <LibraryCard
+                key={m.id}
+                m={m}
+                seriesMembers={m.series_id ? (seriesMap.get(m.series_id) ?? []) : []}
+                arcs={arcsMap[m.id] ?? []}
+                rereadCount={rereadCounts[m.id] ?? 0}
+                rewatchCount={rewatchCounts[m.id] ?? 0}
+                expandedNotes={expandedNotes.has(m.id)}
+                expandedSynopsis={expandedSynopsis.has(m.id)}
+                deepSelectMode={deepSelectMode}
+                deepSelected={deepSelected.has(m.id)}
+                refreshingId={refreshingId}
+                watchPromptId={watchPrompt?.id ?? null}
+                watchPromptInput={watchPrompt?.id === m.id ? watchPrompt.epInput : ''}
+                activeSession={activeSession}
+                finishEstimate={finishEstimate(m)}
+                onStatusChange={updateStatus}
+                onChapterUpdate={updateChapter}
+                onEpisodeUpdate={updateEpisodes}
+                onTotalChaptersUpdate={updateTotalChapters}
+                onTotalEpisodesUpdate={updateTotalEpisodes}
+                onNotesToggle={toggleNotes}
+                onNotesChange={updateNotes}
+                onSynopsisToggle={toggleSynopsis}
+                onDelete={confirmDelete}
+                onRefresh={refreshCardInfo}
+                onOpenDetail={setSelectedManga}
+                onAuthorClick={setSelectedAuthor}
+                onStudioClick={setSelectedStudio}
+                onShelfPick={setShelfPickerManga}
+                onStartSession={startSession}
+                onStopSession={() => setActiveSession(null)}
+                onDeepSelectToggle={id => setDeepSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })}
+                onRatingChange={(id, rating) => setManga(prev => prev.map(x => x.id === id ? { ...x, user_rating: rating } : x))}
+                onPublicReviewToggle={(id, val) => setManga(prev => prev.map(x => x.id === id ? { ...x, is_public_review: val } : x))}
+                onWatchPromptInputChange={(id, val) => setWatchPrompt(p => p ? { ...p, epInput: val } : { id, epInput: val })}
+                onWatchPromptConfirm={confirmWatching}
+                onWatchPromptCancel={() => setWatchPrompt(null)}
+              />
             ))}
           </div>
           </div>

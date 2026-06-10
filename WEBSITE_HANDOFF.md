@@ -10,6 +10,20 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 34 — Phase 4: `app/page.tsx` decomposition (2026-06-10)
+
+Three new components extracted from `app/page.tsx`. Build passes clean.
+
+**New files**
+- `components/LibraryToolbar.tsx` — Header row with all action buttons (Recommend, Add, Sync, Health Check, Deep Search, Export dropdown, Share, Import, Sign Out) for desktop + the `MobileMenu` dropdown for mobile. Accepts all actions as callbacks. `NotificationBell` imported here. Props: `LibraryToolbarProps` (exported).
+- `components/LibraryFilters.tsx` — Type-filter pills (All/Manga/Manhwa/Webtoon/Manhua/Anime/Movie) + status tab bar (All / Reading / … / Duplicates with count badge) + search input + sort selector. Props: `LibraryFiltersProps` (exported).
+- `components/LibraryCard.tsx` — Full individual library card: cover, title/author, status dropdown, action icons (session, shelf, search, refresh, delete), synopsis, arc/re-read/re-watch badges, anime episode tracker, movie runtime gauge, chapter tracker + progress bar, genre tags, rating row, watch-prompt inline panel, notes textarea + public-review toggle. Props: `LibraryCardProps` (exported). Calls `supabase` directly only for the series multi-member `total_episodes` null-out (edge case kept local). All state updates (rating, public-review toggle) go back to parent via `onRatingChange` / `onPublicReviewToggle` callbacks for optimistic UI.
+
+**Modified files**
+- `app/page.tsx` — Replaced inline header block, type-filter + controls block, and entire card `map()` body with `<LibraryToolbar>`, `<LibraryFilters>`, and `<LibraryCard>` respectively. Removed `MobileMenu`, `RecommendationText` function bodies (now in toolbar). Removed `NotificationBell` import. Cleaned up unused lucide imports (`ThumbsUp`, `ThumbsDown`, `Folder`, `MapPin`, `PenLine`, `Flag`, `RefreshCw`, `ChevronDown`, `ChevronUp`, `Search`). **Line count: 3 520 → 2 902** (−618 lines).
+
+---
+
 #### Session 33 — Phase 3: filter dock reconciliation + Release Calendar mobile layout (2026-06-10)
 
 **3a — Filter dock decision: filters stay in `app/page.tsx`**
@@ -137,7 +151,9 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 - [x] **Phase 3: filter dock reconciliation + Calendar mobile layout** — Sidebar is navigation-only; filters correctly stay in `app/page.tsx` (no change needed). Calendar day strip fixed: `clamp(52px…)` pill widths, `scrollSnapType`, auto-scroll to today on mount. Completed session 33.
 
-- [ ] **Phase 4: continue decomposing `app/page.tsx`** — After Phase 2 sign-off, continue extracting components (card grid, filter bar, header). `app/page.tsx` is currently ~2 650 lines after Phase 1.
+- [x] **Phase 4: continue decomposing `app/page.tsx`** — Completed session 34. Extracted `LibraryToolbar`, `LibraryFilters`, `LibraryCard`. `app/page.tsx` is now 2 902 lines (was 3 520).
+
+- [ ] **Phase 5: further `app/page.tsx` reduction** — Remaining large self-contained blocks still in page.tsx: the "Add form" with autocomplete/quick-details (~200 lines, lines ~1980–2240); the "Continue strip" IIFE (~60 lines); the "Backlog pressure score" IIFE (~30 lines); the "Sync Results" modal (~60 lines). All modal function components (`AuthorModal`, `StudioModal`, `RecommendationModal`, `ShelfPicker`, `ShareModal`, `TakeoutImportModal`, `HealthCheckModal`) could be moved to `components/` — each is self-contained. Target sub-2 000 lines. Do NOT extract hooks or anything requiring 5+ prop levels.
 
 - [ ] **Reload Chrome extension** — `background.js` changed in session 29. Go to `chrome://extensions` and click Reload on YOMU. The `syncFlush` alarm registers on next install/reload.
 
@@ -294,6 +310,15 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Session Log
+
+### Session — 2026-06-10 (session 34)
+- Phase 4 of UI layout refactor: extracted 3 components out of `app/page.tsx`.
+- LibraryCard was the highest-value target (~440 lines of inline JSX per card). Passed all state-update callbacks as props; the card calls supabase directly only for the series multi-member episode-null edge case (kept local to avoid awkward callback chains).
+- `onRatingChange` and `onPublicReviewToggle` callbacks added so optimistic UI updates reach the parent `manga` state array.
+- LibraryToolbar absorbed `MobileMenu` and `RecommendationText` (the latter was unused after extraction).
+- LibraryFilters: hit a Turbopack parser error on the array-literal expression inside JSX (`{([...].filter().map()}`). Fixed by extracting the tab definitions into a `TYPE_TABS` constant above the component — cleaner anyway.
+- page.tsx: 3 520 → 2 902 lines. Build passes clean. No new ESLint errors.
+- No new dependencies added. No design tokens changed.
 
 ### Session — 2026-06-10 (session 33)
 - 3a: Sidebar is navigation-only (confirmed by full read). Filters stay in `app/page.tsx` — no duplication, no action required. Documented decision so it isn't re-investigated.
