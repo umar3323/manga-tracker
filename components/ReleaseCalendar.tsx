@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import type { AiringEntry } from '@/app/api/airing-schedule/route'
 import type { GlobalAiringEntry } from '@/app/api/airing-schedule-global/route'
@@ -170,6 +170,15 @@ export default function ReleaseCalendar({
   const [collapsed, setCollapsed] = useState(false)
   const [activeTab, setActiveTab] = useState<'anime' | 'manga'>('anime')
   const [animeFilter, setAnimeFilter] = useState<AnimeFilter>('library')
+  const dayStripRef = useRef<HTMLDivElement>(null)
+
+  // Scroll today's pill into view on mount (important on mobile where strip overflows)
+  useEffect(() => {
+    const strip = dayStripRef.current
+    if (!strip) return
+    const todayBtn = strip.querySelector('[data-today="true"]') as HTMLElement | null
+    if (todayBtn) todayBtn.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+  }, [])
 
   useEffect(() => {
     if (!animeMalIds.length) { setLibraryLoading(false); return }
@@ -317,8 +326,16 @@ export default function ReleaseCalendar({
                   ))}
                 </div>
 
-                {/* Day strip */}
-                <div className="flex overflow-x-auto scrollbar-none" style={{ borderBottom: 'var(--border-hair)' }}>
+                {/* Day strip — snap-scroll on mobile, fixed columns on md+ */}
+                <div
+                  ref={dayStripRef}
+                  className="flex overflow-x-auto scrollbar-none"
+                  style={{
+                    borderBottom: 'var(--border-hair)',
+                    scrollSnapType: 'x mandatory',
+                    WebkitOverflowScrolling: 'touch',
+                  }}
+                >
                   {days.map((day, i) => {
                     const dateKey = localDateKey(day)
                     const dow = day.getDay()
@@ -331,10 +348,12 @@ export default function ReleaseCalendar({
                         key={dateKey}
                         data-today={isToday ? 'true' : undefined}
                         onClick={() => setSelectedDate(dateKey)}
-                        className="flex shrink-0 flex-col items-center py-2.5 transition-colors relative"
+                        className="flex shrink-0 flex-col items-center py-3 transition-colors relative"
                         style={{
-                          width: `${100 / 7}%`,
-                          minWidth: 40,
+                          /* Mobile: fixed 52px pills so 6–7 fit and remainder scrolls.
+                             md+: equal-width columns filling the strip (14 days / 7 visible = 2 pages). */
+                          width: 'clamp(52px, calc(100% / 7), 64px)',
+                          scrollSnapAlign: 'start',
                           background: isSelected ? 'var(--vermillion-tint)' : 'transparent',
                           borderRight: i < 13 ? 'var(--border-hair)' : 'none',
                           opacity: isPast && !isSelected ? 0.6 : 1,

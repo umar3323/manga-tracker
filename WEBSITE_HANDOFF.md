@@ -10,6 +10,23 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 33 — Phase 3: filter dock reconciliation + Release Calendar mobile layout (2026-06-10)
+
+**3a — Filter dock decision: filters stay in `app/page.tsx`**
+- Read `components/Sidebar.tsx` in full. Sidebar is **navigation-only**: nav links, "Now Reading" hero (top reading entry), weekly chapter/episode stats, streak badge, "Up Next" list. Zero filtering controls.
+- Filters in `app/page.tsx` (status tabs, type-filter pills, mood filter, search, sort) have no counterpart in Sidebar — no duplication exists.
+- Decision: filters remain in `app/page.tsx`. No change to either file for 3a. Documented here so a future agent doesn't re-investigate.
+
+**3b — Release Calendar mobile layout (`components/ReleaseCalendar.tsx`)**
+- **Problem:** Day strip buttons used `width: ${100/7}%` — on narrow viewports all 14 day pills were squished to ~24px each (unusable touch targets).
+- **Fix 1:** Changed pill width to `clamp(52px, calc(100% / 7), 64px)`. On mobile (360–420px screens) each pill is 52px — 6–7 fit in view and the rest scroll. On wide screens the `calc(100% / 7)` term caps at 64px so pills don't balloon.
+- **Fix 2:** Added `scrollSnapType: 'x mandatory'` + `WebkitOverflowScrolling: 'touch'` on the strip container; `scrollSnapAlign: 'start'` on each pill. Strip now snaps cleanly when swiped.
+- **Fix 3:** Added `dayStripRef` + `useEffect` to call `scrollIntoView({ inline: 'center', behavior: 'smooth' })` on the `data-today="true"` pill on mount — today is centred automatically instead of showing day 1.
+- Added `useRef` to the import.
+- Build passes. Zero new ESLint errors.
+
+---
+
 #### Session 32 — Phase 2: container-query grid + card visual hierarchy (2026-06-10, commits `08e4884` + `bc...`)
 
 **2a — Container-query grid (`app/page.tsx`)**
@@ -118,7 +135,7 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 - [x] **Phase 2: container-query card grid + card visual hierarchy** — Completed session 32. Grid uses `@container` / `@[740px]:grid-cols-2` / `@[1120px]:grid-cols-3`. Rating and progress are now Tier 1 (visible without hover). Genres capped at 3.
 
-- [ ] **Phase 3: filter dock reconciliation with Sidebar** — Decide whether filters live inside `components/Sidebar.tsx` or alongside it. Do NOT add a second left rail. Flag the choice before implementing.
+- [x] **Phase 3: filter dock reconciliation + Calendar mobile layout** — Sidebar is navigation-only; filters correctly stay in `app/page.tsx` (no change needed). Calendar day strip fixed: `clamp(52px…)` pill widths, `scrollSnapType`, auto-scroll to today on mount. Completed session 33.
 
 - [ ] **Phase 4: continue decomposing `app/page.tsx`** — After Phase 2 sign-off, continue extracting components (card grid, filter bar, header). `app/page.tsx` is currently ~2 650 lines after Phase 1.
 
@@ -277,6 +294,11 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Session Log
+
+### Session — 2026-06-10 (session 33)
+- 3a: Sidebar is navigation-only (confirmed by full read). Filters stay in `app/page.tsx` — no duplication, no action required. Documented decision so it isn't re-investigated.
+- 3b: Calendar day strip had 14 pills at `100%/7` width — usable on desktop (7 visible), unusable on mobile (14 pills at ~24px each). Fixed with `clamp(52px, calc(100%/7), 64px)` so mobile gets 52px tap targets and desktop stays proportional. Added CSS scroll-snap + `scrollIntoView` on today's pill.
+- Build clean, no new ESLint errors. No new dependencies added.
 
 ### Session — 2026-06-10 (session 32)
 - Phase 2 of UI layout refactor. Two separate commits: grid change first, card hierarchy second (as requested).
