@@ -542,6 +542,7 @@ export interface DetailModalProps {
   onTotalChaptersUpdated?: (n: number | null | undefined) => void
   onSeriesUpdated: (patches: Record<string, Partial<Manga>>) => void
   onSeriesEntryAdded?: (entry: Manga) => void
+  onSync?: (id: string) => void
 }
 
 export function DetailModal({
@@ -559,6 +560,7 @@ export function DetailModal({
   onTotalChaptersUpdated,
   onSeriesUpdated,
   onSeriesEntryAdded,
+  onSync,
 }: DetailModalProps) {
 
   // ── SWR options shared across all detail fetches ─────────────────────────
@@ -1265,10 +1267,13 @@ export function DetailModal({
           {!notifyLoading && notifyError && notifyKey && (
             <p className="text-[10px] text-zinc-600 mb-4">Could not load notify.moe scores.</p>
           )}
-          {!animeMalIdForNotify && (manga.has_anime || manga.content_type === 'anime' || manga.content_type === 'movie') && (
-            <div className="text-xs text-zinc-500 italic px-1">
-              Sync this entry to load anime scores &amp; streaming links
-            </div>
+          {!animeMalIdForNotify && (manga.has_anime || manga.content_type === 'anime' || manga.content_type === 'movie') && onSync && (
+            <button
+              onClick={() => onSync(manga.id)}
+              className="text-xs text-zinc-400 hover:text-white underline italic px-1"
+            >
+              Sync to load anime scores &amp; streaming links →
+            </button>
           )}
           {!notifyLoading && notifyMoe?.rating && (() => {
             const r = notifyMoe.rating

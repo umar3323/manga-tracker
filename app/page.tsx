@@ -54,7 +54,7 @@ const STATUS_LABELS: Record<MangaStatus, string> = {
 type SortKey = 'last_read' | 'title' | 'chapter'
 
 export default function Home() {
-  const { mangaList: manga, setLibrary, activePeekId, openPeek, openDetail: openDetailStore } = useLibraryStore()
+  const { mangaList: manga, setLibrary, activePeekId, openPeek, openDetail: openDetailStore, patchEntry } = useLibraryStore()
   const setManga = (updater: Manga[] | ((prev: Manga[]) => Manga[])) => {
     const next = typeof updater === 'function' ? updater(manga) : updater
     useLibraryStore.getState().setLibrary(next)
@@ -282,27 +282,17 @@ export default function Home() {
     })()
   }, [manga])
 
-  const commitChapterProgress = async (id: string, delta: number, current: number, attr: DateAttribution) => {
+  const commitChapterProgress = useCallback(async (id: string, delta: number, current: number, attr: DateAttribution) => {
     const next = Math.max(0, current + delta)
     const now = new Date().toISOString()
     const timestamp = attr.precision === 'exact' && attr.date ? new Date(attr.date).toISOString() : now
+    const patch = { current_chapter: next, last_read_at: timestamp }
 
-    const patch: Record<string, unknown> = { current_chapter: next, last_read_at: timestamp }
+    // Also update selectedManga (DetailModal state) — patchEntry updates the store but not selectedManga
+    setSelectedManga(prev => prev?.id === id ? { ...prev, ...patch } : prev)
 
-    setManga(prev => prev.map(x =>
-      x.id === id ? { ...x, current_chapter: next, last_read_at: timestamp } : x,
-    ))
-    setSelectedManga(prev =>
-      prev?.id === id ? { ...prev, current_chapter: next, last_read_at: timestamp } : prev,
-    )
+    await patchEntry(id, patch, showToast)
 
-    const { error } = await supabase.from('manga_list').update(patch).eq('id', id)
-    if (error) {
-      showToast('Failed To Update Chapter')
-      setManga(prev => prev.map(x => x.id === id ? { ...x, current_chapter: current } : x))
-      setSelectedManga(prev => prev?.id === id ? { ...prev, current_chapter: current } : prev)
-      return
-    }
     if (delta > 0) {
       const logRow: Record<string, unknown> = {
         manga_id: id,
@@ -314,7 +304,7 @@ export default function Home() {
       if (attr.precision === 'year_only') logRow.progress_year = attr.year
       await supabase.from('reading_log').insert(logRow)
     }
-  }
+  }, [patchEntry, showToast, setSelectedManga])
 
   const updateChapter = (id: string, delta: number, current: number) => {
     if (delta <= 0) {
@@ -391,6 +381,26 @@ export default function Home() {
       if (!res.ok) { showToast(data.error ?? 'Sync Failed'); return }
       setSyncResults(data)
       showToast(data.updated > 0 ? `Sync Complete — ${data.updated} Updates` : 'Sync Complete — Everything Up To Date')
+    } catch {
+      showToast('Sync Failed — Check Your Connection')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const syncEntry = async (id: string) => {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
+      const data = await res.json()
+      if (!res.ok) { showToast(data.error ?? 'Sync Failed'); return }
+      // Refresh library after sync so new anime_mal_id etc. are reflected
+      const { data: updated } = await supabase.from('manga_list').select('*').eq('id', id).single()
+      if (updated) {
+        setManga(prev => prev.map(m => m.id === id ? { ...m, ...updated } : m))
+        setSelectedManga(prev => prev?.id === id ? { ...prev, ...updated } : prev)
+      }
+      showToast('Sync Complete')
     } catch {
       showToast('Sync Failed — Check Your Connection')
     } finally {
@@ -549,27 +559,17 @@ ${entries}
     await supabase.from('chapter_notifications').update({ seen: true }).in('id', ids)
   }
 
-  const commitEpisodeProgress = async (id: string, delta: number, current: number, attr: DateAttribution) => {
+  const commitEpisodeProgress = useCallback(async (id: string, delta: number, current: number, attr: DateAttribution) => {
     const next = Math.max(0, current + delta)
     const now = new Date().toISOString()
     const timestamp = attr.precision === 'exact' && attr.date ? new Date(attr.date).toISOString() : now
+    const patch = { episodes_watched: next, last_read_at: timestamp }
 
-    const patch: Record<string, unknown> = { episodes_watched: next, last_read_at: timestamp }
+    // Also update selectedManga (DetailModal state) — patchEntry updates the store but not selectedManga
+    setSelectedManga(prev => prev?.id === id ? { ...prev, ...patch } : prev)
 
-    setManga(prev => prev.map(x =>
-      x.id === id ? { ...x, episodes_watched: next } : x,
-    ))
-    setSelectedManga(prev =>
-      prev?.id === id ? { ...prev, episodes_watched: next } : prev,
-    )
+    await patchEntry(id, patch, showToast)
 
-    const { error } = await supabase.from('manga_list').update(patch).eq('id', id)
-    if (error) {
-      showToast('Failed To Update Episodes')
-      setManga(prev => prev.map(x => x.id === id ? { ...x, episodes_watched: current } : x))
-      setSelectedManga(prev => prev?.id === id ? { ...prev, episodes_watched: current } : prev)
-      return
-    }
     if (delta > 0) {
       const logRow: Record<string, unknown> = {
         manga_id: id,
@@ -581,7 +581,7 @@ ${entries}
       if (attr.precision === 'year_only') logRow.progress_year = attr.year
       await supabase.from('reading_log').insert(logRow)
     }
-  }
+  }, [patchEntry, showToast, setSelectedManga])
 
   const updateEpisodes = (id: string, delta: number, current: number) => {
     if (delta <= 0) {
@@ -1859,6 +1859,7 @@ ${entries}
           onSeriesEntryAdded={(entry) => {
             setManga(prev => [...prev, entry])
           }}
+          onSync={syncEntry}
         />
       )}
 
