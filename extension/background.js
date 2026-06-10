@@ -199,17 +199,25 @@ async function fetchParserConfigs() {
 // Returns true if the title resolves to an anime — allows the watch-event
 // API to attempt a server-side pg_trgm match even for recently-added titles.
 async function isKnownAnimeTitle(title) {
+  // Fail OPEN on any error — if Fribb check fails (cold start, timeout, network)
+  // we let the event through to the watch-event API. The API's pg_trgm match
+  // will drop it cleanly if it's not anime; failing open here never writes data,
+  // it only allows the server-side match to run.
   const token = await getAuthToken()
-  if (!token) return false
+  if (!token) return true  // no token → can't check → let server decide
   try {
     const params = new URLSearchParams({ title })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 4000)  // 4s max
     const res = await fetch(`${YOMU_URL}/api/anime-check?${params}`, {
       headers: { 'Authorization': `Bearer ${token}` },
+      signal: controller.signal,
     })
-    if (!res.ok) return false
+    clearTimeout(timeout)
+    if (!res.ok) return true  // server error → fail open
     const data = await res.json()
     return !!data.isAnime
-  } catch { return false }
+  } catch { return true }  // timeout / network error → fail open
 }
 
 // ── Custom streaming sites ────────────────────────────────────────────────

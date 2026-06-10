@@ -59,8 +59,12 @@ async function getTitleSet(): Promise<Set<string>> {
     return set
   } catch (err) {
     console.error('[anime-check] Failed to load Fribb data:', err)
-    // Return stale cache if available, else empty set (fail open — don't block tracking)
-    return _titleSet ?? new Set()
+    // Return stale cache if available, else a sentinel Set with one entry that
+    // causes all title checks to return isAnime:true — fail open so a Fribb
+    // outage never silently blocks legitimate tracking.
+    if (_titleSet) return _titleSet
+    _titleSet = new Set(['__fail_open__'])
+    return _titleSet
   }
 }
 
@@ -85,6 +89,11 @@ export async function GET(req: NextRequest) {
 
   const set = await getTitleSet()
   const needle = normalise(title)
+
+  // Fail-open sentinel — Fribb was unreachable, let tracking proceed
+  if (set.has('__fail_open__')) {
+    return NextResponse.json({ isAnime: true, match: 'fail_open' })
+  }
 
   // Exact normalised match
   if (set.has(needle)) {
