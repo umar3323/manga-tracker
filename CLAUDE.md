@@ -106,7 +106,9 @@ For any task not covered above, check `/Users/hossain/Documents/Claude/Skills/` 
 | `/api/swipe-queue` | GET | AniList discovery queue with Jaccard taste scoring | yes | none |
 | `/api/sync` | POST | Sync entry metadata from Jikan (cover, genres, etc.) | yes | none |
 | `/api/warmup` | GET | Cron warmup — pre-fetches catalog/feeds (CRON_SECRET) | no | none |
+| `/api/anime-check` | GET | Fribb/anime-lists lookup — returns `{ isAnime }` for a title string | public | in-memory 24h |
 | `/api/library-titles` | GET | Normalised title list for extension library gate (bug-c fix) | Bearer/cookie | 5 min (private) |
+| `/api/parser-configs` | GET | Per-domain parser override configs for extension content.js | public | CDN 1h |
 | `/api/watch-event` | POST | Log a watch/read event from extension (idempotent upsert) | Bearer/cookie | none |
 | `/api/watch-event/batch` | POST | Batch offline-first watch events (UUID idempotency_key) | Bearer/cookie | none |
 | `/api/webtoons` | GET | Webtoons episode feed | no | 24h |

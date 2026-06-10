@@ -387,12 +387,67 @@ try {
   })
 } catch { }
 
+// ── Item 5: External parser config overrides ──────────────────────────────
+// Fetched from /api/parser-configs and cached in chrome.storage.local as
+// yomu_parser_configs. When a domain has an override, its selectors/regexes
+// take precedence over the built-in parser — allowing hotfixes without a
+// Chrome Web Store update cycle.
+let _parserConfigs = []
+try {
+  chrome.storage.local.get(['yomu_parser_configs'], d => {
+    if (Array.isArray(d.yomu_parser_configs)) _parserConfigs = d.yomu_parser_configs
+  })
+} catch { }
+
+function getParserOverride(testUrl) {
+  if (!_parserConfigs.length) return null
+  try {
+    const host = new URL(testUrl).hostname.replace(/^www\./, '')
+    const cfg = _parserConfigs.find(c =>
+      !c.disabled && (host === c.domain || host.endsWith('.' + c.domain))
+    )
+    if (!cfg) return null
+    // Build a parser from the config's selectors/regexes
+    return {
+      parse(url, title) {
+        let show = null, ep = null
+        // Title extraction: DOM selector takes priority, then regex on tab title
+        if (cfg.titleSelector) {
+          try { show = document.querySelector(cfg.titleSelector)?.textContent?.trim() || null } catch {}
+        }
+        if (!show && cfg.titleRegex) {
+          try { const m = title.match(new RegExp(cfg.titleRegex, 'i')); show = m?.[1] || null } catch {}
+        }
+        // Episode extraction: DOM selector, then regex on tab title, then URL
+        if (cfg.episodeSelector) {
+          try {
+            const text = document.querySelector(cfg.episodeSelector)?.textContent?.trim() || ''
+            const m = text.match(/(\d+)/)
+            ep = m ? +m[1] : null
+          } catch {}
+        }
+        if (ep == null && cfg.episodeRegex) {
+          try { const m = title.match(new RegExp(cfg.episodeRegex, 'i')); ep = m ? +m[1] : null } catch {}
+        }
+        // Fall back to built-in fromTitle for anything we couldn't extract
+        if (!show) return fromTitle(title)
+        return { title: show, episode: ep, season: null }
+      }
+    }
+  } catch { return null }
+}
+
 function getBestParser() {
   // When inside an iframe, match parsers against the parent page URL (which
   // has the recognisable site hostname), not the iframe's CDN URL.
   const testUrl = (isIframe() && _parentContext?.url) ? _parentContext.url : location.href
 
-  // 1. Check dedicated parsers first
+  // 0. Check server-pushed parser overrides first (item 5) — allows hotfixing
+  //    broken CSS selectors without a Chrome Web Store update cycle.
+  const override = getParserOverride(testUrl)
+  if (override) return override
+
+  // 1. Check dedicated parsers
   const dedicated = PARSERS.find(p => p.match.test(testUrl))
   if (dedicated) return dedicated
 
@@ -545,6 +600,10 @@ function startHeartbeat() {
     // If so, stop the interval silently instead of throwing
     try {
       if (!chrome.runtime?.id) { stopHeartbeat(); return }
+      // Gemini (item 2): skip heartbeat when tab is hidden — the user isn't
+      // actively watching so there's nothing meaningful to accumulate.
+      // Prevents autoplay in background tabs from silently inflating watch time.
+      if (document.visibilityState !== 'visible') return
       accum()
       send(false) // progress ping every 30 s
     } catch (e) {
@@ -593,6 +652,7 @@ function send(isComplete) {
     episode:          session.episode,
     season:           session.season,
     site:             session.site,
+    source:           session.site,  // item 4: pass raw site so API can apply episode_offset
     duration_seconds: Math.round(session.videoDuration || 0),
     watched_seconds:  Math.round(session.totalPlaySec),
     is_complete:      isComplete,

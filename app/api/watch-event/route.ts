@@ -7,6 +7,7 @@ interface WatchEventBody {
   episode: number | null
   season: number | null
   site: string
+  source?: string   // raw site hostname — used for episode_offset logic (Crunchyroll absolute numbering)
   duration_seconds: number
   watched_seconds: number
   is_complete: boolean
@@ -18,6 +19,7 @@ interface LibraryEntry {
   title: string
   episodes_watched: number
   total_episodes: number | null
+  episode_offset: number   // subtract from incoming episode number (Crunchyroll absolute→season-relative)
   status: string
   total_watch_time_minutes: number
   content_type: string
@@ -97,7 +99,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid json' }, { status: 400 })
   }
 
-  const { title, episode, season, site, duration_seconds, watched_seconds, is_complete, timestamp } = body
+  const { title, episode, season, site, source, duration_seconds, watched_seconds, is_complete, timestamp } = body
   if (!title?.trim()) return NextResponse.json({ error: 'title required' }, { status: 400 })
 
   // ── Input validation & sanitisation ──────────────────────────────────────
@@ -147,7 +149,7 @@ export async function POST(req: NextRequest) {
     console.warn('[watch-event] match_library_entry RPC failed, falling back to JS scan:', rpcErr.message)
     const { data: library } = await supabase
       .from('manga_list')
-      .select('id, title, episodes_watched, total_episodes, status, total_watch_time_minutes, content_type, auto_tracked')
+      .select('id, title, episodes_watched, total_episodes, episode_offset, status, total_watch_time_minutes, content_type, auto_tracked')
       .eq('user_id', user.id)
     for (const entry of (library ?? []) as LibraryEntry[]) {
       const score = matchScore(safeTitle, entry.title)
@@ -184,14 +186,24 @@ export async function POST(req: NextRequest) {
       auto_tracked: true,
     }
 
+    // ── Item 4: episode_offset (Crunchyroll absolute → season-relative) ──
+    // Crunchyroll (and some other platforms) report absolute episode numbers
+    // across seasons (e.g. ep 65 when the user has Season 3 which starts at 64).
+    // The user sets episode_offset on their library entry to correct this.
+    // e.g. offset=64 → stored episode = 65-64 = 1 (correct season episode).
+    const offset = best.episode_offset ?? 0
+    const adjustedEpisode = safeEpisode != null && offset > 0
+      ? Math.max(1, safeEpisode - offset)
+      : safeEpisode
+
     if (is_complete) {
-      if (safeEpisode != null) {
+      if (adjustedEpisode != null) {
         // Only advance episode counter — never go backwards
-        if (safeEpisode > (best.episodes_watched ?? 0)) {
-          updates.episodes_watched = safeEpisode
+        if (adjustedEpisode > (best.episodes_watched ?? 0)) {
+          updates.episodes_watched = adjustedEpisode
         }
         // Auto-complete: if we just watched the last episode
-        if (best.total_episodes && safeEpisode >= best.total_episodes && best.status === 'watching') {
+        if (best.total_episodes && adjustedEpisode >= best.total_episodes && best.status === 'watching') {
           updates.status = 'completed'
         }
       } else {

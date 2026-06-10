@@ -259,3 +259,12 @@ CREATE POLICY "Users can read own swipe history" ON swipe_history
 DROP POLICY IF EXISTS "Users can insert own swipe history" ON swipe_history;
 CREATE POLICY "Users can insert own swipe history" ON swipe_history
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- ── episode_offset: Crunchyroll / absolute-episode-numbering fix ──────────
+-- Some platforms (e.g. Crunchyroll) report absolute episode numbers across
+-- seasons (e.g. ep 65 = S3E1 for a 64-episode prior-season show).
+-- episode_offset stores the value to SUBTRACT from the incoming episode number
+-- so episodes_watched aligns with the MAL/AniList per-season count.
+-- Default 0 = no offset (most entries). User sets this via the library card UI
+-- when they notice the wrong episode number being recorded.
+ALTER TABLE manga_list ADD COLUMN IF NOT EXISTS episode_offset integer NOT NULL DEFAULT 0;

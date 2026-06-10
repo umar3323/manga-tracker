@@ -53,7 +53,11 @@ export async function proxy(request: NextRequest) {
     p === '/api/streaming-sites' ||
     p === '/api/library-titles' ||
     p === '/api/watch-event' ||
-    p.startsWith('/api/watch-event/')
+    p.startsWith('/api/watch-event/') ||
+    // Fribb anime-check — extension uses this as fallback when library title cache misses.
+    p === '/api/anime-check' ||
+    // Parser config overrides — public JSON, no auth, cached in CDN.
+    p === '/api/parser-configs'
 
   if (!user && !isLoginPage && !isCallback && !isPublicShare && !isPublicApi && !isPublicPage) {
     return NextResponse.redirect(new URL('/login', request.url))

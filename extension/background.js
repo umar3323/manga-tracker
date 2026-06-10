@@ -27,7 +27,7 @@ if (chrome.alarms) {
     injectIntoExistingTabs()
     // Kick off a flush + site refresh now that we know the SW is alive
     const token = await getAuthToken()
-    if (token) { flushPending(); fetchCustomSites(); fetchLibraryTitles() }
+    if (token) { flushPending(); fetchCustomSites(); fetchLibraryTitles(); fetchParserConfigs() }
   })
 
   chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -178,6 +178,40 @@ async function matchesLibraryTitle(title) {
   return haystack.some(h => h.includes(needle) || needle.includes(h))
 }
 
+// ── Parser config overrides (item 5) ─────────────────────────────────────
+// Fetches per-domain parser overrides from the YOMU server. These override
+// built-in CSS selectors / regexes without needing a Chrome Web Store update.
+// Format: [{ domain, titleSelector, episodeSelector, titleRegex, episodeRegex, disabled }]
+async function fetchParserConfigs() {
+  try {
+    const res = await fetch(`${YOMU_URL}/api/parser-configs`)
+    if (!res.ok) return
+    const configs = await res.json()
+    if (Array.isArray(configs)) {
+      chrome.storage.local.set({ yomu_parser_configs: configs })
+    }
+  } catch { /* keep stale cache */ }
+}
+
+// ── Fribb anime-check fallback (item 3) ──────────────────────────────────
+// When a title doesn't match the user's library cache, query the server to
+// check if it's a known anime title (via Fribb/anime-lists database).
+// Returns true if the title resolves to an anime — allows the watch-event
+// API to attempt a server-side pg_trgm match even for recently-added titles.
+async function isKnownAnimeTitle(title) {
+  const token = await getAuthToken()
+  if (!token) return false
+  try {
+    const params = new URLSearchParams({ title })
+    const res = await fetch(`${YOMU_URL}/api/anime-check?${params}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+    if (!res.ok) return false
+    const data = await res.json()
+    return !!data.isAnime
+  } catch { return false }
+}
+
 // ── Custom streaming sites ────────────────────────────────────────────────
 async function fetchCustomSites() {
   const token = await getAuthToken()
@@ -267,6 +301,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         flushPending()
         fetchCustomSites()
         fetchLibraryTitles()
+        fetchParserConfigs()
         chrome.action.setBadgeText({ text: '✓' })
         chrome.action.setBadgeBackgroundColor({ color: '#22c55e' })
         setTimeout(() => chrome.action.setBadgeText({ text: '' }), 3000)
@@ -345,6 +380,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         setAuthToken(msg.token)
         flushPending()
         fetchCustomSites()
+        fetchLibraryTitles()
+        fetchParserConfigs()
         chrome.action.setBadgeText({ text: '✓' })
         chrome.action.setBadgeBackgroundColor({ color: '#22c55e' })
         setTimeout(() => chrome.action.setBadgeText({ text: '' }), 3000)
@@ -413,8 +450,17 @@ async function handleEvent(payload) {
 
   // Bug (c) fix: for mixed platforms (Netflix, Prime, etc.) verify the title
   // resolves to an anime in the user's library before recording anything.
-  // Dedicated anime sites are trusted unconditionally.
-  if (streaming && !(await matchesLibraryTitle(payload.title))) return
+  // Fribb fallback (item 3): if the title isn't in the library cache but the
+  // server-side Fribb database recognises it as anime, let it through anyway —
+  // the watch-event API's pg_trgm match may still find a library entry, and
+  // if not it returns action:'ignored' harmlessly.
+  if (streaming) {
+    const inLibrary = await matchesLibraryTitle(payload.title)
+    if (!inLibrary) {
+      const knownAnime = await isKnownAnimeTitle(payload.title)
+      if (!knownAnime) return
+    }
+  }
 
   if (dedicated || streaming) {
     chrome.storage.local.set({ yomu_last_tracked: { ...payload, receivedAt: new Date().toISOString() } })
@@ -482,9 +528,12 @@ async function sendToAPI(payload, dedicated = true) {
 // After a confirmed watch event, push a refresh signal to any open YOMU tabs
 // so the library card updates immediately without waiting for the 60 s poll.
 // Uses chrome.tabs.sendMessage → content script → CustomEvent into the page.
+// Gemini: skip tab.discarded tabs — sending to a discarded tab either fails
+// silently or wastefully re-activates a suspended tab, consuming RAM/CPU.
 function notifyYomuTabs() {
   chrome.tabs.query({ url: `*://${YOMU_HOST}/*` }, tabs => {
     for (const tab of tabs) {
+      if (tab.discarded) continue  // skip suspended/discarded tabs
       chrome.tabs.sendMessage(tab.id, { type: 'YOMU_REFRESH_LIBRARY' }).catch(() => {})
     }
   })
