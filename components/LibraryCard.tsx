@@ -71,6 +71,7 @@ export interface LibraryCardProps {
   onDelete: (id: string) => void
   onRefresh: (m: Manga) => void
   onOpenDetail: (m: Manga) => void
+  onOpenPeek?: (id: string) => void
   onAuthorClick: (a: Author) => void
   onStudioClick: (a: Author) => void
   onShelfPick: (m: Manga) => void
@@ -110,6 +111,7 @@ export default function LibraryCard({
   onDelete,
   onRefresh,
   onOpenDetail,
+  onOpenPeek,
   onAuthorClick,
   onStudioClick,
   onShelfPick,
@@ -187,7 +189,14 @@ export default function LibraryCard({
       <div className="flex gap-3 p-3 flex-1" onClick={deepSelectMode ? e => e.stopPropagation() : undefined}>
 
         {/* Cover */}
-        <div className="shrink-0 w-20 h-28 rounded-lg overflow-hidden bg-zinc-800 self-center">
+        <div
+          className="shrink-0 w-20 h-28 rounded-lg overflow-hidden bg-zinc-800 self-center cursor-pointer"
+          onClick={() => onOpenPeek ? onOpenPeek(m.id) : onOpenDetail(m)}
+          role="button"
+          aria-label={`Quick peek: ${m.title}`}
+          tabIndex={0}
+          onKeyDown={e => e.key === 'Enter' && (onOpenPeek ? onOpenPeek(m.id) : onOpenDetail(m))}
+        >
           {m.cover_url ? (
             <Image
               src={m.cover_url}
@@ -212,7 +221,7 @@ export default function LibraryCard({
                 <span title={m.publishing_status} className="shrink-0 w-2 h-2 rounded-full mt-[5px]"
                   style={{ backgroundColor: m.publishing_status === 'Publishing' ? '#2FCF7A' : m.publishing_status === 'On Hiatus' ? '#FFB02E' : '#52525b' }} />
               )}
-              <button onClick={() => onOpenDetail(m)}
+              <button onClick={() => onOpenPeek ? onOpenPeek(m.id) : onOpenDetail(m)}
                 className="font-semibold text-sm leading-snug text-left hover:text-violet-300 transition-colors flex-1 min-w-0 truncate">
                 {m.title}
               </button>
@@ -349,7 +358,7 @@ export default function LibraryCard({
                   </span>
                 )}
                 <div className="flex items-center gap-1 ml-auto shrink-0">
-                  <button onClick={() => onEpisodeUpdate(activeEpMember.id, -1, activeEpMember.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
+                  <button onClick={() => onEpisodeUpdate(activeEpMember.id, -1, activeEpMember.episodes_watched)} className="w-5 h-5 [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px] rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
                   <EditableNumber value={seriesEpCurrent} onSave={n => onEpisodeUpdate(m.id, n - m.episodes_watched, m.episodes_watched)} label={`Episodes for ${m.title}`} className="w-8 text-xs py-0.5" />
                   <span className="text-[11px] text-zinc-600 font-mono">/</span>
                   <EditableNumber
@@ -367,7 +376,7 @@ export default function LibraryCard({
                       }
                     }}
                   />
-                  <button onClick={() => onEpisodeUpdate(activeEpMember.id, 1, activeEpMember.episodes_watched)} className="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
+                  <button onClick={() => onEpisodeUpdate(activeEpMember.id, 1, activeEpMember.episodes_watched)} className="w-5 h-5 [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px] rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
                 </div>
               </div>
             </div>
@@ -438,11 +447,11 @@ export default function LibraryCard({
                   </span>
                   <div className="flex items-center gap-1 shrink-0">
                     <button onClick={() => onChapterUpdate(activeMember.id, -1, activeMember.current_chapter)} aria-label={`Decrease chapter for ${m.title}`}
-                      className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
+                      className="w-6 h-6 [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px] rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">−</button>
                     <EditableNumber value={seriesCurrent} onSave={n => onChapterUpdate(m.id, n - m.current_chapter, m.current_chapter)}
                       label={`Chapter for ${m.title}`} className="w-9 text-xs py-0.5" />
                     <button onClick={() => onChapterUpdate(activeMember.id, 1, activeMember.current_chapter)} aria-label={`Increase chapter for ${m.title}`}
-                      className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
+                      className="w-6 h-6 [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px] rounded bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xs transition-colors">+</button>
                   </div>
                 </div>
                 <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden"

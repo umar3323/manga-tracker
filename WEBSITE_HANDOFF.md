@@ -10,6 +10,18 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 37 — Phase 1 architecture modernisation: Zustand store + QuickPeekSheet (2026-06-10)
+
+**New files**
+- `lib/store.ts` — Zustand store (`useLibraryStore`). State: `mangaList: Manga[]`, `isLoading: boolean`, `activePeekId: string | null`, `activeDetailId: string | null`. Actions: `setLibrary`, `openPeek`, `closePeek`, `openDetail` (also clears `activePeekId`), `closeDetail`, `patchEntry` (optimistic update with snapshot rollback + optional `showToast` callback for error).
+- `components/QuickPeekSheet.tsx` — Bottom-sheet component. Props: `{ id: string, onOpenDetail: (id: string) => void }`. Reads entry from store (zero network calls). Renders: cover, title, author, content-type badge, status badge, progress label, synopsis (200-char truncated), top-3 genres. Two buttons: "Full Details" (calls `onOpenDetail(id)` then `closePeek`) and "Close" (`closePeek`). Slides up with CSS animation. Full-width mobile, `max-w-lg` centered on desktop.
+
+**Modified files**
+- `app/page.tsx` — Added `useLibraryStore` + `QuickPeekSheet` imports. `manga` state now reads from store (`mangaList`). `setManga` shim delegates to `useLibraryStore.getState().setLibrary()` for backward-compatibility with the 40+ call sites. `fetchManga` calls `setLibrary(data)` directly. Added `onOpenPeek` prop to `<LibraryCard>` (calls `openPeek(id)`). `QuickPeekSheet` rendered at root level below all modals, guarded by `{activePeekId && ...}`. `onOpenDetail` inside QuickPeekSheet sets both `selectedManga` (for DetailModal) and `openDetailStore(id)` (for store tracking).
+- `components/LibraryCard.tsx` — Added optional `onOpenPeek?: (id: string) => void` to `LibraryCardProps`. Cover `<div>` is now a `role="button"` that calls `onOpenPeek(m.id)` (or falls back to `onOpenDetail(m)` if prop absent). Title `<button>` also calls `onOpenPeek(m.id)` (same fallback). The existing "Details" link (`onOpenDetail` via the Details button in Continue Watching strip) is unchanged — power users can skip peek. Added `[@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]` to all 4 ± increment buttons (episode −/+, chapter −/+).
+
+---
+
 #### Session 36 — CLAUDE.md full codebase navigation map (2026-06-10, commit `f910e6c`)
 
 - `CLAUDE.md` — Replaced the minimal skills-pointer stub with a full codebase navigation reference. Added 7 tables: entry points (15 files with roles), component map (33 components with what they render + where they're called from), API routes (28 routes with method/auth/cache TTL), lib/utility files (11 files with key exports), environment variables (13 vars with feature gates + ⚠️ API COST flags), known issues (3 items), and a 14-entry navigation guide ("if working on X → read Y"). Designed for zero-context agent sessions — any agent reading this file can navigate to the right file without scanning the codebase.
@@ -184,6 +196,12 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 - [x] **CLAUDE.md codebase navigation** — Completed session 36. Full component map, API routes, env vars, and navigation guide written. Any new agent session starts with the correct file to read.
 
+- [ ] **Phase 2: Migrate DetailModal open/close to store** — `activeDetailId` and `closeDetail` are in the store but DetailModal is still driven by `selectedManga` local state in `app/page.tsx`. Phase 2 should replace `selectedManga` with `useLibraryStore(s => s.mangaList.find(m => m.id === s.activeDetailId))` and wire all `setSelectedManga(m)` calls to `openDetail(m.id)`. Read `app/page.tsx` lines 56–61 and the DetailModal block (~line 1820) before starting — the `openDetailStore` shim written in session 37 is the bridge.
+
+- [ ] **Phase 3: patchEntry wired to +1 buttons** — `patchEntry` in `lib/store.ts` is ready but the `onChapterUpdate` / `onEpisodeUpdate` callbacks in `app/page.tsx` still do their own optimistic update + Supabase call. In Phase 3: replace the Supabase calls inside `commitChapterProgress` and `commitEpisodeProgress` with `patchEntry()`. Pass the page-level `showToast` as the third argument. This removes ~30 lines of duplicated optimistic-update logic and ensures all patch paths go through the store.
+  - Files to read: `app/page.tsx` lines 279–312 (`commitChapterProgress`) and 546–578 (`commitEpisodeProgress`); `lib/store.ts` `patchEntry`.
+  - Do NOT change the reading-log insert logic — that stays local to the commit functions.
+
 - [ ] **Reload Chrome extension** — `background.js` changed in session 29. Go to `chrome://extensions` and click Reload on YOMU. The `syncFlush` alarm registers on next install/reload.
 
 - [x] **Web-push notifications** — VAPID env vars confirmed set on Vercel (session 30).
@@ -340,6 +358,14 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 ## Session Log
 
+### Session — 2026-06-10 (session 37)
+- Phase 1 of architecture modernisation: Zustand store (`lib/store.ts`) + QuickPeekSheet bottom sheet.
+- `setManga` shim pattern used to keep all 40+ existing call sites working without a full sweep — delegates to `useLibraryStore.getState().setLibrary()`. This is intentional tech debt; Phase 2/3 will remove it progressively.
+- `patchEntry` in store takes an optional `showToast` callback so it's usable from components that have a local toast (like `app/page.tsx`) without importing the toast utility itself.
+- Cover + title in LibraryCard now call `onOpenPeek` first (peek → detail flow). Existing "Details" buttons in Continue Watching banner stay wired to `setSelectedManga` directly (power-user shortcut, skip peek).
+- `activeDetailId` wired in store but DetailModal still driven by `selectedManga` local state — bridge via `openDetailStore` shim. Full DetailModal migration deferred to Phase 2.
+- Build passes clean. No new dependencies except `zustand`.
+
 ### Session — 2026-06-10 (session 35)
 - Phase 5 of UI layout refactor: target was sub-2,000 lines in `app/page.tsx`.
 - Strategy: extract self-contained modal components only (no shared hooks, no prop-drilling of state that spans multiple sections).
@@ -454,6 +480,9 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Change History
+
+### 2026-06-10 — Session 36 (CLAUDE.md navigation map)
+- `CLAUDE.md` — Full codebase navigation map (7 tables: entry points, component map, API routes, lib files, env vars, known issues, navigation guide). Replaces minimal stub.
 
 ### 2026-06-10 — Sessions 31–35 (UI refactor: Phases 1–5, all complete)
 - `components/DetailView.tsx` *(new)* — `DetailModal`, `RelationMergeButton`, `SeriesPanel`, `EditableNumber`; 8 isolated `useEffect` hooks with per-section skeletons.

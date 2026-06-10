@@ -34,6 +34,8 @@ import {
   Zap, Sword, Cloud, Moon, Flame, Heart,
   GitMerge, X,
 } from 'lucide-react'
+import { useLibraryStore } from '@/lib/store'
+import QuickPeekSheet from '@/components/QuickPeekSheet'
 
 // EditableNumber, RelationMergeButton, SeriesPanel, and DetailModal are now in components/DetailView.tsx
 // AuthorModal, StudioModal, RecommendationModal, ShelfPicker, ShareModal,
@@ -52,7 +54,11 @@ const STATUS_LABELS: Record<MangaStatus, string> = {
 type SortKey = 'last_read' | 'title' | 'chapter'
 
 export default function Home() {
-  const [manga, setManga] = useState<Manga[]>([])
+  const { mangaList: manga, setLibrary, activePeekId, openPeek, openDetail: openDetailStore } = useLibraryStore()
+  const setManga = (updater: Manga[] | ((prev: Manga[]) => Manga[])) => {
+    const next = typeof updater === 'function' ? updater(manga) : updater
+    useLibraryStore.getState().setLibrary(next)
+  }
   const [filter, setFilter] = useState<MangaStatus | 'all' | 'duplicates'>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [sort, setSort] = useState<SortKey>('last_read')
@@ -184,7 +190,7 @@ export default function Home() {
       supabase.from('anime_list').select('id,title,total_watch_hours,last_watched,is_movie'),
     ])
     if (error) { showToast('Failed To Load Manga List'); setLoading(false); return }
-    if (data) setManga(data as Manga[])
+    if (data) { setLibrary(data as Manga[]) }
     if (al) setAnimeList(al as AnimeRow[])
     setLoading(false)
     // Fetch unseen chapter notifications
@@ -1705,6 +1711,7 @@ ${entries}
                 onSynopsisToggle={toggleSynopsis}
                 onDelete={confirmDelete}
                 onRefresh={refreshCardInfo}
+                onOpenPeek={(id) => openPeek(id)}
                 onOpenDetail={setSelectedManga}
                 onAuthorClick={setSelectedAuthor}
                 onStudioClick={setSelectedStudio}
@@ -1962,6 +1969,18 @@ ${entries}
           syncResults={syncResults}
           malTrackedCount={manga.filter(m => m.mal_id).length}
           onClose={() => setSyncResults(null)}
+        />
+      )}
+
+      {/* Quick Peek Sheet */}
+      {activePeekId && (
+        <QuickPeekSheet
+          id={activePeekId}
+          onOpenDetail={(id) => {
+            const m = manga.find(x => x.id === id)
+            if (m) setSelectedManga(m)
+            openDetailStore(id)
+          }}
         />
       )}
     </main>
