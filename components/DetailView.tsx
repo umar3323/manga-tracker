@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import useSWR from 'swr'
 import Image from 'next/image'
 import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
 import {
@@ -538,15 +539,160 @@ export function DetailModal({
   onSeriesEntryAdded,
 }: DetailModalProps) {
 
-  // ── Per-section data + isolated loading states ─────────────────────────────
+  // ── SWR options shared across all detail fetches ─────────────────────────
+  const SWR_OPTS = {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    dedupingInterval: 300_000, // 5 minutes
+  } as const
 
-  // AniList (manga + anime)
-  const [alManga, setAlManga] = useState<AniListMangaData | null>(null)
-  const [alAnime, setAlAnime] = useState<AniListAnimeData | null>(null)
-  const [alLoading, setAlLoading] = useState(false)
+  // ── SWR: AniList (manga) ──────────────────────────────────────────────────
+  const alMangaKey = manga.mal_id ? `/api/anilist?mal_id=${manga.mal_id}&type=MANGA` : null
+  const { data: alMangaRaw, isLoading: alMangaLoading, error: alMangaError } = useSWR<{ data: AniListMangaData | null }>(
+    alMangaKey,
+    (url: string) => fetch(url).then(r => r.json()),
+    SWR_OPTS,
+  )
+  const alManga = alMangaRaw?.data ?? null
 
-  // Anime suggestion
+  // ── SWR: AniList (anime) ──────────────────────────────────────────────────
+  const animeMalIdForAl = manga.anime_mal_id
+    ?? ((manga.content_type === 'anime' || manga.content_type === 'movie') ? manga.mal_id : null)
+  const alAnimeKey = animeMalIdForAl ? `/api/anilist?mal_id=${animeMalIdForAl}&type=ANIME` : null
+  const { data: alAnimeRaw, isLoading: alAnimeLoading, error: alAnimeError } = useSWR<{ data: AniListAnimeData | null }>(
+    alAnimeKey,
+    (url: string) => fetch(url).then(r => r.json()),
+    SWR_OPTS,
+  )
+  const alAnime = alAnimeRaw?.data ?? null
+
+  // Combined alLoading for sections that depend on either AniList source
+  const alLoading = alMangaLoading || alAnimeLoading
+
+  // ── SWR: notify.moe ──────────────────────────────────────────────────────
+  const notifyTitle = manga.anime_title ?? manga.title
+  const animeMalIdForNotify = manga.anime_mal_id
+    ?? ((manga.content_type === 'anime' || manga.content_type === 'movie') ? manga.mal_id : null)
+  const notifyKey = animeMalIdForNotify
+    ? `/api/notifymoe?mal_id=${animeMalIdForNotify}&title=${encodeURIComponent(notifyTitle)}`
+    : null
+  const { data: notifyRaw, isLoading: notifyLoading, error: notifyError } = useSWR<{
+    data: { id: string; rating: { overall: number; story: number; visuals: number; soundtrack: number } | null; url: string } | null
+  }>(
+    notifyKey,
+    (url: string) => fetch(url).then(r => r.json()),
+    SWR_OPTS,
+  )
+  const notifyMoe = notifyRaw?.data ?? null
+
+  // ── SWR: Wikipedia ───────────────────────────────────────────────────────
+  const wikiKey = manga.title
+    ? `/api/wikipedia?title=${encodeURIComponent(manga.title)}&mal_id=${manga.mal_id ?? ''}`
+    : null
+  const { data: wikiRaw, isLoading: wikiLoading, error: wikiError } = useSWR<{
+    data: {
+      title: string; url: string; summary: string; thumbnail?: string
+      author?: string; illustrator?: string; publisher?: string; serializedIn?: string
+      originalRun?: string; volumes?: string; episodes?: string; directed?: string
+      studio?: string; genres?: string[]; arcSummary?: string
+    } | null
+  }>(
+    wikiKey,
+    (url: string) => fetch(url).then(r => r.json()),
+    SWR_OPTS,
+  )
+  const wikiData = wikiRaw?.data ?? null
+  const [wikiExpanded, setWikiExpanded] = useState(false)
+
+  // ── SWR: MangaUpdates ────────────────────────────────────────────────────
+  const muKey = manga.title ? `/api/mangaupdates?title=${encodeURIComponent(manga.title)}` : null
+  const { data: muRaw, isLoading: muLoading, error: muError } = useSWR<{ data: MUSeriesData | null }>(
+    muKey,
+    (url: string) => fetch(url).then(r => r.json()),
+    SWR_OPTS,
+  )
+  const muData = muRaw?.data ?? null
+
+  // ── SWR: ANN ─────────────────────────────────────────────────────────────
+  const annKey = (manga.title && !manga.has_anime) ? `/api/ann?title=${encodeURIComponent(manga.title)}` : null
+  const { data: annRaw } = useSWR<{ related_anime?: ANNRelatedWork[] }>(
+    annKey,
+    (url: string) => fetch(url).then(r => r.json()),
+    SWR_OPTS,
+  )
+  const annAnime: ANNRelatedWork[] = annRaw?.related_anime ?? []
+
+  // ── SWR: Jikan recommendations ────────────────────────────────────────────
+  const recMalId = (manga.content_type === 'anime' || manga.content_type === 'movie')
+    ? manga.mal_id
+    : manga.anime_mal_id
+  const recType: 'anime' | 'manga' = (manga.content_type === 'anime' || manga.content_type === 'movie')
+    ? 'anime' : 'manga'
+  const jikanRecsKey = recMalId ? `jikan-recs-${recMalId}-${recType}` : null
+  const { data: jikanRecsData, isLoading: jikanRecsLoading, error: jikanRecsError } = useSWR<JikanSearchResult[]>(
+    jikanRecsKey,
+    () => recMalId ? getJikanRecommendations(recMalId, recType) : Promise.resolve([]),
+    SWR_OPTS,
+  )
+  const jikanRecs = jikanRecsData ?? []
+  const [jikanRecAdded, setJikanRecAdded] = useState<Set<number>>(new Set())
+  const [jikanRecAdding, setJikanRecAdding] = useState<number | null>(null)
+
+  // ── SWR: OMDB / IMDb ─────────────────────────────────────────────────────
+  const omdbStoredKey = (() => { try { return localStorage.getItem('yomu_omdb_key') } catch { return null } })()
+  const omdbFetchKey = (omdbStoredKey && manga.title)
+    ? `omdb-${manga.title}-${manga.content_type}`
+    : null
+  const { data: omdbRaw } = useSWR<{ imdbRating?: string; imdbID?: string; Response: string }>(
+    omdbFetchKey,
+    () => {
+      const q = encodeURIComponent(manga.title)
+      return fetch(
+        `https://www.omdbapi.com/?t=${q}&apikey=${omdbStoredKey}&type=${manga.content_type === 'movie' ? 'movie' : 'series'}`
+      ).then(r => r.json())
+    },
+    SWR_OPTS,
+  )
+  const imdbRatingFromSwr = omdbRaw?.Response === 'True' ? omdbRaw.imdbRating ?? null : null
+  const imdbIdFromSwr = omdbRaw?.Response === 'True' ? omdbRaw.imdbID ?? null : null
+  const [omdbKeyInput, setOmdbKeyInput] = useState('')
+  const [showOmdbInput, setShowOmdbInput] = useState(false)
+  // Local override for when user enters a new OMDB key mid-session (SWR won't re-run until remount)
+  const [omdbOverride, setOmdbOverride] = useState<{ imdbRating: string | null; imdbID: string | null } | null>(null)
+  const imdbRating = omdbOverride?.imdbRating ?? imdbRatingFromSwr
+  const imdbId = omdbOverride?.imdbID ?? imdbIdFromSwr
+
+  // ── SWR: Jikan relations ──────────────────────────────────────────────────
+  const relationsKey = manga.mal_id ? `jikan-relations-${manga.mal_id}` : null
+  const { data: relationsData, isLoading: relationsLoading } = useSWR<SeriesRelation[]>(
+    relationsKey,
+    () => manga.mal_id ? getMangaAllRelations(manga.mal_id) : Promise.resolve([]),
+    SWR_OPTS,
+  )
+  const jikanRelations = relationsData ?? []
+  const relationsLoaded = !relationsLoading && relationsData !== undefined
+
+  // ── Anime suggestion — derived from SWR data ──────────────────────────────
   const [suggestedAnime, setSuggestedAnime] = useState<{ idMal: number; title: string } | null>(null)
+
+  // Sync suggestedAnime from AniList manga data
+  useEffect(() => {
+    if (!alManga || manga.has_anime) return
+    const adaptRel = alManga.relations.find(
+      r => r.relationType === 'ADAPTATION' && r.node.type === 'ANIME' && r.node.idMal
+    )
+    if (adaptRel) {
+      setSuggestedAnime({ idMal: adaptRel.node.idMal!, title: adaptRel.node.title.romaji })
+    }
+  }, [alManga, manga.has_anime])
+
+  // Sync suggestedAnime from ANN data
+  useEffect(() => {
+    if (annAnime.length === 0) return
+    setSuggestedAnime(prev => prev ? prev : { idMal: 0, title: annAnime[0].title })
+  }, [annAnime])
+
+  // ── Anime suggestion / duplicate dismissal (localStorage) ─────────────────
   const dupKey   = `yomu_dismissed_dup_${manga.id}`
   const animeKey = `yomu_dismissed_anime_${manga.mal_id ?? manga.id}`
   const [animeSuggestionDismissed, setAnimeSuggestionDismissed] = useState(false)
@@ -559,49 +705,7 @@ export function DetailModal({
     } catch { /* localStorage unavailable */ }
   }, [animeKey, dupKey])
 
-  // notify.moe scores
-  const [notifyMoe, setNotifyMoe] = useState<{
-    id: string
-    rating: { overall: number; story: number; visuals: number; soundtrack: number } | null
-    url: string
-  } | null>(null)
-  const [notifyLoading, setNotifyLoading] = useState(false)
-
-  // Wikipedia
-  const [wikiData, setWikiData] = useState<{
-    title: string; url: string; summary: string; thumbnail?: string
-    author?: string; illustrator?: string; publisher?: string; serializedIn?: string
-    originalRun?: string; volumes?: string; episodes?: string; directed?: string
-    studio?: string; genres?: string[]; arcSummary?: string
-  } | null>(null)
-  const [wikiLoading, setWikiLoading] = useState(false)
-  const [wikiExpanded, setWikiExpanded] = useState(false)
-
-  // MangaUpdates
-  const [muData, setMuData] = useState<MUSeriesData | null>(null)
-  const [muLoading, setMuLoading] = useState(false)
-
-  // ANN
-  const [annAnime, setAnnAnime] = useState<ANNRelatedWork[]>([])
-
-  // Jikan recommendations
-  const [jikanRecs, setJikanRecs] = useState<JikanSearchResult[]>([])
-  const [jikanRecsLoading, setJikanRecsLoading] = useState(false)
-  const [jikanRecAdded, setJikanRecAdded] = useState<Set<number>>(new Set())
-  const [jikanRecAdding, setJikanRecAdding] = useState<number | null>(null)
-
-  // IMDb / OMDB
-  const [imdbRating, setImdbRating] = useState<string | null>(null)
-  const [imdbId, setImdbId] = useState<string | null>(null)
-  const [omdbKeyInput, setOmdbKeyInput] = useState('')
-  const [showOmdbInput, setShowOmdbInput] = useState(false)
-
-  // Jikan relations
-  const [jikanRelations, setJikanRelations] = useState<SeriesRelation[]>([])
-  const [relationsLoaded, setRelationsLoaded] = useState(false)
-  const [relationsLoading, setRelationsLoading] = useState(false)
-
-  // Episode list
+  // ── Episode list ──────────────────────────────────────────────────────────
   const [episodes, setEpisodes] = useState<JikanEpisode[]>([])
   const [episodesLoading, setEpisodesLoading] = useState(false)
   const [episodesExpanded, setEpisodesExpanded] = useState(false)
@@ -611,185 +715,24 @@ export function DetailModal({
   const [episodeSynopsisLoading, setEpisodeSynopsisLoading] = useState<number | null>(null)
   const [expandedEpisodes, setExpandedEpisodes] = useState<Set<number>>(new Set())
 
-  // MangaDex chapters
+  // ── MangaDex chapters ─────────────────────────────────────────────────────
   const [mdxChapters, setMdxChapters] = useState<MangaDexChapter[]>([])
   const [mdxChaptersLoading, setMdxChaptersLoading] = useState(false)
   const [mdxChaptersExpanded, setMdxChaptersExpanded] = useState(false)
   const [mdxChaptersTotal, setMdxChaptersTotal] = useState(0)
 
-  // Merge panel
+  // ── Merge panel ───────────────────────────────────────────────────────────
   const [merging, setMerging] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
   const [mergeQuery, setMergeQuery] = useState('')
   const [mergeSelected, setMergeSelected] = useState<Set<string>>(new Set())
   const [mergingMulti, setMergingMulti] = useState(false)
 
-  // Modals
+  // ── Modals ────────────────────────────────────────────────────────────────
   const [showSeriesMap, setShowSeriesMap] = useState(false)
   const [showDeepSearch, setShowDeepSearch] = useState(false)
   const [showUrlImport, setShowUrlImport] = useState(false)
   const [addingRelId, setAddingRelId] = useState<string | null>(null)
-
-  // ── Fetch: AniList (manga) ─────────────────────────────────────────────────
-  useEffect(() => {
-    if (!manga.mal_id) return
-    const ac = new AbortController()
-    setAlLoading(true)
-    setAlManga(null)
-    fetch(`/api/anilist?mal_id=${manga.mal_id}&type=MANGA`, { signal: ac.signal })
-      .then(r => r.json())
-      .then(j => {
-        if (j.data) {
-          setAlManga(j.data)
-          if (!manga.has_anime) {
-            const adaptRel = (j.data as AniListMangaData).relations.find(
-              r => r.relationType === 'ADAPTATION' && r.node.type === 'ANIME' && r.node.idMal
-            )
-            if (adaptRel) {
-              setSuggestedAnime({ idMal: adaptRel.node.idMal!, title: adaptRel.node.title.romaji })
-            }
-          }
-        }
-      })
-      .catch(() => {})
-      .finally(() => { if (!ac.signal.aborted) setAlLoading(false) })
-    return () => ac.abort()
-  }, [manga.mal_id, manga.has_anime])
-
-  // ── Fetch: AniList (anime) ─────────────────────────────────────────────────
-  useEffect(() => {
-    const animeMalId = manga.anime_mal_id
-      ?? ((manga.content_type === 'anime' || manga.content_type === 'movie') ? manga.mal_id : null)
-    if (!animeMalId) return
-    const ac = new AbortController()
-    setAlAnime(null)
-    fetch(`/api/anilist?mal_id=${animeMalId}&type=ANIME`, { signal: ac.signal })
-      .then(r => r.json())
-      .then(j => { if (j.data) setAlAnime(j.data) })
-      .catch(() => {})
-    return () => ac.abort()
-  }, [manga.anime_mal_id, manga.mal_id, manga.content_type])
-
-  // ── Fetch: notify.moe ────────────────────────────────────────────────────
-  useEffect(() => {
-    const animeMalId = manga.anime_mal_id
-      ?? ((manga.content_type === 'anime' || manga.content_type === 'movie') ? manga.mal_id : null)
-    if (!animeMalId) return
-    const notifyTitle = manga.anime_title ?? manga.title
-    const ac = new AbortController()
-    setNotifyLoading(true)
-    setNotifyMoe(null)
-    fetch(`/api/notifymoe?mal_id=${animeMalId}&title=${encodeURIComponent(notifyTitle)}`, { signal: ac.signal })
-      .then(r => r.json())
-      .then(j => { if (j.data) setNotifyMoe(j.data) })
-      .catch(() => {})
-      .finally(() => { if (!ac.signal.aborted) setNotifyLoading(false) })
-    return () => ac.abort()
-  }, [manga.anime_mal_id, manga.mal_id, manga.content_type, manga.anime_title, manga.title])
-
-  // ── Fetch: Wikipedia ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!manga.title) return
-    const ac = new AbortController()
-    setWikiLoading(true)
-    setWikiData(null)
-    setWikiExpanded(false)
-    fetch(`/api/wikipedia?title=${encodeURIComponent(manga.title)}&mal_id=${manga.mal_id ?? ''}`, { signal: ac.signal })
-      .then(r => r.json())
-      .then(j => { if (j.data) setWikiData(j.data) })
-      .catch(() => {})
-      .finally(() => { if (!ac.signal.aborted) setWikiLoading(false) })
-    return () => ac.abort()
-  }, [manga.title, manga.mal_id])
-
-  // ── Fetch: MangaUpdates ──────────────────────────────────────────────────
-  useEffect(() => {
-    if (!manga.title) return
-    const ac = new AbortController()
-    setMuLoading(true)
-    setMuData(null)
-    fetch(`/api/mangaupdates?title=${encodeURIComponent(manga.title)}`, { signal: ac.signal })
-      .then(r => r.json())
-      .then(j => { if (j.data) setMuData(j.data) })
-      .catch(() => {})
-      .finally(() => { if (!ac.signal.aborted) setMuLoading(false) })
-    return () => ac.abort()
-  }, [manga.title])
-
-  // ── Fetch: ANN ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!manga.title || manga.has_anime) return
-    const ac = new AbortController()
-    fetch(`/api/ann?title=${encodeURIComponent(manga.title)}`, { signal: ac.signal })
-      .then(r => r.json())
-      .then(j => {
-        if (j.related_anime?.length) {
-          setAnnAnime(j.related_anime)
-          setSuggestedAnime(prev =>
-            prev ? prev : { idMal: 0, title: j.related_anime[0].title }
-          )
-        }
-      })
-      .catch(() => {})
-    return () => ac.abort()
-  }, [manga.title, manga.has_anime])
-
-  // ── Fetch: Jikan recommendations ─────────────────────────────────────────
-  useEffect(() => {
-    const recMalId = (manga.content_type === 'anime' || manga.content_type === 'movie')
-      ? manga.mal_id
-      : manga.anime_mal_id
-    const recType: 'anime' | 'manga' = (manga.content_type === 'anime' || manga.content_type === 'movie')
-      ? 'anime' : 'manga'
-    if (!recMalId) return
-    let cancelled = false
-    setJikanRecsLoading(true)
-    setJikanRecs([])
-    getJikanRecommendations(recMalId, recType)
-      .then(recs => { if (!cancelled) setJikanRecs(recs) })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setJikanRecsLoading(false) })
-    return () => { cancelled = true }
-  }, [manga.mal_id, manga.anime_mal_id, manga.content_type])
-
-  // ── Fetch: OMDB / IMDb ───────────────────────────────────────────────────
-  useEffect(() => {
-    setImdbRating(null)
-    setImdbId(null)
-    const omdbKey = (() => { try { return localStorage.getItem('yomu_omdb_key') } catch { return null } })()
-    if (!omdbKey || !manga.title) return
-    const ac = new AbortController()
-    const q = encodeURIComponent(manga.title)
-    fetch(
-      `https://www.omdbapi.com/?t=${q}&apikey=${omdbKey}&type=${manga.content_type === 'movie' ? 'movie' : 'series'}`,
-      { signal: ac.signal }
-    )
-      .then(r => r.json())
-      .then(j => {
-        if (j.Response === 'True') {
-          setImdbRating(j.imdbRating ?? null)
-          setImdbId(j.imdbID ?? null)
-        }
-      })
-      .catch(() => {})
-    return () => ac.abort()
-  }, [manga.mal_id, manga.anime_mal_id, manga.has_anime, manga.title, manga.content_type])
-
-  // ── Fetch: Jikan relations ────────────────────────────────────────────────
-  useEffect(() => {
-    if (!manga.mal_id) return
-    let cancelled = false
-    setRelationsLoaded(false)
-    setRelationsLoading(true)
-    getMangaAllRelations(manga.mal_id).then(rels => {
-      if (!cancelled) {
-        setJikanRelations(rels)
-        setRelationsLoaded(true)
-        setRelationsLoading(false)
-      }
-    })
-    return () => { cancelled = true }
-  }, [manga.mal_id])
 
   const relatedAnime = jikanRelations.filter(r => r.type === 'anime')
   const hasSeriesRelations = jikanRelations.length > 0
@@ -1006,7 +949,7 @@ export function DetailModal({
                         if (k) {
                           const q = encodeURIComponent(manga.title)
                           fetch(`https://www.omdbapi.com/?t=${q}&apikey=${k}&type=${manga.content_type === 'movie' ? 'movie' : 'series'}`)
-                            .then(r => r.json()).then(j => { if (j.Response === 'True') { setImdbRating(j.imdbRating ?? null); setImdbId(j.imdbID ?? null) } }).catch(() => {})
+                            .then(r => r.json()).then(j => { if (j.Response === 'True') { setOmdbOverride({ imdbRating: j.imdbRating ?? null, imdbID: j.imdbID ?? null }) } }).catch(() => {})
                         }
                       }
                     }}
@@ -1021,7 +964,7 @@ export function DetailModal({
                       if (k) {
                         const q = encodeURIComponent(manga.title)
                         fetch(`https://www.omdbapi.com/?t=${q}&apikey=${k}&type=${manga.content_type === 'movie' ? 'movie' : 'series'}`)
-                          .then(r => r.json()).then(j => { if (j.Response === 'True') { setImdbRating(j.imdbRating ?? null); setImdbId(j.imdbID ?? null) } }).catch(() => {})
+                          .then(r => r.json()).then(j => { if (j.Response === 'True') { setOmdbOverride({ imdbRating: j.imdbRating ?? null, imdbID: j.imdbID ?? null }) } }).catch(() => {})
                       }
                     }}
                     className="text-[10px] px-1.5 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded"
@@ -1141,6 +1084,9 @@ export function DetailModal({
 
           {/* ── MangaUpdates badges (isolated loading) ─────────────────── */}
           {muLoading && <Skeleton className="h-6 w-32 mb-4" />}
+          {!muLoading && muError && muKey && (
+            <p className="text-[10px] text-zinc-600 mb-4">Could not load MangaUpdates data.</p>
+          )}
           {!muLoading && muData && (muData.release_frequency !== 'unknown' || muData.scanlation_group) && (
             <div className="flex flex-wrap gap-1.5 mb-4">
               {muData.release_frequency && muData.release_frequency !== 'unknown' && (
@@ -1294,6 +1240,9 @@ export function DetailModal({
 
           {/* ── notify.moe scores — isolated loading + skeleton ───────── */}
           {notifyLoading && <ScoresSkeleton />}
+          {!notifyLoading && notifyError && notifyKey && (
+            <p className="text-[10px] text-zinc-600 mb-4">Could not load notify.moe scores.</p>
+          )}
           {!notifyLoading && notifyMoe?.rating && (() => {
             const r = notifyMoe.rating
             const bars: { label: string; value: number; color: string }[] = [
@@ -1355,6 +1304,9 @@ export function DetailModal({
 
           {/* ── Wikipedia — isolated loading + skeleton ───────────────── */}
           {wikiLoading && <WikiSkeleton />}
+          {!wikiLoading && wikiError && wikiKey && (
+            <p className="text-[10px] text-zinc-600 mb-4">Could not load Wikipedia data.</p>
+          )}
           {!wikiLoading && wikiData && (
             <div className="mb-4">
               <button
@@ -1427,6 +1379,9 @@ export function DetailModal({
 
           {/* ── AniList relations — isolated loading + skeleton ───────── */}
           {alLoading && <RelationsSkeleton />}
+          {!alLoading && (alMangaError || alAnimeError) && alMangaKey && (
+            <p className="text-[10px] text-zinc-600 mb-4">Could not load AniList data.</p>
+          )}
           {!alLoading && alManga && alManga.relations.filter(r => RELATION_LABELS[r.relationType]).length > 0 && (
             <div className="mb-4">
               <p className="text-xs font-medium text-zinc-500 mb-2">Related works</p>
@@ -1652,6 +1607,9 @@ export function DetailModal({
 
           {/* ── Jikan recommendations — isolated loading + skeleton ───── */}
           {jikanRecsLoading && <RecsSkeleton />}
+          {!jikanRecsLoading && jikanRecsError && jikanRecsKey && (
+            <p className="text-[10px] text-zinc-600 mb-4">Could not load MAL recommendations.</p>
+          )}
           {!jikanRecsLoading && jikanRecs.length > 0 && (
             <div className="mb-4">
               <p className="text-xs font-medium text-zinc-500 mb-2">MAL users also liked</p>
