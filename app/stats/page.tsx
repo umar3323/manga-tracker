@@ -293,6 +293,7 @@ export default function StatsPage() {
   const [goalDraft, setGoalDraft] = useState('')
   const [loading, setLoading] = useState(true)
   const [showAllSessions, setShowAllSessions] = useState(false)
+  const [sessionsRefreshing, setSessionsRefreshing] = useState(false)
 
   const load = useCallback(async () => {
     const { data: { user }, error: authErr } = await supabase.auth.getUser()
@@ -341,6 +342,17 @@ export default function StatsPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const refreshSessions = useCallback(async () => {
+    setSessionsRefreshing(true)
+    const { data: ws } = await supabase
+      .from('watch_sessions')
+      .select('id, manga_id, title_raw, episode, season, site, duration_seconds, watched_seconds, is_complete, watched_at')
+      .order('watched_at', { ascending: false })
+      .limit(500)
+    if (ws) setWatchSessions(ws as WatchSession[])
+    setSessionsRefreshing(false)
+  }, [])
 
   useEffect(() => {
     const onVisible = () => { if (document.visibilityState === 'visible') load() }
@@ -696,7 +708,27 @@ export default function StatsPage() {
 
         {/* Session log */}
         <div className="bg-zinc-900 rounded-xl p-5">
-          <h3 className="text-sm font-semibold mb-4">Session Log</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold">Session Log</h3>
+            <button
+              onClick={refreshSessions}
+              disabled={sessionsRefreshing}
+              className="flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-300 disabled:opacity-40 transition-colors"
+              title="Sync session log"
+            >
+              <svg
+                className={`w-3.5 h-3.5 ${sessionsRefreshing ? 'animate-spin' : ''}`}
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round"
+              >
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                <path d="M3 3v5h5"/>
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+                <path d="M16 16h5v5"/>
+              </svg>
+              {sessionsRefreshing ? 'Syncing…' : 'Sync'}
+            </button>
+          </div>
           <div className="space-y-0">
             {/* Header */}
             <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 pb-2 border-b border-zinc-800 text-[10px] text-zinc-600 uppercase tracking-wide">
