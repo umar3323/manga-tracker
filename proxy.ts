@@ -47,7 +47,13 @@ export async function proxy(request: NextRequest) {
     p === '/api/mangaplus' ||
     // General Jikan proxy — forwards to api.jikan.moe server-side.
     // Public anime/manga data only; no user data returned.
-    p === '/api/jikan-proxy'
+    p === '/api/jikan-proxy' ||
+    // Extension-facing routes — authenticate via Bearer token inside the handler,
+    // so no session cookie is present. Exempt from middleware redirect.
+    p === '/api/streaming-sites' ||
+    p === '/api/library-titles' ||
+    p === '/api/watch-event' ||
+    p.startsWith('/api/watch-event/')
 
   if (!user && !isLoginPage && !isCallback && !isPublicShare && !isPublicApi && !isPublicPage) {
     return NextResponse.redirect(new URL('/login', request.url))

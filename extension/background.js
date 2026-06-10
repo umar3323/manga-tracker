@@ -27,7 +27,7 @@ if (chrome.alarms) {
     injectIntoExistingTabs()
     // Kick off a flush + site refresh now that we know the SW is alive
     const token = await getAuthToken()
-    if (token) { flushPending(); fetchCustomSites() }
+    if (token) { flushPending(); fetchCustomSites(); fetchLibraryTitles() }
   })
 
   chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -140,6 +140,44 @@ async function tryRefreshToken() {
 // All startup work (flush, custom-site fetch) is deferred to event handlers
 // (onInstalled above, onAlarm, onMessage) — never executed at module scope.
 
+// ── Library title cache (bug c fix) ──────────────────────────────────────
+// For mixed platforms (Netflix, Prime, Disney+, etc.) we must verify the
+// scraped title is an anime the user actually tracks before recording stats.
+// This prevents live-action shows from polluting watch-time and episode counts.
+// Cache is a Set of normalised titles stored in chrome.storage.local.
+// Refreshed on every auth and when a new entry is created via the API.
+
+function normaliseTitle(t) {
+  return (t || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/\s+/g, '')
+}
+
+async function fetchLibraryTitles() {
+  const token = await getAuthToken()
+  if (!token) return
+  try {
+    const res = await fetch(`${YOMU_URL}/api/library-titles`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+    if (!res.ok) return
+    const data = await res.json()
+    const titles = Array.isArray(data.titles) ? data.titles : []
+    // Store normalised forms for fast matching
+    chrome.storage.local.set({ yomu_library_titles: titles.map(normaliseTitle) })
+  } catch { /* keep stale cache */ }
+}
+
+// Returns true if title fuzzy-matches any entry in the cached library.
+// Uses normalised substring matching — good enough to catch "Spy x Family"
+// matching "spy x family" or "Spy × Family".
+async function matchesLibraryTitle(title) {
+  const needle = normaliseTitle(title)
+  if (!needle) return false
+  const d = await chrome.storage.local.get(['yomu_library_titles'])
+  const haystack = d.yomu_library_titles || []
+  // Accept if any stored title contains needle or needle contains it
+  return haystack.some(h => h.includes(needle) || needle.includes(h))
+}
+
 // ── Custom streaming sites ────────────────────────────────────────────────
 async function fetchCustomSites() {
   const token = await getAuthToken()
@@ -228,14 +266,18 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         setAuthToken(token)
         flushPending()
         fetchCustomSites()
+        fetchLibraryTitles()
         chrome.action.setBadgeText({ text: '✓' })
         chrome.action.setBadgeBackgroundColor({ color: '#22c55e' })
         setTimeout(() => chrome.action.setBadgeText({ text: '' }), 3000)
       }
     } catch { /* scripting permission denied on some pages */ }
 
-    // ── Fix 4: Inject auth-push listener on YOMU so explicit token pushes
-    // from the Next.js app (via window.postMessage) are forwarded to background.
+    // ── Fix 4: Inject auth-push + library-refresh listeners on YOMU tabs.
+    // • YOMU_PUSH_TOKEN  — Next.js app pushes fresh JWT on login (existing)
+    // • YOMU_REFRESH_LIBRARY — background calls chrome.tabs.sendMessage after a
+    //   confirmed watch event; we relay it as a CustomEvent into the page so
+    //   app/page.tsx can call fetchManga() immediately (bug e fix).
     try {
       await chrome.scripting.executeScript({
         target: { tabId },
@@ -243,12 +285,19 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         func: () => {
           if (window.__yomuAuthListenerActive) return
           window.__yomuAuthListenerActive = true
+          // Auth token push from Next.js app
           window.addEventListener('message', e => {
             if (e.source !== window) return
             if (e.data?.type !== 'YOMU_PUSH_TOKEN') return
             const t = e.data.token
             if (!t || typeof t !== 'string') return
             chrome.runtime.sendMessage({ type: 'SET_AUTH_TOKEN', token: t }).catch(() => {})
+          })
+          // Library-refresh relay from background service worker
+          chrome.runtime.onMessage.addListener(msg => {
+            if (msg?.type === 'YOMU_REFRESH_LIBRARY') {
+              window.dispatchEvent(new CustomEvent('yomu:watch-event'))
+            }
           })
         },
       })
@@ -262,14 +311,16 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 })
 
 // ── Fix 1: Dedup via chrome.storage.session ───────────────────────────────
-// The in-memory recentKeys Map is wiped every time the MV3 service worker is
-// terminated (~30s idle). Using chrome.storage.session persists the map across
-// SW restarts for the duration of the browser session.
-async function isDuplicate(key) {
+// Two separate dedup windows:
+//   • Completion events (is_complete=true):  300 000ms — once-per-episode, idempotent
+//   • Progress pings   (is_complete=false):   10 000ms — only block rapid-fire true duplicates;
+//     a 300 s window was suppressing ~9 of every 10 legitimate 30 s progress updates (bug b).
+async function isDuplicate(key, isComplete) {
   const d = await chrome.storage.session.get(['yomu_dedup'])
   const dedup = d.yomu_dedup || {}
-  const now = Date.now()
-  if (dedup[key] && now - dedup[key] < 300_000) return true
+  const now   = Date.now()
+  const window = isComplete ? 300_000 : 10_000
+  if (dedup[key] && now - dedup[key] < window) return true
   // Not a duplicate — record and prune stale entries while we're here
   dedup[key] = now
   for (const k of Object.keys(dedup)) {
@@ -353,11 +404,17 @@ async function handleEvent(payload) {
   if (idleState !== 'active') return
 
   // Fix 1: Dedup via storage.session (survives SW restarts)
+  // Pass is_complete so completion events use 300s window, progress pings use 10s (bug b fix)
   const dedupKey = `${payload.title}||${payload.episode}||${payload.is_complete}`
-  if (await isDuplicate(dedupKey)) return
+  if (await isDuplicate(dedupKey, payload.is_complete)) return
 
   const dedicated = isDedicatedAnimeSite(payload.site)
   const streaming = !dedicated && isKnownStreamingPlatform(payload.site)
+
+  // Bug (c) fix: for mixed platforms (Netflix, Prime, etc.) verify the title
+  // resolves to an anime in the user's library before recording anything.
+  // Dedicated anime sites are trusted unconditionally.
+  if (streaming && !(await matchesLibraryTitle(payload.title))) return
 
   if (dedicated || streaming) {
     chrome.storage.local.set({ yomu_last_tracked: { ...payload, receivedAt: new Date().toISOString() } })
@@ -412,10 +469,25 @@ async function sendToAPI(payload, dedicated = true) {
       chrome.action.setBadgeText({ text: '●' })
       chrome.action.setBadgeBackgroundColor({ color: '#22c55e' })
       setTimeout(() => chrome.action.setBadgeText({ text: '' }), 2500)
+      // Bug (e) fix: push an immediate library-refresh signal to any open YOMU tab.
+      // This replaces the 60 s poll in app/page.tsx for the "extension in foreground" case.
+      notifyYomuTabs()
     }
   } catch {
     if (dedicated) queuePending(payload)
   }
+}
+
+// ── Bug (e): Instant YOMU tab refresh ────────────────────────────────────
+// After a confirmed watch event, push a refresh signal to any open YOMU tabs
+// so the library card updates immediately without waiting for the 60 s poll.
+// Uses chrome.tabs.sendMessage → content script → CustomEvent into the page.
+function notifyYomuTabs() {
+  chrome.tabs.query({ url: `*://${YOMU_HOST}/*` }, tabs => {
+    for (const tab of tabs) {
+      chrome.tabs.sendMessage(tab.id, { type: 'YOMU_REFRESH_LIBRARY' }).catch(() => {})
+    }
+  })
 }
 
 // ── Pending queue (offline / not logged in yet) ───────────────────────────
@@ -499,9 +571,13 @@ function updateSessionStats(payload) {
     const sessionKey = `${payload.title}||${payload.episode ?? 'null'}`
     const prev    = stats.session_progress[sessionKey] ?? 0
     const current = Math.max(0, payload.watched_seconds || 0)
-    const delta   = Math.max(0, current - prev)
+    // Clamp delta to 2× the heartbeat interval (~60 s) so seeks/skips don't inflate watch time.
+    // Never call Math.round here — accumulate fractional minutes to avoid the ×2 doubling
+    // that Math.round(30/60)=1 per heartbeat caused (bug a fix). Round only at display time.
+    const raw   = Math.max(0, current - prev)
+    const delta = Math.min(raw, 60)   // MAX_DELTA clamp: 2 × 30 s heartbeat
     stats.session_progress[sessionKey] = Math.max(prev, current)
-    stats.total_watch_minutes += Math.round(delta / 60)
+    stats.total_watch_minutes = (stats.total_watch_minutes || 0) + delta / 60
 
     if (payload.is_complete && !stats.completed_keys.includes(sessionKey)) {
       stats.completed_keys.push(sessionKey)

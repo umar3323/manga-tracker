@@ -213,13 +213,20 @@ export default function Home() {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [fetchManga])
 
-  // Periodic refresh every 60s while the tab is visible — catches extension-logged
-  // episode updates when YOMU is already in the foreground (visibilitychange won't fire).
+  // Bug (e) fix: instant refresh when the Chrome extension confirms a watch event.
+  // The extension's background service worker calls chrome.tabs.sendMessage after a
+  // successful API response; the injected content script relays it as a CustomEvent.
+  // Keep a 60s fallback poll for the case where the extension isn't installed.
   useEffect(() => {
+    const onExtEvent = () => fetchManga()
+    window.addEventListener('yomu:watch-event', onExtEvent)
     const id = setInterval(() => {
       if (document.visibilityState === 'visible') fetchManga()
     }, 60_000)
-    return () => clearInterval(id)
+    return () => {
+      window.removeEventListener('yomu:watch-event', onExtEvent)
+      clearInterval(id)
+    }
   }, [fetchManga])
 
   // Pace tracking: avg chapters/day over last 30 days

@@ -21,23 +21,11 @@ function fmtTime(mins) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`
 }
 
-// ── Load data ─────────────────────────────────────────────────────────────
-chrome.runtime.sendMessage({ type: 'GET_STATUS' }, res => {
-  setStatus(res?.connected || false)
-})
-
-chrome.runtime.sendMessage({ type: 'GET_LAST_TRACKED' }, data => {
-  if (!data) return
-  const nowSection = $('section-now')
-  nowSection.classList.remove('hidden')
-  $('np-title').textContent = data.title + (data.episode != null ? ` · Ep. ${data.episode}` : '')
-  const ago = Math.round((Date.now() - new Date(data.receivedAt).getTime()) / 60000)
-  $('np-meta').textContent = `${data.site} · ${ago < 1 ? 'just now' : ago + 'm ago'}`
-})
-
-chrome.runtime.sendMessage({ type: 'GET_SESSION_STATS' }, stats => {
+// ── Renderers (called on load and on live storage changes) ────────────────
+function renderStats(stats) {
   if (!stats) return
-  $('stat-min').textContent    = fmtTime(stats.total_watch_minutes || 0)
+  // Bug (a) fix: total_watch_minutes is now a fractional float — round at display time
+  $('stat-min').textContent    = fmtTime(Math.round(stats.total_watch_minutes || 0))
   $('stat-ep').textContent     = stats.episodes_completed || 0
   $('stat-titles').textContent = (stats.titles_seen || []).length
 
@@ -45,7 +33,6 @@ chrome.runtime.sendMessage({ type: 'GET_SESSION_STATS' }, stats => {
   if (sites.length > 0) {
     const sitesSection = $('section-sites')
     sitesSection.classList.remove('hidden')
-    // Build chips via DOM (not innerHTML) to avoid XSS from stored hostnames
     const list = $('sites-list')
     list.textContent = ''
     sites.forEach(s => {
@@ -54,6 +41,37 @@ chrome.runtime.sendMessage({ type: 'GET_SESSION_STATS' }, stats => {
       chip.textContent = s
       list.appendChild(chip)
     })
+  }
+}
+
+function renderLastTracked(data) {
+  if (!data) return
+  const nowSection = $('section-now')
+  nowSection.classList.remove('hidden')
+  $('np-title').textContent = data.title + (data.episode != null ? ` · Ep. ${data.episode}` : '')
+  const ago = Math.round((Date.now() - new Date(data.receivedAt).getTime()) / 60000)
+  $('np-meta').textContent = `${data.site} · ${ago < 1 ? 'just now' : ago + 'm ago'}`
+}
+
+// ── Load data ─────────────────────────────────────────────────────────────
+chrome.runtime.sendMessage({ type: 'GET_STATUS' }, res => {
+  setStatus(res?.connected || false)
+})
+
+chrome.runtime.sendMessage({ type: 'GET_LAST_TRACKED' }, renderLastTracked)
+
+chrome.runtime.sendMessage({ type: 'GET_SESSION_STATS' }, renderStats)
+
+// ── Bug (d) fix: live stats via chrome.storage.onChanged ─────────────────
+// Subscribe to storage changes so the popup updates while open, without
+// requiring a close + reopen. Unsubscription is automatic when popup closes.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return
+  if (changes.yomu_session_stats?.newValue) {
+    renderStats(changes.yomu_session_stats.newValue)
+  }
+  if (changes.yomu_last_tracked?.newValue) {
+    renderLastTracked(changes.yomu_last_tracked.newValue)
   }
 })
 
