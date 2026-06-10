@@ -651,6 +651,28 @@ export default function Home() {
       if (attr.precision === 'exact') logRow.progress_date = attr.date
       if (attr.precision === 'year_only') logRow.progress_year = attr.year
       await supabase.from('reading_log').insert(logRow)
+
+      // Also write to watch_sessions so the stats heatmap, session log, and Watch DNA
+      // reflect manually-entered episode progress — not just extension-tracked events.
+      // Insert one row per episode advanced (delta rows), each marked is_complete=true.
+      const { data: { user: watchUser } } = await supabase.auth.getUser()
+      const entry = useLibraryStore.getState().mangaList.find(m => m.id === id)
+      if (watchUser && entry) {
+        const sessionRows = Array.from({ length: delta }, (_, i) => ({
+          user_id: watchUser.id,
+          manga_id: id,
+          title_raw: entry.title,
+          episode: current + i + 1,
+          season: null as number | null,
+          site: 'manual',
+          duration_seconds: 0,
+          watched_seconds: 0,
+          is_complete: true,
+          watched_at: timestamp,
+        }))
+        const { error: wsErr } = await supabase.from('watch_sessions').insert(sessionRows)
+        if (wsErr) console.error('[commitEpisodeProgress] watch_sessions insert failed:', wsErr.message)
+      }
     }
   }, [patchEntry, showToast])
 
