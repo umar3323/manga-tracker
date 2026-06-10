@@ -156,6 +156,8 @@ $$;
 ALTER TABLE watch_sessions ADD COLUMN IF NOT EXISTS idempotency_key uuid;
 UPDATE watch_sessions SET idempotency_key = gen_random_uuid() WHERE idempotency_key IS NULL;
 ALTER TABLE watch_sessions ALTER COLUMN idempotency_key SET NOT NULL;
+-- Add default so single-event inserts (which don't supply a key) get one automatically.
+ALTER TABLE watch_sessions ALTER COLUMN idempotency_key SET DEFAULT gen_random_uuid();
 DO $$
 BEGIN
   IF NOT EXISTS (

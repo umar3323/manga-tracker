@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
   // Skip logging for non-anime platforms (YouTube, Netflix, etc.) when there
   // is no library match — prevents non-anime content appearing in stats/session log.
   if (hasLibraryMatch || isKnownAnimeSite(safeSite)) {
-    await supabase.from('watch_sessions').insert({
+    const { error: sessionErr } = await supabase.from('watch_sessions').insert({
       user_id: user.id,
       manga_id: hasLibraryMatch ? best!.id : null,
       title_raw: safeTitle,
@@ -174,7 +174,12 @@ export async function POST(req: NextRequest) {
       watched_seconds: safeWatched,
       is_complete: !!is_complete,
       watched_at: watchedAt,
+      // idempotency_key: DB default (gen_random_uuid()) handles uniqueness.
+      // Real-time single events don't need client-supplied dedup keys.
     })
+    if (sessionErr) {
+      console.error('[watch-event] watch_sessions insert failed:', sessionErr.message)
+    }
   }
 
   // ── Matched existing entry ──────────────────────────────────────────────
