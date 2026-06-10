@@ -199,12 +199,25 @@ function DonutChart({ data, size = 140 }: {
 // ── Watch Episode Heatmap ─────────────────────────────────────────────────────
 const WATCH_HEAT = ['#1a2a2a', '#0e4a4a', '#0a7a7a', '#06b6b6', '#2BE6DC']
 
+interface HeatmapTooltip {
+  date: string
+  count: number
+  titles: string[]   // deduplicated anime titles watched that day
+  x: number
+  y: number
+}
+
 function WatchHeatmap({ sessions }: { sessions: WatchSession[] }) {
+  const [tooltip, setTooltip] = useState<HeatmapTooltip | null>(null)
+
+  // Build both a count map and a day → sessions list for tooltip details
   const activityMap: Record<string, number> = {}
+  const daySessionsMap: Record<string, WatchSession[]> = {}
   sessions.forEach(s => {
     if (!s.is_complete) return
     const d = new Date(s.watched_at).toISOString().slice(0, 10)
     activityMap[d] = (activityMap[d] ?? 0) + 1
+    daySessionsMap[d] = [...(daySessionsMap[d] ?? []), s]
   })
 
   const today = new Date()
@@ -240,6 +253,22 @@ function WatchHeatmap({ sessions }: { sessions: WatchSession[] }) {
   const totalEps = Object.values(activityMap).reduce((s, v) => s + v, 0)
   const activeDays = Object.values(activityMap).filter(Boolean).length
 
+  const handleMouseEnter = (e: React.MouseEvent, day: { date: string; count: number }) => {
+    if (!day.count) { setTooltip(null); return }
+    const daySessions = daySessionsMap[day.date] ?? []
+    // Deduplicate titles, preserve order of first appearance
+    const seen = new Set<string>()
+    const titles: string[] = []
+    for (const s of daySessions) {
+      const t = s.title_raw
+      if (t && !seen.has(t)) { seen.add(t); titles.push(t) }
+    }
+    setTooltip({ date: day.date, count: day.count, titles, x: e.clientX, y: e.clientY })
+  }
+
+  const fmtTooltipDate = (iso: string) =>
+    new Date(iso + 'T12:00:00').toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+
   return (
     <div className="bg-zinc-900 rounded-xl p-5 mb-4">
       <div className="flex items-center justify-between mb-4">
@@ -249,7 +278,7 @@ function WatchHeatmap({ sessions }: { sessions: WatchSession[] }) {
           <span>{activeDays} Active Days</span>
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" onMouseLeave={() => setTooltip(null)}>
         <div className="flex gap-[3px] mb-1 pl-5 text-[10px] text-zinc-600">
           {weeks.map((_, wi) => {
             const ml = monthLabels.find(m => m.col === wi)
@@ -265,9 +294,13 @@ function WatchHeatmap({ sessions }: { sessions: WatchSession[] }) {
           {weeks.map((week, wi) => (
             <div key={wi} className="flex flex-col gap-[3px]">
               {week.map((day, di) => (
-                <div key={di} className="w-3 h-3 rounded-sm transition-colors"
+                <div
+                  key={di}
+                  className="w-3 h-3 rounded-sm transition-colors cursor-default"
                   style={{ backgroundColor: WATCH_HEAT[level(day.count)] }}
-                  title={`${day.date}: ${day.count} episode${day.count !== 1 ? 's' : ''}`} />
+                  onMouseEnter={e => handleMouseEnter(e, day)}
+                  onMouseMove={e => tooltip && setTooltip(t => t ? { ...t, x: e.clientX, y: e.clientY } : t)}
+                />
               ))}
             </div>
           ))}
@@ -278,6 +311,29 @@ function WatchHeatmap({ sessions }: { sessions: WatchSession[] }) {
           <span className="text-[10px] text-zinc-600">More</span>
         </div>
       </div>
+
+      {/* Floating tooltip — portalled to viewport coords so it's never clipped */}
+      {tooltip && (
+        <div
+          className="fixed z-50 pointer-events-none"
+          style={{ left: tooltip.x + 12, top: tooltip.y - 8 }}
+        >
+          <div className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 shadow-xl text-left min-w-[160px] max-w-[220px]">
+            <p className="text-[11px] font-semibold text-zinc-200 mb-1">{fmtTooltipDate(tooltip.date)}</p>
+            <p className="text-[10px] text-cyan-400 mb-1.5">
+              {tooltip.count} episode{tooltip.count !== 1 ? 's' : ''} watched
+            </p>
+            <div className="space-y-0.5">
+              {tooltip.titles.slice(0, 5).map((t, i) => (
+                <p key={i} className="text-[10px] text-zinc-400 truncate">· {t}</p>
+              ))}
+              {tooltip.titles.length > 5 && (
+                <p className="text-[10px] text-zinc-600">+{tooltip.titles.length - 5} more</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
