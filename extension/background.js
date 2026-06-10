@@ -70,6 +70,69 @@ function setAuthToken(token) {
   }
 }
 
+// ── Token harvest helper ──────────────────────────────────────────────────
+// Runs the cookie/localStorage harvest script in a YOMU tab and updates the
+// stored token. Used both on tab load and as auto-reconnect after a 401.
+async function harvestTokenFromTab(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: () => {
+        try {
+          const jar = {}
+          document.cookie.split(';').forEach(c => {
+            const eq = c.indexOf('=')
+            if (eq < 0) return
+            jar[c.slice(0, eq).trim()] = c.slice(eq + 1).trim()
+          })
+          const parts = Object.keys(jar)
+            .filter(k => k.includes('sb-') && k.includes('auth-token'))
+            .sort()
+          if (parts.length > 0) {
+            let b64 = ''
+            parts.forEach((k, i) => {
+              let v = decodeURIComponent(jar[k])
+              if (i === 0 && v.startsWith('base64-')) v = v.slice(7)
+              b64 += v
+            })
+            const parsed = JSON.parse(atob(b64))
+            if (parsed?.access_token) return parsed.access_token
+          }
+        } catch {}
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i)
+          if (!key) continue
+          try {
+            const val = JSON.parse(localStorage.getItem(key) || '')
+            const token = val?.access_token || val?.currentSession?.access_token || val?.session?.access_token
+            if (token && typeof token === 'string') return token
+          } catch {}
+        }
+        return null
+      },
+    })
+    const raw = results?.[0]?.result
+    return (typeof raw === 'string' && /^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$/.test(raw)) ? raw : null
+  } catch { return null }
+}
+
+// Attempt to re-harvest a fresh token from any open YOMU tab.
+// Called on API 401 responses so the extension reconnects automatically
+// without the user having to navigate back to YOMU.
+async function tryRefreshToken() {
+  try {
+    const tabs = await chrome.tabs.query({ url: `*://${YOMU_HOST}/*` })
+    if (tabs.length === 0) return
+    const token = await harvestTokenFromTab(tabs[0].id)
+    if (token && token !== _cachedToken) {
+      setAuthToken(token)
+      flushPending()
+      fetchCustomSites()
+    }
+  } catch { /* no accessible YOMU tab */ }
+}
+
 // ── Fix 3 (Gemini): No top-level network calls ────────────────────────────
 // MV3 service workers must complete their synchronous init phase immediately.
 // Any network I/O or storage reads at the top level can block worker
@@ -160,45 +223,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   // ── Token harvest: when user visits YOMU ──────────────────────────────
   if (tab.url.includes(YOMU_HOST)) {
     try {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId },
-        world: 'MAIN',
-        func: () => {
-          try {
-            const jar = {}
-            document.cookie.split(';').forEach(c => {
-              const eq = c.indexOf('=')
-              if (eq < 0) return
-              jar[c.slice(0, eq).trim()] = c.slice(eq + 1).trim()
-            })
-            const parts = Object.keys(jar)
-              .filter(k => k.includes('sb-') && k.includes('auth-token'))
-              .sort()
-            if (parts.length > 0) {
-              let b64 = ''
-              parts.forEach((k, i) => {
-                let v = decodeURIComponent(jar[k])
-                if (i === 0 && v.startsWith('base64-')) v = v.slice(7)
-                b64 += v
-              })
-              const parsed = JSON.parse(atob(b64))
-              if (parsed?.access_token) return parsed.access_token
-            }
-          } catch {}
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i)
-            if (!key) continue
-            try {
-              const val = JSON.parse(localStorage.getItem(key) || '')
-              const token = val?.access_token || val?.currentSession?.access_token || val?.session?.access_token
-              if (token && typeof token === 'string') return token
-            } catch {}
-          }
-          return null
-        },
-      })
-      const raw = results?.[0]?.result
-      const token = (typeof raw === 'string' && /^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$/.test(raw)) ? raw : null
+      const token = await harvestTokenFromTab(tabId)
       if (token && token !== _cachedToken) {
         setAuthToken(token)
         flushPending()
@@ -363,7 +388,7 @@ async function sendToAPI(payload, dedicated = true) {
     })
 
     if (res.status === 401) {
-      setAuthToken(null)
+      tryRefreshToken()
       if (dedicated) queuePending(payload)
       return
     }
@@ -440,7 +465,7 @@ async function flushPending() {
           chrome.storage.local.set({ yomu_pending: updated })
         })
       } else if (res.status === 401) {
-        setAuthToken(null)
+        tryRefreshToken()
       }
     } catch { /* network failure — leave queue intact, alarm will retry in 1 min */ }
   })

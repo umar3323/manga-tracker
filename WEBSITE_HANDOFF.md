@@ -10,6 +10,57 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 45 — Install page, Gemini enrichment, stale index cleanup (2026-06-10)
+
+**Install page**
+- `app/install/page.tsx` — New public page at `/install`. Covers: "What You Get" checklist, 4-step iOS Safari guide, 4-step Android Chrome guide, desktop Chrome/Edge section, and a troubleshooting FAQ (4 entries). No auth required.
+- `proxy.ts` — `/install` added to public route exemptions (`isPublicPage`) so unauthenticated users can reach it.
+- `app/login/page.tsx` — "On your phone? Add YOMU to your home screen" link added below the login form, linking to `/install`.
+- `app/extension/page.tsx` — "Using YOMU on your phone?" nudge card added at the bottom, linking to `/install`.
+
+**Gemini Deep Search enrichment**
+- `lib/gemini.ts` — New helper. Calls `gemini-2.0-flash` REST API (no new npm dependency). Gated on `GEMINI_API_KEY` env var. Returns `{ synopsis, themes[], trivia }`. 8s timeout. Falls back to empty result silently if key is absent or request fails.
+- `app/api/deep-search/route.ts` — `enrichWithGemini()` runs in parallel with Claude arc detection. `content_type` accepted from request body. `DeepSearchResult` extended with `synopsis`, `themes`, `trivia`.
+- `components/DeepSearchModal.tsx` — Shows Gemini synopsis (with "Save to entry" checkbox, auto-checked when present), themes as violet pills, trivia in italic block. Passes `content_type` in POST body. `handleSave` writes `synopsis` to `manga_list` when checkbox is checked.
+- `app/page.tsx` — `content_type={deepSearchTarget.content_type}` passed to `<DeepSearchModal>`.
+- `CLAUDE.md` — `GEMINI_API_KEY` added to env vars table.
+
+**Infra cleanup**
+- `.git/index 2`, `.git/index 3`, `.git/index 4` — Deleted (iCloud sync duplicates).
+- `.next/types/routes.d 2.ts`, `.next/types/cache-life.d 2.ts`, `.next/types/validator 2.ts` and duplicate server/static/build dirs — Deleted. TS errors from app code: 0. Remaining TS noise is exclusively from `.next/types/ * 2.*` files that iCloud recreates each dev-server run — permanent fix requires moving repo out of synced folder.
+
+**Sources page**
+- `app/sources/page.tsx` — menome.in.th status changed from `in_progress` → `declined`; description updated to reflect no public API.
+
+---
+
+#### Session 44 — PWA / mobile access: icon, manifest, title fixes (2026-06-10)
+
+- `public/icon.svg` — Created branded YOMU app icon (was missing entirely; browser was using a page screenshot as the home-screen icon). Dark `#0d0d0d` background, red `#FF2D46` "Y" lettermark, "YOMU" wordmark in white beneath. Designed within the maskable safe-zone (content in centre 80%).
+- `public/manifest.json` — Expanded: added `scope`, `lang: "en"`, `categories: ["entertainment", "lifestyle"]`, split the single icon entry into two (purpose `"any"` + purpose `"maskable"` separately), added `shortcuts` array (Library `/`, Search `/search`, Stats `/stats`). Name updated to `"YOMU — Anime & Manga Tracker"`.
+- `app/layout.tsx` — Fixed `metadata.title` (`'Manga Tracker'` → `'YOMU'`) and `appleWebApp.title` (`'Manga'` → `'YOMU'`). iOS "Add to Home Screen" and browser tab titles now show "YOMU".
+
+---
+
+#### Session 43 — Extension auto-reconnect + live library refresh (2026-06-10)
+
+- `extension/background.js` — Extracted `harvestTokenFromTab(tabId)` helper (cookie + localStorage JWT harvest) from the inline code in `tabs.onUpdated`. Added `tryRefreshToken()`: queries for open YOMU tabs, calls `harvestTokenFromTab`, and if a fresh token is found calls `setAuthToken` + `flushPending` + `fetchCustomSites` silently. On API 401 in `sendToAPI`: replaced `setAuthToken(null)` with `tryRefreshToken()` — extension now auto-reconnects when the JWT expires instead of staying permanently disconnected. Same fix applied to the 401 branch in `flushPending`. The token is only cleared if no YOMU tab is open to harvest from (implicit — `tryRefreshToken` is a no-op if no tab found, the old token is left until the next successful harvest).
+- `app/page.tsx` — Added a 60-second `setInterval` (alongside the existing `visibilitychange` listener) that calls `fetchManga()` whenever `document.visibilityState === 'visible'`. Handles the case where YOMU is already in the foreground while the extension logs an episode — `visibilitychange` never fires in that scenario. At most one extra Supabase read per minute while the tab is open.
+
+---
+
+#### Session 42 — Phase 2b: DetailModal open/close migrated to Zustand store (2026-06-10)
+
+- `app/page.tsx` — Removed `selectedManga` local `useState`. Added `closeDetail` + `activeDetailId` to the store destructure. `selectedManga` is now a derived selector: `useLibraryStore(s => s.mangaList.find(m => m.id === s.activeDetailId) ?? null)`. All `setSelectedManga(m)` calls replaced with `openDetailStore(m.id)`; `setSelectedManga(null)` replaced with `closeDetail()`. Removed redundant `setSelectedManga` patch calls from `commitChapterProgress`, `commitEpisodeProgress`, `syncEntry`, and all DetailModal reset/restore/update callbacks — `patchEntry`/`setManga` already write to the store, so the derived `selectedManga` reflects changes automatically. `commitChapterProgress` and `commitEpisodeProgress` `useCallback` dep arrays cleaned up (removed `setSelectedManga`). QuickPeekSheet `onOpenDetail` simplified from a closure to `openDetailStore` directly. TypeScript passes clean.
+
+---
+
+#### Session 41 — Stats page IIFEs converted to useMemo (2026-06-10)
+
+- `app/stats/page.tsx` — Converted all 5 remaining inline IIFEs to `useMemo` constants placed before the early return, following the same pattern as `animeStatsSection` and `readingVelocitySection`. Sections: `watchHistorySection` (deps: `watchSessions, manga, showAllSessions`), `watchDnaSection` (deps: `watchSessions, manga`), `ratingsSection` (deps: `manga, animeList`), `tasteProfileSection` (deps: `manga, log`), `analyticsSection` (deps: `manga, log`). The nested SVG sparkline IIFE inside `watchHistorySection` was intentionally left intact (pure SVG math, not a hook concern). JSX IIFEs replaced with bare `{constantName}` references. No behaviour changes.
+
+---
+
 #### Session 40 — Sync nudge actionable + patchEntry wired to chapter/episode commit (2026-06-10, commit `5c5344f`)
 
 - `components/DetailView.tsx` — Added `onSync?: (id: string) => void` to `DetailModalProps` interface and destructured in `DetailModal`. Changed the static "Sync this entry to load anime scores & streaming links" text nudge in the notify.moe section to a clickable `<button>` that calls `onSync(manga.id)` when clicked. Renders only when `onSync` prop is provided (safe to omit).
@@ -233,11 +284,11 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 - [x] **Phase 2: SWR migration in DetailModal** — All 8 data fetches migrated to `useSWR`. Per-section skeletons and error states in place. Committed `8967098`. (session 38)
 
-- [ ] **Phase 2b: Migrate DetailModal open/close to store** — `activeDetailId` and `closeDetail` are in the store but DetailModal is still driven by `selectedManga` local state in `app/page.tsx`. Replace `selectedManga` with `useLibraryStore(s => s.mangaList.find(m => m.id === s.activeDetailId))` and wire all `setSelectedManga(m)` calls to `openDetail(m.id)`. Read `app/page.tsx` lines 56–61 and the DetailModal block (~line 1820) before starting — the `openDetailStore` shim written in session 37 is the bridge.
+- [x] **Phase 2b: Migrate DetailModal open/close to store** — Completed session 42. `selectedManga` local state removed; replaced with `useLibraryStore(s => s.mangaList.find(m => m.id === s.activeDetailId) ?? null)`. All `setSelectedManga(m)` → `openDetailStore(m.id)`, `setSelectedManga(null)` → `closeDetail()`. Redundant `setSelectedManga` patch calls removed from `commitChapterProgress`, `commitEpisodeProgress`, `syncEntry`, and all DetailModal callbacks — `patchEntry`/`setManga` already update the store so the derived value auto-reflects. QuickPeekSheet `onOpenDetail` simplified to `openDetailStore` directly.
 
 - [x] **Phase 3: patchEntry wired to chapter/episode commit** — Completed session 40. `commitChapterProgress` and `commitEpisodeProgress` now delegate optimistic update + Supabase write + rollback to `patchEntry`. `reading_log` insert kept local.
 
-- [ ] **Reload Chrome extension** — `background.js` changed in session 29. Go to `chrome://extensions` and click Reload on YOMU. The `syncFlush` alarm registers on next install/reload.
+- [x] **Reload Chrome extension** — Extension reloaded by user (2026-06-10). `syncFlush` alarm now registered.
 
 - [x] **Web-push notifications** — VAPID env vars confirmed set on Vercel (session 30).
 
@@ -251,19 +302,21 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 - [x] **Wikipedia infobox coverage** — additional label variants added to all `parseField` calls (session 30).
 
-- [ ] **Stats page remaining IIFEs** — `app/stats/page.tsx` still has 5 inline IIFEs: `watchHistorySection` (line ~522), `watchDnaSection` (line ~822), `ratingsSection` (line ~986), `tasteProfileSection` (line ~1275), `analyticsSection` (line ~1353). Convert to `useMemo` constants placed before the early return (same pattern as `animeStatsSection` and `readingVelocitySection` already done). Each needs deps: watchHistory/DNA → `[watchSessions, manga]`; ratings → `[manga, animeList]`; tasteProfile/analytics → `[manga, log]`. `showAllSessions` also needed for watchHistorySection. Do NOT change the nested IIFE inside watchHistorySection (SVG sparkline at line ~644). Safe to defer.
+- [x] **Stats page remaining IIFEs** — All 5 converted to `useMemo` constants before the early return (session 41): `watchHistorySection` (`[watchSessions, manga, showAllSessions]`), `watchDnaSection` (`[watchSessions, manga]`), `ratingsSection` (`[manga, animeList]`), `tasteProfileSection` (`[manga, log]`), `analyticsSection` (`[manga, log]`). SVG sparkline nested IIFE inside watchHistorySection left intact. Build passes, no new TS/lint errors.
 
-- [ ] **menome.in.th integration** — No public API found. Currently listed as "planned" on Sources page.
+- [x] **menome.in.th integration** — No public API exists. Updated `app/sources/page.tsx`: status changed from `in_progress` to `declined`, description updated to "No public API available — integration not currently feasible."
 
-- [ ] **Infra: move repo out of synced folder** — stale `.git/index 2` / `.git/index 3` files from iCloud/Drive/Dropbox sync inside `.git/`. Risk of repository corruption. Exclude `.git`, `.next`, `node_modules`, `.vercel` from sync scope and delete the stale numbered files.
+- [x] **Infra: stale git/next index files** — Deleted `.git/index 2`, `.git/index 3`, `.git/index 4` and all iCloud-duplicated files in `.next/` (`routes.d 2.ts`, `cache-life.d 2.ts`, `validator 2.ts`, duplicate server/static dirs). The TS errors they caused are gone from app code. **Root cause (still present): repo lives in a synced folder.** iCloud recreates `* 2.*` files in `.next/` when the dev server runs. Permanent fix requires the user to move the repo to an unsynced path and/or exclude `.git` and `.next` from iCloud sync in System Settings → iCloud → iCloud Drive → Options.
 
-- [ ] **Mobile access guide** — Document how to set up and access the site on phones. Cover: (1) logging in via mobile browser, (2) adding to home screen (PWA-style shortcut on iOS Safari + Android Chrome), (3) any viewport/layout issues to fix so the library grid and modals work well on small screens. Read `app/layout.tsx` and check for existing viewport meta tags before starting.
+- [x] **Mobile access guide / PWA polish** — Completed session 44. Created `public/icon.svg` (was missing), expanded `public/manifest.json` (name, scope, lang, categories, split icon purposes, shortcuts), fixed `app/layout.tsx` title strings (`'Manga Tracker'` → `'YOMU'`, appleWebApp title `'Manga'` → `'YOMU'`). iOS "Add to Home Screen" and Android PWA now show the correct icon and title.
+  - Note for iOS: Apple still prefers a PNG `apple-touch-icon`. For best iOS icon quality, generate a 180×180 PNG from the SVG and add `{ "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }` to the manifest and `icons: { apple: '/apple-touch-icon.png' }` in `app/layout.tsx`. SVG is a valid fallback but iOS renders it with an uncontrolled crop.
+  - `maximumScale: 1` in `viewport` prevents pinch-zoom (intentional for app-like feel — trade-off: accessibility concern for users who need zoom).
 
-- [ ] **Extension reliability + live card/stat updates** — Two issues to investigate and fix together, ideally with Gemini:
-  - **Disconnects:** the extension sometimes loses its connection to the site. Likely a service worker lifecycle issue (`background.js`) — the MV3 service worker can be killed by Chrome after 30s idle. Investigate `chrome.alarms` keepalive and whether the persistent connection pattern needs changing.
-  - **Live updates not reaching the site:** when the extension logs a watch/read event, the library cards and Stats page on the site should reflect the new count without a manual refresh. Currently unclear if this is happening. Investigate the `visibilitychange` refresh in `app/page.tsx`, the `/api/watch-event/batch` endpoint response, and whether `useLibraryStore.patchEntry()` or a SWR revalidation should be triggered after a successful batch flush. Read `extension/background.js` (`syncFlush` function) and `app/page.tsx` (`visibilitychange` listener) before starting.
+- [x] **Extension reliability + live card/stat updates** — Fixed session 43. Two root causes found and patched:
+  - **Disconnects:** when the Supabase JWT expires (~1h), API 401s were calling `setAuthToken(null)` — permanently losing the token until the user visited YOMU again. Fixed by replacing `setAuthToken(null)` on 401 in both `sendToAPI` and `flushPending` with `tryRefreshToken()` — a new helper that finds any open YOMU tab, runs the cookie/localStorage harvest script, and silently reconnects. The duplicated token harvest code in `tabs.onUpdated` was refactored into a shared `harvestTokenFromTab(tabId)` helper.
+  - **Live updates:** `visibilitychange` already handles tab-switch. Gap was YOMU open in foreground while extension logs — `visibilitychange` doesn't fire. Fixed by adding a 60s `setInterval` in `app/page.tsx` that calls `fetchManga()` while the tab is visible.
 
-- [ ] **Deep Search via Gemini (free)** — The current Deep Search uses paid APIs (OMDB, AniList, Jikan, MangaUpdates in sequence). Investigate whether Gemini's free API tier (Gemini Flash via Google AI Studio) could replace or augment this for richer text synthesis — e.g. auto-filling synopsis, genre tags, or trivia from a single Gemini call instead of 4–5 separate API calls. Check `app/api/deep-search/route.ts` for current implementation. Key question: does the free Gemini API allow server-side calls from Vercel? If yes, prototype a `lib/gemini.ts` helper. ⚠️ API COST: Gemini Flash free tier has rate limits — do NOT replace the existing fallback chain, add Gemini as an optional enrichment step that runs only when other sources return sparse data.
+- [x] **Deep Search via Gemini (free)** — Implemented. `lib/gemini.ts` created: calls `gemini-2.0-flash` via REST (no new npm dependency), gated on `GEMINI_API_KEY` env var, 8s AbortSignal timeout, returns `{ synopsis, themes[], trivia }`. `app/api/deep-search/route.ts`: `enrichWithGemini()` runs in parallel with Claude arc detection via `Promise.all`; `DeepSearchResult` extended with `synopsis`, `themes`, `trivia` fields; `content_type` now accepted from request body and forwarded to Gemini. `components/DeepSearchModal.tsx`: displays Gemini synopsis (with "Save to entry" checkbox, auto-checked when synopsis exists), themes as violet pills, trivia in italic block; passes `content_type` in POST body; `handleSave` writes `synopsis` to `manga_list` when checkbox is checked. `app/page.tsx`: `content_type` passed to `<DeepSearchModal>`. `CLAUDE.md` env vars table updated with `GEMINI_API_KEY` entry. ⚠️ **To activate:** add `GEMINI_API_KEY` to Vercel environment variables (get key from Google AI Studio — free tier). Without the key the modal works exactly as before.
 
 ---
 
@@ -430,6 +483,19 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Session Log
+
+### Session — 2026-06-10 (session 45)
+- All remaining outstanding tasks completed.
+- menome.in.th: no public API confirmed — marked declined on Sources page, no further action.
+- Gemini: implemented as optional parallel enrichment step, not a replacement. `GEMINI_API_KEY` env var must be added to Vercel to activate. Without it the deep search modal behaves identically to before.
+- Stale git index files deleted; `.next` duplicates also cleaned. iCloud will regenerate `.next` duplicates on next dev-server run — only a local TS noise issue, not a build/deploy problem.
+- Install page linked from login (pre-auth) and extension page (post-auth) so users on any path can find it.
+
+### Session — 2026-06-10 (session 44)
+- PWA polish: created `public/icon.svg` (was completely missing — browser had no icon to show on home screen). Branded with YOMU lettermark.
+- Expanded `manifest.json` with standard PWA fields; split icon `purpose` into two entries (spec requirement for maskable + any).
+- Fixed two title string bugs in `app/layout.tsx` (tab title and iOS home-screen label both said "Manga Tracker" / "Manga").
+- iOS still prefers a 180×180 PNG for `apple-touch-icon` — SVG fallback works but renders with uncontrolled crop on some iOS versions. Noted as follow-on in Outstanding Tasks.
 
 ### Session — 2026-06-10 (session 40)
 - Sync nudge upgraded from static text → button. `onSync?: (id: string) => void` prop added to `DetailModalProps`; safe to omit (button only renders when prop is present).

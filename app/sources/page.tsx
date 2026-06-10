@@ -153,14 +153,14 @@ const LINKED_SOURCES = [
     features: ['Seasonal charts', 'Airing schedules'],
     status: 'live' as const,
   },
-  // ── Planned ────────────────────────────────────────────────────────────────
+  // ── No public API ──────────────────────────────────────────────────────────
   {
     name: 'menome.in.th',
     url: 'http://menome.in.th',
-    via: 'Thai anime community',
-    description: 'Thai-language anime community database. Integration planned for Thai-specific metadata and community lists.',
+    via: 'No public API',
+    description: 'Thai-language anime community database. No public API is available — integration is not currently feasible.',
     features: ['Thai community data'],
-    status: 'in_progress' as const,
+    status: 'declined' as const,
   },
 ]
 

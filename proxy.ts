@@ -29,6 +29,7 @@ export async function proxy(request: NextRequest) {
   const isLoginPage = request.nextUrl.pathname === '/login'
   const isCallback = request.nextUrl.pathname.startsWith('/auth/')
   const isPublicShare = request.nextUrl.pathname.startsWith('/share/')
+  const isPublicPage = request.nextUrl.pathname === '/install'
   const p = request.nextUrl.pathname
   // Cron + warmup routes secure themselves (CRON_SECRET Bearer header) —
   // Vercel sends no session cookie, so they must be exempt from auth redirect.
@@ -48,7 +49,7 @@ export async function proxy(request: NextRequest) {
     // Public anime/manga data only; no user data returned.
     p === '/api/jikan-proxy'
 
-  if (!user && !isLoginPage && !isCallback && !isPublicShare && !isPublicApi) {
+  if (!user && !isLoginPage && !isCallback && !isPublicShare && !isPublicApi && !isPublicPage) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 

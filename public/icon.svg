@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background with rounded corners (maskable-safe: content in centre 80%) -->
+  <rect width="512" height="512" rx="96" fill="#0d0d0d"/>
+  <!-- Vermillion accent bar -->
+  <rect x="0" y="0" width="512" height="6" rx="3" fill="#FF2D46"/>
+  <!-- Y lettermark -->
+  <text
+    x="256" y="340"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="300"
+    font-weight="700"
+    text-anchor="middle"
+    fill="#FF2D46"
+    letter-spacing="-8"
+  >Y</text>
+  <!-- YOMU wordmark under the Y -->
+  <text
+    x="256" y="420"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="60"
+    font-weight="700"
+    text-anchor="middle"
+    fill="#ffffff"
+    letter-spacing="18"
+    opacity="0.7"
+  >YOMU</text>
+</svg>

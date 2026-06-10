@@ -246,6 +246,26 @@ export default function ExtensionPage() {
         </section>
 
       </div>
+
+      {/* Mobile install nudge */}
+      <div className="max-w-2xl mx-auto px-4 pb-10">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center gap-4">
+          <div className="w-9 h-9 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center shrink-0">
+            <Globe size={18} className="text-red-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">Using YOMU on your phone?</p>
+            <p className="text-xs text-zinc-500 mt-0.5">Add it to your home screen for a full-screen app experience — no App Store needed.</p>
+          </div>
+          <Link
+            href="/install"
+            className="shrink-0 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
+          >
+            How to install
+          </Link>
+        </div>
+      </div>
+
     </main>
   )
 }

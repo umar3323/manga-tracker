@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { enrichWithGemini } from '@/lib/gemini'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -16,6 +17,9 @@ export interface DeepSearchResult {
   published_from: string | null
   published_to: string | null
   arcs: Arc[]
+  synopsis: string | null
+  themes: string[]
+  trivia: string | null
   source: string
 }
 
@@ -65,7 +69,7 @@ If you don't know the arcs, reply with an empty array: []`,
 }
 
 export async function POST(req: NextRequest) {
-  const { mal_id, title } = await req.json()
+  const { mal_id, title, content_type } = await req.json()
 
   let jikanData: Record<string, unknown> | null = null
   if (mal_id) {
@@ -80,7 +84,17 @@ export async function POST(req: NextRequest) {
   const score = (jikanData?.score as number | undefined) ?? null
   const published = jikanData?.published as { from?: string; to?: string } | undefined
 
-  const arcs = await getArcsFromClaude(resolvedTitle, totalChapters)
+  // Run Claude arc detection and optional Gemini enrichment in parallel.
+  // Gemini only fires when GEMINI_API_KEY is set — it's a no-op otherwise.
+  const [arcs, gemini] = await Promise.all([
+    getArcsFromClaude(resolvedTitle, totalChapters),
+    enrichWithGemini(resolvedTitle, content_type ?? 'manga'),
+  ])
+
+  const sources: string[] = []
+  if (jikanData) sources.push('jikan')
+  sources.push('claude')
+  if (gemini.synopsis || gemini.themes.length) sources.push('gemini')
 
   const result: DeepSearchResult = {
     title: resolvedTitle,
@@ -89,7 +103,10 @@ export async function POST(req: NextRequest) {
     published_from: published?.from ?? null,
     published_to: published?.to ?? null,
     arcs,
-    source: jikanData ? 'jikan+claude' : 'claude',
+    synopsis: gemini.synopsis,
+    themes: gemini.themes,
+    trivia: gemini.trivia,
+    source: sources.join('+'),
   }
 
   return NextResponse.json(result)

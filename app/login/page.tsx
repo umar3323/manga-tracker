@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
 function LoginForm() {
@@ -106,6 +107,12 @@ export default function LoginPage() {
         <Suspense fallback={null}>
           <LoginForm />
         </Suspense>
+        <p className="mt-6 text-center text-xs text-zinc-600">
+          On your phone?{' '}
+          <Link href="/install" className="text-zinc-400 underline underline-offset-2 hover:text-white transition-colors">
+            Add YOMU to your home screen
+          </Link>
+        </p>
       </div>
     </main>
   )

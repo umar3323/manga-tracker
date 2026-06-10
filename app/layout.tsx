@@ -7,10 +7,10 @@ import ExtensionAuthPush from '@/components/ExtensionAuthPush'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Manga Tracker',
+  title: 'YOMU',
   description: 'Track your manga reading and anime watching progress',
   manifest: '/manifest.json',
-  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Manga' },
+  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'YOMU' },
   icons: { apple: '/icon.svg', icon: '/icon.svg' },
 }
 

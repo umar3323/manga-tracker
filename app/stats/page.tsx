@@ -507,6 +507,729 @@ export default function StatsPage() {
     )
   }, [log])
 
+  const watchHistorySection = useMemo(() => {
+    if (!watchSessions.length) return null
+    const now = new Date()
+    const completed = watchSessions.filter(s => s.is_complete)
+    const totalWatchSec = watchSessions.reduce((s, w) => s + (w.watched_seconds ?? 0), 0)
+    const totalHours = Math.floor(totalWatchSec / 3600)
+    const totalMins = Math.floor((totalWatchSec % 3600) / 60)
+
+    const titleCount: Record<string, number> = {}
+    const titleTime: Record<string, number> = {}
+    for (const s of watchSessions) {
+      const t = s.title_raw
+      titleCount[t] = (titleCount[t] ?? 0) + (s.is_complete ? 1 : 0)
+      titleTime[t] = (titleTime[t] ?? 0) + (s.watched_seconds ?? 0)
+    }
+    const topTitles = Object.entries(titleTime).sort((a, b) => b[1] - a[1]).slice(0, 5)
+
+    const last7eps = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(now); d.setDate(now.getDate() - (6 - i))
+      const ds = d.toDateString()
+      return {
+        label: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],
+        isToday: i === 6,
+        count: watchSessions.filter(s => s.is_complete && new Date(s.watched_at).toDateString() === ds).length,
+      }
+    })
+    const maxEpDay = Math.max(...last7eps.map(d => d.count), 1)
+
+    const coverMap: Record<string, string | null> = {}
+    for (const m of manga) coverMap[m.id] = m.cover_url
+
+    const fmtDuration = (sec: number) => {
+      const h = Math.floor(sec / 3600)
+      const m = Math.floor((sec % 3600) / 60)
+      const s = sec % 60
+      if (h > 0) return `${h}h ${m}m`
+      if (m > 0) return `${m}m ${s}s`
+      return `${s}s`
+    }
+    const fmtDate = (iso: string) => {
+      const d = new Date(iso)
+      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) +
+        ' · ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    }
+
+    const visibleSessions = showAllSessions ? watchSessions : watchSessions.slice(0, 15)
+
+    const completionPct = watchSessions.length > 0
+      ? Math.round((completed.length / watchSessions.length) * 100)
+      : 0
+
+    const weeklyTrend = Array.from({ length: 8 }, (_, i) => {
+      const end = new Date(now); end.setDate(now.getDate() - (7 - i) * 7); end.setHours(23,59,59,999)
+      const start = new Date(end); start.setDate(end.getDate() - 6); start.setHours(0,0,0,0)
+      const mins = watchSessions
+        .filter(s => { const d = new Date(s.watched_at); return d >= start && d <= end })
+        .reduce((sum, w) => sum + Math.round((w.watched_seconds ?? 0) / 60), 0)
+      return { label: i === 7 ? 'Now' : `${7 - i}w`, mins }
+    })
+    const maxWeekMins = Math.max(...weeklyTrend.map(w => w.mins), 1)
+
+    const hourData = Array.from({ length: 24 }, (_, h) => ({
+      hour: h,
+      label: h === 0 ? '12a' : h < 12 ? `${h}a` : h === 12 ? '12p' : `${h - 12}p`,
+      count: watchSessions.filter(s => s.is_complete && new Date(s.watched_at).getHours() === h).length,
+    }))
+    const maxHourCount = Math.max(...hourData.map(h => h.count), 1)
+
+    return (
+      <div className="mb-6">
+        <h2 className="text-lg font-bold mb-3">Watch History</h2>
+        <p className="text-xs text-zinc-500 mb-4">Tracked automatically by the YOMU Chrome extension</p>
+
+        {/* Hero stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <StatCard value={completed.length} label="Episodes Completed" />
+          <StatCard value={totalHours > 0 ? `${totalHours}h ${totalMins}m` : `${totalMins}m`} label="Total Watch Time" />
+          <StatCard value={Object.keys(titleCount).length} label="Titles Tracked" />
+          <StatCard value={watchSessions.length} label="Sessions Logged" />
+        </div>
+
+        {/* Completion ring + 8-week trend */}
+        <div className="lg:grid lg:grid-cols-2 lg:gap-4 mb-4">
+          {/* Completion rate */}
+          <div className="bg-zinc-900 rounded-xl p-5 mb-4 flex items-center gap-6">
+            <div className="relative shrink-0">
+              <svg width={96} height={96} className="-rotate-90">
+                <circle cx={48} cy={48} r={40} fill="none" stroke="#27272a" strokeWidth="8" />
+                <circle cx={48} cy={48} r={40} fill="none" stroke="#2BE6DC" strokeWidth="8"
+                  strokeDasharray={`${(completionPct / 100) * 2 * Math.PI * 40} ${2 * Math.PI * 40}`}
+                  strokeLinecap="round"
+                  style={{ transition: 'stroke-dasharray 0.6s ease' }} />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-lg font-bold text-white">{completionPct}%</span>
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white mb-1">Completion Rate</p>
+              <p className="text-xs text-zinc-500">{completed.length} of {watchSessions.length} sessions fully watched</p>
+              <p className="text-[10px] text-zinc-600 mt-1">Episodes you watched end-to-end</p>
+            </div>
+          </div>
+
+          {/* 8-week watch time trend */}
+          <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+            <h3 className="text-sm font-semibold mb-4">Watch Time Trend <span className="text-zinc-600 font-normal text-[10px]">last 8 weeks</span></h3>
+            <div className="relative h-24">
+              <svg width="100%" height="100%" viewBox="0 0 280 80" preserveAspectRatio="none" className="overflow-visible">
+                {/* Area fill */}
+                <defs>
+                  <linearGradient id="wt-grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#2BE6DC" stopOpacity="0.25" />
+                    <stop offset="100%" stopColor="#2BE6DC" stopOpacity="0.02" />
+                  </linearGradient>
+                </defs>
+                {weeklyTrend.length > 1 && (() => {
+                  const pts = weeklyTrend.map((w, i) => ({
+                    x: (i / (weeklyTrend.length - 1)) * 280,
+                    y: 80 - (w.mins / maxWeekMins) * 68 - 4,
+                  }))
+                  const lineD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+                  const areaD = lineD + ` L ${pts[pts.length-1].x} 80 L 0 80 Z`
+                  return (
+                    <>
+                      <path d={areaD} fill="url(#wt-grad)" />
+                      <path d={lineD} fill="none" stroke="#2BE6DC" strokeWidth="1.5" strokeLinejoin="round" />
+                      {pts.map((p, i) => (
+                        <circle key={i} cx={p.x} cy={p.y} r="2.5" fill={i === pts.length-1 ? '#2BE6DC' : '#0d0d0d'} stroke="#2BE6DC" strokeWidth="1.5" />
+                      ))}
+                    </>
+                  )
+                })()}
+              </svg>
+              {/* X-axis labels */}
+              <div className="flex justify-between mt-1 text-[9px] text-zinc-600">
+                {weeklyTrend.map((w, i) => (
+                  <span key={i} style={{ color: i === weeklyTrend.length-1 ? 'var(--cyan)' : undefined }}>{w.label}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="lg:grid lg:grid-cols-2 lg:gap-4 mb-4">
+          {/* 7-day episode bar chart */}
+          <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+            <h3 className="text-sm font-semibold mb-4">Episodes This Week</h3>
+            <div className="flex items-end gap-2 h-24">
+              {last7eps.map((d, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                  <div className="w-full flex items-end justify-center" style={{ height: 72 }}>
+                    <div className="w-full rounded-t-md transition-all"
+                      style={{ height: `${Math.max((d.count / maxEpDay) * 72, d.count > 0 ? 4 : 0)}px`, backgroundColor: d.isToday ? 'var(--cyan)' : 'var(--ink-500)' }} />
+                  </div>
+                  <span className="text-xs" style={{ color: d.isToday ? 'var(--cyan)' : 'var(--fg-3)' }}>{d.label}</span>
+                  {d.count > 0 && <span className="text-[10px] text-zinc-500">{d.count}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Most watched */}
+          <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+            <h3 className="text-sm font-semibold mb-4">Most Watched</h3>
+            <div className="space-y-3">
+              {topTitles.map(([title, secs], i) => {
+                const h = Math.floor(secs / 3600)
+                const m = Math.floor((secs % 3600) / 60)
+                const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`
+                const eps = titleCount[title] ?? 0
+                return (
+                  <div key={title} className="flex items-center gap-3">
+                    <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
+                    <span className="text-xs text-zinc-300 flex-1 truncate">{title}</span>
+                    <span className="text-[10px] text-zinc-500 shrink-0">{eps} ep</span>
+                    <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden shrink-0">
+                      <div className="h-full rounded-full" style={{ width: `${(secs / topTitles[0][1]) * 100}%`, backgroundColor: 'var(--cyan)' }} />
+                    </div>
+                    <span className="text-[10px] text-zinc-500 w-12 text-right shrink-0">{timeStr}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Session log */}
+        <div className="bg-zinc-900 rounded-xl p-5">
+          <h3 className="text-sm font-semibold mb-4">Session Log</h3>
+          <div className="space-y-0">
+            {/* Header */}
+            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 pb-2 border-b border-zinc-800 text-[10px] text-zinc-600 uppercase tracking-wide">
+              <span>Title / Episode</span>
+              <span className="text-right">Watched</span>
+              <span className="text-right">Date &amp; Time</span>
+              <span className="text-right">Site</span>
+            </div>
+            {visibleSessions.map(s => {
+              const cover = s.manga_id ? coverMap[s.manga_id] : null
+              const pct   = s.duration_seconds > 0 ? Math.round((s.watched_seconds / s.duration_seconds) * 100) : null
+              return (
+                <div key={s.id} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 py-2.5 border-b border-zinc-800/50 items-center">
+                  {/* Title + episode */}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {cover
+                      ? <img src={cover} alt="" className="w-7 h-9 object-cover rounded shrink-0 opacity-80" />
+                      : <div className="w-7 h-9 bg-zinc-800 rounded shrink-0 flex items-center justify-center text-zinc-600 text-[8px]">▷</div>
+                    }
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-zinc-200 truncate">{s.title_raw}</p>
+                      <p className="text-[10px] text-zinc-500">
+                        {s.episode != null ? `Ep. ${s.episode}` : '—'}
+                        {s.season != null ? ` · S${s.season}` : ''}
+                        {s.is_complete
+                          ? <span className="ml-1.5 text-emerald-500">✓</span>
+                          : pct != null ? <span className="ml-1.5 text-zinc-600">{pct}%</span> : null
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  {/* Duration watched */}
+                  <div className="text-right">
+                    <p className="text-xs text-zinc-300 whitespace-nowrap">{fmtDuration(s.watched_seconds)}</p>
+                    {s.duration_seconds > 0 && (
+                      <p className="text-[10px] text-zinc-600">/ {fmtDuration(s.duration_seconds)}</p>
+                    )}
+                  </div>
+                  {/* Date & time */}
+                  <div className="text-right">
+                    <p className="text-[10px] text-zinc-400 whitespace-nowrap">{fmtDate(s.watched_at)}</p>
+                  </div>
+                  {/* Site */}
+                  <div className="text-right">
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-500 whitespace-nowrap">
+                      {s.site?.replace('www.', '').replace('.ru', '').replace('.com', '') ?? '—'}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          {watchSessions.length > 15 && (
+            <button onClick={() => setShowAllSessions(v => !v)}
+              className="mt-3 text-xs text-zinc-500 hover:text-zinc-300 transition-colors w-full text-center">
+              {showAllSessions ? 'Show Less ↑' : `Show All ${watchSessions.length} Sessions ↓`}
+            </button>
+          )}
+        </div>
+
+        {/* Episode calendar heatmap */}
+        <WatchHeatmap sessions={watchSessions} />
+
+        {/* Hour-of-day histogram */}
+        {completed.length > 0 && (
+          <div className="bg-zinc-900 rounded-xl p-5">
+            <h3 className="text-sm font-semibold mb-1">When You Watch</h3>
+            <p className="text-xs text-zinc-500 mb-4">Episodes completed by hour of day</p>
+            <div className="flex items-end gap-[3px] h-16">
+              {hourData.map((h, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center" title={`${h.label}: ${h.count} ep`}>
+                  <div className="w-full rounded-t-sm transition-all"
+                    style={{
+                      height: `${Math.max((h.count / maxHourCount) * 56, h.count > 0 ? 3 : 0)}px`,
+                      backgroundColor: h.count > 0
+                        ? (h.hour >= 22 || h.hour <= 5 ? '#a78bfa'
+                          : h.hour >= 18 ? '#2BE6DC'
+                          : h.hour >= 12 ? '#FF2D46'
+                          : '#FFB02E')
+                        : '#27272a',
+                    }} />
+                </div>
+              ))}
+            </div>
+            {/* X-axis: every 3 hours */}
+            <div className="flex mt-1.5 text-[9px] text-zinc-600">
+              {hourData.map((h, i) => (
+                <div key={i} className="flex-1 text-center">{i % 3 === 0 ? h.label : ''}</div>
+              ))}
+            </div>
+            {/* Legend */}
+            <div className="flex gap-3 mt-2 text-[9px] text-zinc-600 flex-wrap">
+              <span><span style={{ color: '#FFB02E' }}>■</span> Morning</span>
+              <span><span style={{ color: '#FF2D46' }}>■</span> Afternoon</span>
+              <span><span style={{ color: '#2BE6DC' }}>■</span> Evening</span>
+              <span><span style={{ color: '#a78bfa' }}>■</span> Late Night</span>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }, [watchSessions, manga, showAllSessions])
+
+  const watchDnaSection = useMemo(() => {
+    if (!watchSessions.length) return null
+    const now = new Date()
+    const GENRE_PALETTE = ['#FF2D46','#FF8C42','#FFB02E','#2FCF7A','#2BE6DC','#818CF8']
+
+    const titleToManga: Record<string, Manga> = {}
+    for (const m of manga) {
+      if (m.has_anime || m.content_type === 'anime') {
+        titleToManga[(m.anime_title ?? m.title).toLowerCase()] = m
+        titleToManga[m.title.toLowerCase()] = m
+      }
+    }
+
+    const genreEpisodes: Record<string, number> = {}
+    const watchedTitles = new Set<string>()
+    for (const s of watchSessions) {
+      if (!s.is_complete) continue
+      watchedTitles.add(s.title_raw)
+      const m = titleToManga[s.title_raw.toLowerCase()]
+      if (m?.genres?.length) {
+        for (const g of m.genres) {
+          genreEpisodes[g] = (genreEpisodes[g] ?? 0) + 1
+        }
+      }
+    }
+    const topWatchGenres = Object.entries(genreEpisodes).sort((a, b) => b[1] - a[1]).slice(0, 6)
+
+    const activeDaysSet = new Set(
+      watchSessions.filter(s => s.is_complete).map(s => new Date(s.watched_at).toDateString())
+    )
+    const completedEps = watchSessions.filter(s => s.is_complete).length
+    const avgEpsPerDay = activeDaysSet.size > 0 ? Math.round(completedEps / activeDaysSet.size) : 0
+
+    const rewatchedTitles = manga.filter(m =>
+      (m.has_anime || m.content_type === 'anime') &&
+      m.total_episodes && m.episodes_watched > m.total_episodes
+    )
+    const rewatchCount = rewatchedTitles.length
+
+    const topWatchGenre = topWatchGenres[0]?.[0] ?? ''
+    const watchPersonality: Record<string, string> = {
+      Action: 'Binge warrior',       Fantasy: 'World-builder',
+      Comedy: 'Laughter hunter',     Romance: 'Heart-seeker',
+      'Slice of Life': 'Chill watcher', Supernatural: 'Mystery chaser',
+      Horror: 'Thrill-seeker',       Drama: 'Story-driven',
+      'Sci-Fi': 'Future-gazer',      Shounen: 'Power-level chaser',
+    }
+
+    const titleEpCount: Record<string, number> = {}
+    for (const s of watchSessions) {
+      if (s.is_complete) titleEpCount[s.title_raw] = (titleEpCount[s.title_raw] ?? 0) + 1
+    }
+    const topWatchTitles = Object.entries(titleEpCount).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    const maxEpTitle = topWatchTitles[0]?.[1] ?? 1
+
+    const todayEps = watchSessions.filter(s => s.is_complete && new Date(s.watched_at).toDateString() === now.toDateString()).length
+    const todaySec = watchSessions.filter(s => new Date(s.watched_at).toDateString() === now.toDateString())
+      .reduce((sum, s) => sum + (s.watched_seconds ?? 0), 0)
+    const todayHrs = Math.floor(todaySec / 3600)
+    const todayMins = Math.floor((todaySec % 3600) / 60)
+
+    return (
+      <div className="mb-6">
+        <hr className="border-zinc-800 mb-6" />
+        <h2 className="text-lg font-bold mb-3">Your Watch DNA</h2>
+        <p className="text-xs text-zinc-500 mb-4">Based on extension-tracked sessions</p>
+
+        {/* Hero row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <div className="bg-zinc-900 rounded-xl p-4 text-center">
+            <div className="text-xl font-bold text-white">
+              {todayHrs > 0 ? `${todayHrs}h ${todayMins}m` : `${todayMins}m`}
+            </div>
+            <div className="text-xs text-zinc-500 mt-0.5">Today</div>
+          </div>
+          <div className="bg-zinc-900 rounded-xl p-4 text-center">
+            <div className="text-xl font-bold text-white">{todayEps}</div>
+            <div className="text-xs text-zinc-500 mt-0.5">Episodes Today</div>
+          </div>
+          <div className="bg-zinc-900 rounded-xl p-4 text-center">
+            <div className="text-xl font-bold text-white">{activeDaysSet.size}</div>
+            <div className="text-xs text-zinc-500 mt-0.5">Active Watch Days</div>
+          </div>
+          <div className="bg-zinc-900 rounded-xl p-4 text-center">
+            <div className="text-xl font-bold text-white">{rewatchCount}</div>
+            <div className="text-xs text-zinc-500 mt-0.5">Rewatched</div>
+          </div>
+        </div>
+
+        <div className="lg:grid lg:grid-cols-2 lg:gap-4 mb-4">
+          {/* Personality + genre donut */}
+          {topWatchGenres.length > 0 && (
+            <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+              <div className="flex items-center gap-3 mb-4">
+                <Clapperboard size={20} strokeWidth={1.5} className="text-violet-400 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-white">{watchPersonality[topWatchGenre] ?? 'Avid Watcher'}</p>
+                  <p className="text-xs text-zinc-500">
+                    {avgEpsPerDay > 0 ? `${avgEpsPerDay} Episodes Per Active Day` : 'Keep watching to build your profile'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-4 items-start">
+                <div className="shrink-0">
+                  <DonutChart size={100} data={topWatchGenres.map(([g, n], i) => ({ label: g, value: n, color: GENRE_PALETTE[i % GENRE_PALETTE.length] }))} />
+                </div>
+                <div className="flex-1 space-y-2">
+                  {topWatchGenres.map(([genre, eps], i) => (
+                    <div key={genre} className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: GENRE_PALETTE[i % GENRE_PALETTE.length] }} />
+                      <span className="text-xs text-zinc-400 w-20 shrink-0 truncate">{genre}</span>
+                      <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${(eps / (topWatchGenres[0][1] || 1)) * 100}%`, backgroundColor: GENRE_PALETTE[i % GENRE_PALETTE.length] }} />
+                      </div>
+                      <span className="text-[10px] text-zinc-500 w-12 text-right shrink-0">{eps} ep</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Top titles by episodes watched */}
+          {topWatchTitles.length > 0 && (
+            <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+              <h3 className="text-sm font-semibold mb-4">Most Watched <span className="text-zinc-600 font-normal text-[10px]">by episodes</span></h3>
+              <div className="space-y-3">
+                {topWatchTitles.map(([title, eps], i) => {
+                  const entry = titleToManga[title.toLowerCase()]
+                  const isRewatch = entry?.total_episodes && entry.episodes_watched > entry.total_episodes
+                  return (
+                    <div key={title} className="flex items-center gap-3">
+                      <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
+                      <span className="text-xs text-zinc-300 flex-1 truncate">{title}</span>
+                      {isRewatch && <span className="text-[9px] text-cyan-500 shrink-0 border border-cyan-700 rounded px-1">RE</span>}
+                      <div className="w-20 h-2 bg-zinc-800 rounded-full overflow-hidden shrink-0">
+                        <div className="h-full rounded-full" style={{ width: `${(eps / maxEpTitle) * 100}%`, backgroundColor: '#a78bfa' }} />
+                      </div>
+                      <span className="text-[10px] text-zinc-500 w-8 text-right shrink-0">{eps}ep</span>
+                    </div>
+                  )
+                })}
+              </div>
+              {rewatchCount > 0 && (
+                <div className="mt-4 pt-3 border-t border-zinc-800">
+                  <p className="text-xs text-zinc-500">🔁 Rewatched <span className="text-white">{rewatchCount}</span> {rewatchCount === 1 ? 'series' : 'series'} — because once wasn&#39;t enough</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }, [watchSessions, manga])
+
+  const ratingsSection = useMemo(() => {
+    const liked    = manga.filter(m => m.user_rating === 'up')
+    const disliked = manga.filter(m => m.user_rating === 'down')
+    if (liked.length === 0 && disliked.length === 0) return null
+
+    const genreCount = (list: typeof manga) => {
+      const acc: Record<string, number> = {}
+      list.forEach(m => (m.genres ?? []).forEach(g => { acc[g] = (acc[g] ?? 0) + 1 }))
+      return Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    }
+    const likedGenres    = genreCount(liked)
+    const dislikedGenres = genreCount(disliked)
+
+    const effectiveAnimeRating = (a: AnimeRow) => a.user_rating ?? a.netflix_rating
+    const likedAnime    = animeList.filter(a => effectiveAnimeRating(a) === 'up').map(a => a.title)
+    const dislikedAnime = animeList.filter(a => effectiveAnimeRating(a) === 'down').map(a => a.title)
+
+    return (
+      <div className="mb-6">
+        <h2 className="text-lg font-bold mb-3">Your ratings</h2>
+        <div className="lg:grid lg:grid-cols-2 lg:gap-4">
+          {/* Liked */}
+          {liked.length > 0 && (
+            <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+              <div className="flex items-center gap-2 mb-3">
+                <ThumbsUp size={14} strokeWidth={1.5} className="icon-success" />
+                <h3 className="text-sm font-semibold text-emerald-400">{liked.length} Liked</h3>
+              </div>
+              <div className="space-y-1 mb-3">
+                {liked.slice(0, 5).map(m => (
+                  <p key={m.id} className="text-xs text-zinc-300 truncate">• {m.title}</p>
+                ))}
+                {liked.length > 5 && <p className="text-xs text-zinc-600">+{liked.length - 5} more</p>}
+              </div>
+              {likedGenres.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-3 border-t border-zinc-800">
+                  {likedGenres.map(([g, n]) => (
+                    <span key={g} className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-900/30 border border-emerald-800/40 text-emerald-400">{g} ×{n}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Disliked */}
+          {disliked.length > 0 && (
+            <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+              <div className="flex items-center gap-2 mb-3">
+                <ThumbsDown size={14} strokeWidth={1.5} style={{color:'var(--danger)'}} />
+                <h3 className="text-sm font-semibold text-red-400">{disliked.length} Disliked</h3>
+              </div>
+              <div className="space-y-1 mb-3">
+                {disliked.slice(0, 5).map(m => (
+                  <p key={m.id} className="text-xs text-zinc-300 truncate">• {m.title}</p>
+                ))}
+                {disliked.length > 5 && <p className="text-xs text-zinc-600">+{disliked.length - 5} more</p>}
+              </div>
+              {dislikedGenres.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-3 border-t border-zinc-800">
+                  {dislikedGenres.map(([g, n]) => (
+                    <span key={g} className="text-[10px] px-2 py-0.5 rounded-full bg-red-900/30 border border-red-800/40 text-red-400">{g} ×{n}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Anime ratings */}
+          {(likedAnime.length > 0 || dislikedAnime.length > 0) && (
+            <div className="bg-zinc-900 rounded-xl p-5 mb-4 lg:col-span-2">
+              <h3 className="text-sm font-semibold mb-3">Anime ratings</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-zinc-500 mb-2 flex items-center gap-1"><ThumbsUp size={10} strokeWidth={1.5} className="icon-success" /> Liked ({likedAnime.length})</p>
+                  {likedAnime.slice(0, 5).map(t => <p key={t} className="text-xs text-zinc-300 truncate">• {t}</p>)}
+                  {likedAnime.length > 5 && <p className="text-xs text-zinc-600">+{likedAnime.length - 5} more</p>}
+                </div>
+                <div>
+                  <p className="text-xs text-zinc-500 mb-2 flex items-center gap-1"><ThumbsDown size={10} strokeWidth={1.5} style={{color:'var(--danger)'}} /> Disliked ({dislikedAnime.length})</p>
+                  {dislikedAnime.slice(0, 5).map(t => <p key={t} className="text-xs text-zinc-300 truncate">• {t}</p>)}
+                  {dislikedAnime.length > 5 && <p className="text-xs text-zinc-600">+{dislikedAnime.length - 5} more</p>}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }, [manga, animeList])
+
+  const tasteProfileSection = useMemo(() => {
+    const genreChapters: Record<string, number> = {}
+    for (const m of manga) {
+      if (!m.genres?.length || !m.current_chapter) continue
+      for (const g of m.genres) {
+        genreChapters[g] = (genreChapters[g] ?? 0) + m.current_chapter
+      }
+    }
+    const topGenres = Object.entries(genreChapters).sort((a, b) => b[1] - a[1]).slice(0, 6)
+    if (!topGenres.length) return null
+    const maxG = topGenres[0][1]
+
+    const topGenre = topGenres[0]?.[0] ?? ''
+    const personality: Record<string, string> = {
+      Action: 'Battle-hungry',    Fantasy: 'World-builder',
+      Romance: 'Heart-seeker',    Horror: 'Thrill-chaser',
+      Comedy: 'Laughter-seeker',  Psychological: 'Mind-explorer',
+      Shounen: 'Determined soul', Seinen: 'Thoughtful reader',
+      'Sci-Fi': 'Future-gazer',   Drama: 'Story-chaser',
+    }
+
+    const activeDaysCount = new Set(log.map(l => new Date(l.logged_at).toDateString())).size
+    const avgPerActiveDay = activeDaysCount > 0
+      ? Math.round(log.reduce((s, l) => s + l.chapters_read, 0) / activeDaysCount)
+      : 0
+
+    const GENRE_PALETTE = ['#FF2D46','#FF8C42','#FFB02E','#2FCF7A','#2BE6DC','#818CF8']
+
+    return (
+      <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+        <h2 className="text-sm font-semibold mb-1">Your Reading DNA</h2>
+        <div className="flex items-center gap-3 mb-4">
+          <BookOpen size={22} strokeWidth={1.5} className="icon-primary shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-white">{personality[topGenre] ?? 'Avid Reader'}</p>
+            <p className="text-xs text-zinc-500">
+              {avgPerActiveDay > 0 ? `${avgPerActiveDay} Chapters Per Active Day` : 'Start Logging Chapters To See Pace'}
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-4 items-start">
+          {/* Genre donut */}
+          <div className="shrink-0">
+            <DonutChart
+              size={110}
+              data={topGenres.map(([genre, chapters], i) => ({
+                label: genre,
+                value: chapters,
+                color: GENRE_PALETTE[i % GENRE_PALETTE.length],
+              }))}
+            />
+          </div>
+          {/* Bars + legend */}
+          <div className="flex-1 space-y-2">
+            {topGenres.map(([genre, chapters], i) => (
+              <div key={genre} className="flex items-center gap-3">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: GENRE_PALETTE[i % GENRE_PALETTE.length] }} />
+                <span className="text-xs text-zinc-400 w-24 shrink-0 truncate">{genre}</span>
+                <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full transition-all"
+                    style={{ width: `${(chapters / maxG) * 100}%`, backgroundColor: GENRE_PALETTE[i % GENRE_PALETTE.length] }} />
+                </div>
+                <span className="text-xs text-zinc-500 w-16 text-right shrink-0">
+                  {chapters.toLocaleString()} ch
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }, [manga, log])
+
+  const analyticsSection = useMemo(() => {
+    const droppedOrHold = manga.filter(m => m.status === 'dropped' || m.status === 'on_hold')
+    const dropBuckets: Record<string, number> = { '1–25': 0, '26–75': 0, '76–150': 0, '151–300': 0, '300+': 0 }
+    for (const m of droppedOrHold) {
+      const ch = m.current_chapter
+      if (ch <= 25) dropBuckets['1–25']++
+      else if (ch <= 75) dropBuckets['26–75']++
+      else if (ch <= 150) dropBuckets['76–150']++
+      else if (ch <= 300) dropBuckets['151–300']++
+      else dropBuckets['300+']++
+    }
+    const maxDrop = Math.max(...Object.values(dropBuckets), 1)
+
+    const genreTotal: Record<string, number> = {}
+    const genreDone: Record<string, number> = {}
+    for (const m of manga) {
+      for (const g of (m.genres ?? [])) {
+        genreTotal[g] = (genreTotal[g] ?? 0) + 1
+        if (m.status === 'completed') genreDone[g] = (genreDone[g] ?? 0) + 1
+      }
+    }
+    const genreRates = Object.entries(genreTotal)
+      .filter(([, n]) => n >= 2)
+      .map(([g, n]) => ({ genre: g, rate: Math.round(((genreDone[g] ?? 0) / n) * 100), total: n }))
+      .sort((a, b) => b.rate - a.rate)
+      .slice(0, 6)
+
+    const byDay: Record<string, number> = {}
+    for (const l of log) {
+      const d = new Date(l.logged_at).toDateString()
+      byDay[d] = (byDay[d] ?? 0) + l.chapters_read
+    }
+    const sessionValues = Object.values(byDay)
+    const avgSession = sessionValues.length
+      ? Math.round(sessionValues.reduce((s, v) => s + v, 0) / sessionValues.length)
+      : 0
+    const maxSession = sessionValues.length ? Math.max(...sessionValues) : 0
+
+    if (!droppedOrHold.length && !genreRates.length && !log.length) return null
+
+    return (
+      <>
+        {/* Two-column row: drop-off + genre completion — these pair naturally */}
+        {(droppedOrHold.length > 0 || genreRates.length > 0) && (
+          <div className="lg:grid lg:grid-cols-2 lg:gap-6">
+            {droppedOrHold.length > 0 && (
+              <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+                <h2 className="text-sm font-semibold mb-1">Where You Stop Reading</h2>
+                <p className="text-xs text-zinc-500 mb-4">Chapter range when you dropped or paused ({droppedOrHold.length} titles)</p>
+                <div className="space-y-2">
+                  {Object.entries(dropBuckets).map(([range, count]) => (
+                    <div key={range} className="flex items-center gap-3">
+                      <span className="text-xs text-zinc-500 w-16 shrink-0">Ch. {range}</span>
+                      <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${(count / maxDrop) * 100}%`, backgroundColor: 'rgba(255,71,87,0.7)' }} />
+                      </div>
+                      <span className="text-xs text-zinc-500 w-4 text-right shrink-0">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {genreRates.length > 0 && (
+              <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+                <h2 className="text-sm font-semibold mb-1">Completion Rate By Genre</h2>
+                <p className="text-xs text-zinc-500 mb-4">How Often You Finish What You Start</p>
+                <div className="space-y-2">
+                  {genreRates.map(({ genre, rate, total }) => (
+                    <div key={genre} className="flex items-center gap-3">
+                      <span className="text-xs text-zinc-400 w-24 shrink-0 truncate">{genre}</span>
+                      <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full"
+                          style={{ width: `${rate}%`, backgroundColor: rate >= 70 ? 'var(--success)' : rate >= 40 ? 'var(--screen-yellow)' : 'var(--danger)' }} />
+                      </div>
+                      <span className="text-xs text-zinc-500 w-14 text-right shrink-0">{rate}% / {total}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Session stats — full width, never orphaned in a half-empty row */}
+        {log.length > 0 && (
+          <div className="bg-zinc-900 rounded-xl p-5 mb-6">
+            <h2 className="text-sm font-semibold mb-4">Reading Sessions</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="bg-zinc-800 rounded-xl p-3 text-center">
+                <div className="text-2xl font-bold">{avgSession}</div>
+                <div className="text-xs text-zinc-500 mt-1">Avg Ch Per Day</div>
+              </div>
+              <div className="bg-zinc-800 rounded-xl p-3 text-center">
+                <div className="text-2xl font-bold">{maxSession}</div>
+                <div className="text-xs text-zinc-500 mt-1">Best Single Day</div>
+              </div>
+              <div className="bg-zinc-800 rounded-xl p-3 text-center">
+                <div className="text-2xl font-bold">{Object.keys(byDay).length}</div>
+                <div className="text-xs text-zinc-500 mt-1">Reading Days (Yr)</div>
+              </div>
+              <div className="bg-zinc-800 rounded-xl p-3 text-center">
+                <div className="text-2xl font-bold">{droppedOrHold.length}</div>
+                <div className="text-xs text-zinc-500 mt-1">Abandoned Titles</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    )
+  }, [manga, log])
+
   if (loading) return <main className="min-h-screen bg-[#0d0d0d] text-white flex items-center justify-center"><div className="text-zinc-500 text-sm">Loading…</div></main>
 
   // ── Computed stats ─────────────────────────────────────────────────────────
@@ -584,566 +1307,15 @@ export default function StatsPage() {
         <hr className="border-zinc-800 mb-6" />
 
         {/* ── Watch History (extension-tracked) ── */}
-        {watchSessions.length > 0 && (() => {
-          const completed   = watchSessions.filter(s => s.is_complete)
-          const totalWatchSec = watchSessions.reduce((s, w) => s + (w.watched_seconds ?? 0), 0)
-          const totalHours  = Math.floor(totalWatchSec / 3600)
-          const totalMins   = Math.floor((totalWatchSec % 3600) / 60)
-
-          // Most-watched titles
-          const titleCount: Record<string, number> = {}
-          const titleTime:  Record<string, number> = {}
-          for (const s of watchSessions) {
-            const t = s.title_raw
-            titleCount[t] = (titleCount[t] ?? 0) + (s.is_complete ? 1 : 0)
-            titleTime[t]  = (titleTime[t]  ?? 0) + (s.watched_seconds ?? 0)
-          }
-          const topTitles = Object.entries(titleTime)
-            .sort((a, b) => b[1] - a[1]).slice(0, 5)
-
-          // Last-7-days episode count
-          const now = new Date()
-          const last7eps = Array.from({ length: 7 }, (_, i) => {
-            const d = new Date(now); d.setDate(now.getDate() - (6 - i))
-            const ds = d.toDateString()
-            return {
-              label: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],
-              isToday: i === 6,
-              count: watchSessions.filter(s => s.is_complete && new Date(s.watched_at).toDateString() === ds).length,
-            }
-          })
-          const maxEpDay = Math.max(...last7eps.map(d => d.count), 1)
-
-          // Build manga cover lookup
-          const coverMap: Record<string, string | null> = {}
-          for (const m of manga) coverMap[m.id] = m.cover_url
-
-          const fmtDuration = (sec: number) => {
-            const h = Math.floor(sec / 3600)
-            const m = Math.floor((sec % 3600) / 60)
-            const s = sec % 60
-            if (h > 0) return `${h}h ${m}m`
-            if (m > 0) return `${m}m ${s}s`
-            return `${s}s`
-          }
-          const fmtDate = (iso: string) => {
-            const d = new Date(iso)
-            return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) +
-              ' · ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-          }
-
-          const visibleSessions = showAllSessions ? watchSessions : watchSessions.slice(0, 15)
-
-          // Completion rate
-          const completionPct = watchSessions.length > 0
-            ? Math.round((completed.length / watchSessions.length) * 100)
-            : 0
-
-          // 8-week watch time trend (newest = index 7)
-          const weeklyTrend = Array.from({ length: 8 }, (_, i) => {
-            const end = new Date(now); end.setDate(now.getDate() - (7 - i) * 7); end.setHours(23,59,59,999)
-            const start = new Date(end); start.setDate(end.getDate() - 6); start.setHours(0,0,0,0)
-            const mins = watchSessions
-              .filter(s => { const d = new Date(s.watched_at); return d >= start && d <= end })
-              .reduce((sum, w) => sum + Math.round((w.watched_seconds ?? 0) / 60), 0)
-            return { label: i === 7 ? 'Now' : `${7 - i}w`, mins }
-          })
-          const maxWeekMins = Math.max(...weeklyTrend.map(w => w.mins), 1)
-
-          // Hour-of-day distribution (0–23)
-          const hourData = Array.from({ length: 24 }, (_, h) => ({
-            hour: h,
-            label: h === 0 ? '12a' : h < 12 ? `${h}a` : h === 12 ? '12p' : `${h - 12}p`,
-            count: watchSessions.filter(s => s.is_complete && new Date(s.watched_at).getHours() === h).length,
-          }))
-          const maxHourCount = Math.max(...hourData.map(h => h.count), 1)
-
-          return (
-            <div className="mb-6">
-              <h2 className="text-lg font-bold mb-3">Watch History</h2>
-              <p className="text-xs text-zinc-500 mb-4">Tracked automatically by the YOMU Chrome extension</p>
-
-              {/* Hero stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <StatCard value={completed.length} label="Episodes Completed" />
-                <StatCard value={totalHours > 0 ? `${totalHours}h ${totalMins}m` : `${totalMins}m`} label="Total Watch Time" />
-                <StatCard value={Object.keys(titleCount).length} label="Titles Tracked" />
-                <StatCard value={watchSessions.length} label="Sessions Logged" />
-              </div>
-
-              {/* Completion ring + 8-week trend */}
-              <div className="lg:grid lg:grid-cols-2 lg:gap-4 mb-4">
-                {/* Completion rate */}
-                <div className="bg-zinc-900 rounded-xl p-5 mb-4 flex items-center gap-6">
-                  <div className="relative shrink-0">
-                    <svg width={96} height={96} className="-rotate-90">
-                      <circle cx={48} cy={48} r={40} fill="none" stroke="#27272a" strokeWidth="8" />
-                      <circle cx={48} cy={48} r={40} fill="none" stroke="#2BE6DC" strokeWidth="8"
-                        strokeDasharray={`${(completionPct / 100) * 2 * Math.PI * 40} ${2 * Math.PI * 40}`}
-                        strokeLinecap="round"
-                        style={{ transition: 'stroke-dasharray 0.6s ease' }} />
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-lg font-bold text-white">{completionPct}%</span>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-white mb-1">Completion Rate</p>
-                    <p className="text-xs text-zinc-500">{completed.length} of {watchSessions.length} sessions fully watched</p>
-                    <p className="text-[10px] text-zinc-600 mt-1">Episodes you watched end-to-end</p>
-                  </div>
-                </div>
-
-                {/* 8-week watch time trend */}
-                <div className="bg-zinc-900 rounded-xl p-5 mb-4">
-                  <h3 className="text-sm font-semibold mb-4">Watch Time Trend <span className="text-zinc-600 font-normal text-[10px]">last 8 weeks</span></h3>
-                  <div className="relative h-24">
-                    <svg width="100%" height="100%" viewBox="0 0 280 80" preserveAspectRatio="none" className="overflow-visible">
-                      {/* Area fill */}
-                      <defs>
-                        <linearGradient id="wt-grad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#2BE6DC" stopOpacity="0.25" />
-                          <stop offset="100%" stopColor="#2BE6DC" stopOpacity="0.02" />
-                        </linearGradient>
-                      </defs>
-                      {weeklyTrend.length > 1 && (() => {
-                        const pts = weeklyTrend.map((w, i) => ({
-                          x: (i / (weeklyTrend.length - 1)) * 280,
-                          y: 80 - (w.mins / maxWeekMins) * 68 - 4,
-                        }))
-                        const lineD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
-                        const areaD = lineD + ` L ${pts[pts.length-1].x} 80 L 0 80 Z`
-                        return (
-                          <>
-                            <path d={areaD} fill="url(#wt-grad)" />
-                            <path d={lineD} fill="none" stroke="#2BE6DC" strokeWidth="1.5" strokeLinejoin="round" />
-                            {pts.map((p, i) => (
-                              <circle key={i} cx={p.x} cy={p.y} r="2.5" fill={i === pts.length-1 ? '#2BE6DC' : '#0d0d0d'} stroke="#2BE6DC" strokeWidth="1.5" />
-                            ))}
-                          </>
-                        )
-                      })()}
-                    </svg>
-                    {/* X-axis labels */}
-                    <div className="flex justify-between mt-1 text-[9px] text-zinc-600">
-                      {weeklyTrend.map((w, i) => (
-                        <span key={i} style={{ color: i === weeklyTrend.length-1 ? 'var(--cyan)' : undefined }}>{w.label}</span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="lg:grid lg:grid-cols-2 lg:gap-4 mb-4">
-                {/* 7-day episode bar chart */}
-                <div className="bg-zinc-900 rounded-xl p-5 mb-4">
-                  <h3 className="text-sm font-semibold mb-4">Episodes This Week</h3>
-                  <div className="flex items-end gap-2 h-24">
-                    {last7eps.map((d, i) => (
-                      <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                        <div className="w-full flex items-end justify-center" style={{ height: 72 }}>
-                          <div className="w-full rounded-t-md transition-all"
-                            style={{ height: `${Math.max((d.count / maxEpDay) * 72, d.count > 0 ? 4 : 0)}px`, backgroundColor: d.isToday ? 'var(--cyan)' : 'var(--ink-500)' }} />
-                        </div>
-                        <span className="text-xs" style={{ color: d.isToday ? 'var(--cyan)' : 'var(--fg-3)' }}>{d.label}</span>
-                        {d.count > 0 && <span className="text-[10px] text-zinc-500">{d.count}</span>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Most watched */}
-                <div className="bg-zinc-900 rounded-xl p-5 mb-4">
-                  <h3 className="text-sm font-semibold mb-4">Most Watched</h3>
-                  <div className="space-y-3">
-                    {topTitles.map(([title, secs], i) => {
-                      const h = Math.floor(secs / 3600)
-                      const m = Math.floor((secs % 3600) / 60)
-                      const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`
-                      const eps = titleCount[title] ?? 0
-                      return (
-                        <div key={title} className="flex items-center gap-3">
-                          <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
-                          <span className="text-xs text-zinc-300 flex-1 truncate">{title}</span>
-                          <span className="text-[10px] text-zinc-500 shrink-0">{eps} ep</span>
-                          <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden shrink-0">
-                            <div className="h-full rounded-full" style={{ width: `${(secs / topTitles[0][1]) * 100}%`, backgroundColor: 'var(--cyan)' }} />
-                          </div>
-                          <span className="text-[10px] text-zinc-500 w-12 text-right shrink-0">{timeStr}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {/* Session log */}
-              <div className="bg-zinc-900 rounded-xl p-5">
-                <h3 className="text-sm font-semibold mb-4">Session Log</h3>
-                <div className="space-y-0">
-                  {/* Header */}
-                  <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 pb-2 border-b border-zinc-800 text-[10px] text-zinc-600 uppercase tracking-wide">
-                    <span>Title / Episode</span>
-                    <span className="text-right">Watched</span>
-                    <span className="text-right">Date &amp; Time</span>
-                    <span className="text-right">Site</span>
-                  </div>
-                  {visibleSessions.map(s => {
-                    const cover = s.manga_id ? coverMap[s.manga_id] : null
-                    const pct   = s.duration_seconds > 0 ? Math.round((s.watched_seconds / s.duration_seconds) * 100) : null
-                    return (
-                      <div key={s.id} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 py-2.5 border-b border-zinc-800/50 items-center">
-                        {/* Title + episode */}
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          {cover
-                            ? <img src={cover} alt="" className="w-7 h-9 object-cover rounded shrink-0 opacity-80" />
-                            : <div className="w-7 h-9 bg-zinc-800 rounded shrink-0 flex items-center justify-center text-zinc-600 text-[8px]">▷</div>
-                          }
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-zinc-200 truncate">{s.title_raw}</p>
-                            <p className="text-[10px] text-zinc-500">
-                              {s.episode != null ? `Ep. ${s.episode}` : '—'}
-                              {s.season != null ? ` · S${s.season}` : ''}
-                              {s.is_complete
-                                ? <span className="ml-1.5 text-emerald-500">✓</span>
-                                : pct != null ? <span className="ml-1.5 text-zinc-600">{pct}%</span> : null
-                              }
-                            </p>
-                          </div>
-                        </div>
-                        {/* Duration watched */}
-                        <div className="text-right">
-                          <p className="text-xs text-zinc-300 whitespace-nowrap">{fmtDuration(s.watched_seconds)}</p>
-                          {s.duration_seconds > 0 && (
-                            <p className="text-[10px] text-zinc-600">/ {fmtDuration(s.duration_seconds)}</p>
-                          )}
-                        </div>
-                        {/* Date & time */}
-                        <div className="text-right">
-                          <p className="text-[10px] text-zinc-400 whitespace-nowrap">{fmtDate(s.watched_at)}</p>
-                        </div>
-                        {/* Site */}
-                        <div className="text-right">
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-500 whitespace-nowrap">
-                            {s.site?.replace('www.', '').replace('.ru', '').replace('.com', '') ?? '—'}
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-                {watchSessions.length > 15 && (
-                  <button onClick={() => setShowAllSessions(v => !v)}
-                    className="mt-3 text-xs text-zinc-500 hover:text-zinc-300 transition-colors w-full text-center">
-                    {showAllSessions ? 'Show Less ↑' : `Show All ${watchSessions.length} Sessions ↓`}
-                  </button>
-                )}
-              </div>
-
-              {/* Episode calendar heatmap */}
-              <WatchHeatmap sessions={watchSessions} />
-
-              {/* Hour-of-day histogram */}
-              {completed.length > 0 && (
-                <div className="bg-zinc-900 rounded-xl p-5">
-                  <h3 className="text-sm font-semibold mb-1">When You Watch</h3>
-                  <p className="text-xs text-zinc-500 mb-4">Episodes completed by hour of day</p>
-                  <div className="flex items-end gap-[3px] h-16">
-                    {hourData.map((h, i) => (
-                      <div key={i} className="flex-1 flex flex-col items-center" title={`${h.label}: ${h.count} ep`}>
-                        <div className="w-full rounded-t-sm transition-all"
-                          style={{
-                            height: `${Math.max((h.count / maxHourCount) * 56, h.count > 0 ? 3 : 0)}px`,
-                            backgroundColor: h.count > 0
-                              ? (h.hour >= 22 || h.hour <= 5 ? '#a78bfa'   // late night: purple
-                                : h.hour >= 18 ? '#2BE6DC'                  // evening: cyan
-                                : h.hour >= 12 ? '#FF2D46'                  // afternoon: red
-                                : '#FFB02E')                                 // morning: amber
-                              : '#27272a',
-                          }} />
-                      </div>
-                    ))}
-                  </div>
-                  {/* X-axis: every 3 hours */}
-                  <div className="flex mt-1.5 text-[9px] text-zinc-600">
-                    {hourData.map((h, i) => (
-                      <div key={i} className="flex-1 text-center">{i % 3 === 0 ? h.label : ''}</div>
-                    ))}
-                  </div>
-                  {/* Legend */}
-                  <div className="flex gap-3 mt-2 text-[9px] text-zinc-600 flex-wrap">
-                    <span><span style={{ color: '#FFB02E' }}>■</span> Morning</span>
-                    <span><span style={{ color: '#FF2D46' }}>■</span> Afternoon</span>
-                    <span><span style={{ color: '#2BE6DC' }}>■</span> Evening</span>
-                    <span><span style={{ color: '#a78bfa' }}>■</span> Late Night</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )
-        })()}
+        {watchHistorySection}
 
         {/* ── Watch DNA (extension-powered anime stats) ── */}
-        {watchSessions.length > 0 && (() => {
-          const now = new Date()
-          const GENRE_PALETTE = ['#FF2D46','#FF8C42','#FFB02E','#2FCF7A','#2BE6DC','#818CF8']
-
-          // Map title_raw → manga entry to get genres
-          const titleToManga: Record<string, Manga> = {}
-          for (const m of manga) {
-            if (m.has_anime || m.content_type === 'anime') {
-              titleToManga[(m.anime_title ?? m.title).toLowerCase()] = m
-              titleToManga[m.title.toLowerCase()] = m
-            }
-          }
-
-          // Count episodes per genre (from completed watch sessions)
-          const genreEpisodes: Record<string, number> = {}
-          const watchedTitles = new Set<string>()
-          for (const s of watchSessions) {
-            if (!s.is_complete) continue
-            watchedTitles.add(s.title_raw)
-            const m = titleToManga[s.title_raw.toLowerCase()]
-            if (m?.genres?.length) {
-              for (const g of m.genres) {
-                genreEpisodes[g] = (genreEpisodes[g] ?? 0) + 1
-              }
-            }
-          }
-          const topWatchGenres = Object.entries(genreEpisodes).sort((a, b) => b[1] - a[1]).slice(0, 6)
-
-          // Eps per active day (days that had at least one completed episode)
-          const activeDaysSet = new Set(
-            watchSessions.filter(s => s.is_complete).map(s => new Date(s.watched_at).toDateString())
-          )
-          const completedEps = watchSessions.filter(s => s.is_complete).length
-          const avgEpsPerDay = activeDaysSet.size > 0 ? Math.round(completedEps / activeDaysSet.size) : 0
-
-          // Rewatch: sessions where manga entry has rewatch flag, or episodes_watched > total_episodes
-          const rewatchedTitles = manga.filter(m =>
-            (m.has_anime || m.content_type === 'anime') &&
-            m.total_episodes && m.episodes_watched > m.total_episodes
-          )
-          const rewatchCount = rewatchedTitles.length
-
-          // Watch personality based on top genre
-          const topWatchGenre = topWatchGenres[0]?.[0] ?? ''
-          const watchPersonality: Record<string, string> = {
-            Action: 'Binge warrior',       Fantasy: 'World-builder',
-            Comedy: 'Laughter hunter',     Romance: 'Heart-seeker',
-            'Slice of Life': 'Chill watcher', Supernatural: 'Mystery chaser',
-            Horror: 'Thrill-seeker',       Drama: 'Story-driven',
-            'Sci-Fi': 'Future-gazer',      Shounen: 'Power-level chaser',
-          }
-
-          // Most-watched titles by episode count
-          const titleEpCount: Record<string, number> = {}
-          for (const s of watchSessions) {
-            if (s.is_complete) titleEpCount[s.title_raw] = (titleEpCount[s.title_raw] ?? 0) + 1
-          }
-          const topWatchTitles = Object.entries(titleEpCount).sort((a, b) => b[1] - a[1]).slice(0, 5)
-          const maxEpTitle = topWatchTitles[0]?.[1] ?? 1
-
-          // Today's watch time
-          const todayEps = watchSessions.filter(s => s.is_complete && new Date(s.watched_at).toDateString() === now.toDateString()).length
-          const todaySec = watchSessions.filter(s => new Date(s.watched_at).toDateString() === now.toDateString())
-            .reduce((sum, s) => sum + (s.watched_seconds ?? 0), 0)
-          const todayHrs = Math.floor(todaySec / 3600)
-          const todayMins = Math.floor((todaySec % 3600) / 60)
-
-          return (
-            <div className="mb-6">
-              <hr className="border-zinc-800 mb-6" />
-              <h2 className="text-lg font-bold mb-3">Your Watch DNA</h2>
-              <p className="text-xs text-zinc-500 mb-4">Based on extension-tracked sessions</p>
-
-              {/* Hero row */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <div className="bg-zinc-900 rounded-xl p-4 text-center">
-                  <div className="text-xl font-bold text-white">
-                    {todayHrs > 0 ? `${todayHrs}h ${todayMins}m` : `${todayMins}m`}
-                  </div>
-                  <div className="text-xs text-zinc-500 mt-0.5">Today</div>
-                </div>
-                <div className="bg-zinc-900 rounded-xl p-4 text-center">
-                  <div className="text-xl font-bold text-white">{todayEps}</div>
-                  <div className="text-xs text-zinc-500 mt-0.5">Episodes Today</div>
-                </div>
-                <div className="bg-zinc-900 rounded-xl p-4 text-center">
-                  <div className="text-xl font-bold text-white">{activeDaysSet.size}</div>
-                  <div className="text-xs text-zinc-500 mt-0.5">Active Watch Days</div>
-                </div>
-                <div className="bg-zinc-900 rounded-xl p-4 text-center">
-                  <div className="text-xl font-bold text-white">{rewatchCount}</div>
-                  <div className="text-xs text-zinc-500 mt-0.5">Rewatched</div>
-                </div>
-              </div>
-
-              <div className="lg:grid lg:grid-cols-2 lg:gap-4 mb-4">
-                {/* Personality + genre donut */}
-                {topWatchGenres.length > 0 && (
-                  <div className="bg-zinc-900 rounded-xl p-5 mb-4">
-                    <div className="flex items-center gap-3 mb-4">
-                      <Clapperboard size={20} strokeWidth={1.5} className="text-violet-400 shrink-0" />
-                      <div>
-                        <p className="text-sm font-medium text-white">{watchPersonality[topWatchGenre] ?? 'Avid Watcher'}</p>
-                        <p className="text-xs text-zinc-500">
-                          {avgEpsPerDay > 0 ? `${avgEpsPerDay} Episodes Per Active Day` : 'Keep watching to build your profile'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex gap-4 items-start">
-                      <div className="shrink-0">
-                        <DonutChart size={100} data={topWatchGenres.map(([g, n], i) => ({ label: g, value: n, color: GENRE_PALETTE[i % GENRE_PALETTE.length] }))} />
-                      </div>
-                      <div className="flex-1 space-y-2">
-                        {topWatchGenres.map(([genre, eps], i) => (
-                          <div key={genre} className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: GENRE_PALETTE[i % GENRE_PALETTE.length] }} />
-                            <span className="text-xs text-zinc-400 w-20 shrink-0 truncate">{genre}</span>
-                            <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${(eps / (topWatchGenres[0][1] || 1)) * 100}%`, backgroundColor: GENRE_PALETTE[i % GENRE_PALETTE.length] }} />
-                            </div>
-                            <span className="text-[10px] text-zinc-500 w-12 text-right shrink-0">{eps} ep</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Top titles by episodes watched */}
-                {topWatchTitles.length > 0 && (
-                  <div className="bg-zinc-900 rounded-xl p-5 mb-4">
-                    <h3 className="text-sm font-semibold mb-4">Most Watched <span className="text-zinc-600 font-normal text-[10px]">by episodes</span></h3>
-                    <div className="space-y-3">
-                      {topWatchTitles.map(([title, eps], i) => {
-                        const entry = titleToManga[title.toLowerCase()]
-                        const isRewatch = entry?.total_episodes && entry.episodes_watched > entry.total_episodes
-                        return (
-                          <div key={title} className="flex items-center gap-3">
-                            <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
-                            <span className="text-xs text-zinc-300 flex-1 truncate">{title}</span>
-                            {isRewatch && <span className="text-[9px] text-cyan-500 shrink-0 border border-cyan-700 rounded px-1">RE</span>}
-                            <div className="w-20 h-2 bg-zinc-800 rounded-full overflow-hidden shrink-0">
-                              <div className="h-full rounded-full" style={{ width: `${(eps / maxEpTitle) * 100}%`, backgroundColor: '#a78bfa' }} />
-                            </div>
-                            <span className="text-[10px] text-zinc-500 w-8 text-right shrink-0">{eps}ep</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                    {rewatchCount > 0 && (
-                      <div className="mt-4 pt-3 border-t border-zinc-800">
-                        <p className="text-xs text-zinc-500">🔁 Rewatched <span className="text-white">{rewatchCount}</span> {rewatchCount === 1 ? 'series' : 'series'} — because once wasn't enough</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        })()}
+        {watchDnaSection}
 
         <hr className="border-zinc-800 mb-6" />
 
         {/* ── Ratings breakdown ── */}
-        {(() => {
-          const liked    = manga.filter(m => m.user_rating === 'up')
-          const disliked = manga.filter(m => m.user_rating === 'down')
-          if (liked.length === 0 && disliked.length === 0) return null
-
-          const genreCount = (list: typeof manga) => {
-            const acc: Record<string, number> = {}
-            list.forEach(m => (m.genres ?? []).forEach(g => { acc[g] = (acc[g] ?? 0) + 1 }))
-            return Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 5)
-          }
-          const likedGenres    = genreCount(liked)
-          const dislikedGenres = genreCount(disliked)
-
-          // Anime ratings from Supabase (user_rating overrides netflix_rating)
-          const effectiveAnimeRating = (a: AnimeRow) => a.user_rating ?? a.netflix_rating
-          const likedAnime    = animeList.filter(a => effectiveAnimeRating(a) === 'up').map(a => a.title)
-          const dislikedAnime = animeList.filter(a => effectiveAnimeRating(a) === 'down').map(a => a.title)
-
-          return (
-            <div className="mb-6">
-              <h2 className="text-lg font-bold mb-3">Your ratings</h2>
-              <div className="lg:grid lg:grid-cols-2 lg:gap-4">
-                {/* Liked */}
-                {liked.length > 0 && (
-                  <div className="bg-zinc-900 rounded-xl p-5 mb-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <ThumbsUp size={14} strokeWidth={1.5} className="icon-success" />
-                      <h3 className="text-sm font-semibold text-emerald-400">{liked.length} Liked</h3>
-                    </div>
-                    <div className="space-y-1 mb-3">
-                      {liked.slice(0, 5).map(m => (
-                        <p key={m.id} className="text-xs text-zinc-300 truncate">• {m.title}</p>
-                      ))}
-                      {liked.length > 5 && <p className="text-xs text-zinc-600">+{liked.length - 5} more</p>}
-                    </div>
-                    {likedGenres.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pt-3 border-t border-zinc-800">
-                        {likedGenres.map(([g, n]) => (
-                          <span key={g} className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-900/30 border border-emerald-800/40 text-emerald-400">{g} ×{n}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Disliked */}
-                {disliked.length > 0 && (
-                  <div className="bg-zinc-900 rounded-xl p-5 mb-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <ThumbsDown size={14} strokeWidth={1.5} style={{color:'var(--danger)'}} />
-                      <h3 className="text-sm font-semibold text-red-400">{disliked.length} Disliked</h3>
-                    </div>
-                    <div className="space-y-1 mb-3">
-                      {disliked.slice(0, 5).map(m => (
-                        <p key={m.id} className="text-xs text-zinc-300 truncate">• {m.title}</p>
-                      ))}
-                      {disliked.length > 5 && <p className="text-xs text-zinc-600">+{disliked.length - 5} more</p>}
-                    </div>
-                    {dislikedGenres.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pt-3 border-t border-zinc-800">
-                        {dislikedGenres.map(([g, n]) => (
-                          <span key={g} className="text-[10px] px-2 py-0.5 rounded-full bg-red-900/30 border border-red-800/40 text-red-400">{g} ×{n}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Anime ratings */}
-                {(() => {
-                  const effectiveRating = (a: AnimeRow) => a.user_rating ?? a.netflix_rating
-                  const likedA    = animeList.filter(a => effectiveRating(a) === 'up').map(a => a.title)
-                  const dislikedA = animeList.filter(a => effectiveRating(a) === 'down').map(a => a.title)
-                  if (!likedA.length && !dislikedA.length) return null
-                  return (
-                    <div className="bg-zinc-900 rounded-xl p-5 mb-4 lg:col-span-2">
-                      <h3 className="text-sm font-semibold mb-3">Anime ratings</h3>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-xs text-zinc-500 mb-2 flex items-center gap-1"><ThumbsUp size={10} strokeWidth={1.5} className="icon-success" /> Liked ({likedA.length})</p>
-                          {likedA.slice(0, 5).map(t => <p key={t} className="text-xs text-zinc-300 truncate">• {t}</p>)}
-                          {likedA.length > 5 && <p className="text-xs text-zinc-600">+{likedA.length - 5} more</p>}
-                        </div>
-                        <div>
-                          <p className="text-xs text-zinc-500 mb-2 flex items-center gap-1"><ThumbsDown size={10} strokeWidth={1.5} style={{color:'var(--danger)'}} /> Disliked ({dislikedA.length})</p>
-                          {dislikedA.slice(0, 5).map(t => <p key={t} className="text-xs text-zinc-300 truncate">• {t}</p>)}
-                          {dislikedA.length > 5 && <p className="text-xs text-zinc-600">+{dislikedA.length - 5} more</p>}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })()}
-              </div>
-            </div>
-          )
-        })()}
+        {ratingsSection}
 
         {/* Reading velocity sparkline — 12 weeks */}
         {readingVelocitySection}
@@ -1268,198 +1440,10 @@ export default function StatsPage() {
         </div>{/* end two-column grid */}
 
         {/* Taste profile */}
-        {(() => {
-          // Genre breakdown by chapters read
-          const genreChapters: Record<string, number> = {}
-          for (const m of manga) {
-            if (!m.genres?.length || !m.current_chapter) continue
-            for (const g of m.genres) {
-              genreChapters[g] = (genreChapters[g] ?? 0) + m.current_chapter
-            }
-          }
-          const topGenres = Object.entries(genreChapters).sort((a, b) => b[1] - a[1]).slice(0, 6)
-          if (!topGenres.length) return null
-          const maxG = topGenres[0][1]
+        {tasteProfileSection}
 
-          // Reading personality
-          const topGenre = topGenres[0]?.[0] ?? ''
-          const personality: Record<string, string> = {
-            Action: 'Battle-hungry',    Fantasy: 'World-builder',
-            Romance: 'Heart-seeker',    Horror: 'Thrill-chaser',
-            Comedy: 'Laughter-seeker',  Psychological: 'Mind-explorer',
-            Shounen: 'Determined soul', Seinen: 'Thoughtful reader',
-            'Sci-Fi': 'Future-gazer',   Drama: 'Story-chaser',
-          }
-
-          // Reading speed
-          const activeDaysCount = new Set(log.map(l => new Date(l.logged_at).toDateString())).size
-          const avgPerActiveDay = activeDaysCount > 0
-            ? Math.round(log.reduce((s, l) => s + l.chapters_read, 0) / activeDaysCount)
-            : 0
-
-          // Genre donut colors (cycle through a palette)
-          const GENRE_PALETTE = ['#FF2D46','#FF8C42','#FFB02E','#2FCF7A','#2BE6DC','#818CF8']
-
-          return (
-            <div className="bg-zinc-900 rounded-xl p-5 mb-6">
-              <h2 className="text-sm font-semibold mb-1">Your Reading DNA</h2>
-              <div className="flex items-center gap-3 mb-4">
-                <BookOpen size={22} strokeWidth={1.5} className="icon-primary shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-white">{personality[topGenre] ?? 'Avid Reader'}</p>
-                  <p className="text-xs text-zinc-500">
-                    {avgPerActiveDay > 0 ? `${avgPerActiveDay} Chapters Per Active Day` : 'Start Logging Chapters To See Pace'}
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-4 items-start">
-                {/* Genre donut */}
-                <div className="shrink-0">
-                  <DonutChart
-                    size={110}
-                    data={topGenres.map(([genre, chapters], i) => ({
-                      label: genre,
-                      value: chapters,
-                      color: GENRE_PALETTE[i % GENRE_PALETTE.length],
-                    }))}
-                  />
-                </div>
-                {/* Bars + legend */}
-                <div className="flex-1 space-y-2">
-                  {topGenres.map(([genre, chapters], i) => (
-                    <div key={genre} className="flex items-center gap-3">
-                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: GENRE_PALETTE[i % GENRE_PALETTE.length] }} />
-                      <span className="text-xs text-zinc-400 w-24 shrink-0 truncate">{genre}</span>
-                      <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                        <div className="h-full rounded-full transition-all"
-                          style={{ width: `${(chapters / maxG) * 100}%`, backgroundColor: GENRE_PALETTE[i % GENRE_PALETTE.length] }} />
-                      </div>
-                      <span className="text-xs text-zinc-500 w-16 text-right shrink-0">
-                        {chapters.toLocaleString()} ch
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )
-        })()}
-
-        {/* Personal analytics — Chat's reframe of "social proof" */}
-        {(() => {
-          // Drop-off analysis: where do you stop reading?
-          const droppedOrHold = manga.filter(m => m.status === 'dropped' || m.status === 'on_hold')
-          const dropBuckets: Record<string, number> = { '1–25': 0, '26–75': 0, '76–150': 0, '151–300': 0, '300+': 0 }
-          for (const m of droppedOrHold) {
-            const ch = m.current_chapter
-            if (ch <= 25) dropBuckets['1–25']++
-            else if (ch <= 75) dropBuckets['26–75']++
-            else if (ch <= 150) dropBuckets['76–150']++
-            else if (ch <= 300) dropBuckets['151–300']++
-            else dropBuckets['300+']++
-          }
-          const maxDrop = Math.max(...Object.values(dropBuckets), 1)
-
-          // Genre completion rates
-          const genreTotal: Record<string, number> = {}
-          const genreDone: Record<string, number> = {}
-          for (const m of manga) {
-            for (const g of (m.genres ?? [])) {
-              genreTotal[g] = (genreTotal[g] ?? 0) + 1
-              if (m.status === 'completed') genreDone[g] = (genreDone[g] ?? 0) + 1
-            }
-          }
-          const genreRates = Object.entries(genreTotal)
-            .filter(([, n]) => n >= 2)
-            .map(([g, n]) => ({ genre: g, rate: Math.round(((genreDone[g] ?? 0) / n) * 100), total: n }))
-            .sort((a, b) => b.rate - a.rate)
-            .slice(0, 6)
-
-          // Session analysis from log
-          const byDay: Record<string, number> = {}
-          for (const l of log) {
-            const d = new Date(l.logged_at).toDateString()
-            byDay[d] = (byDay[d] ?? 0) + l.chapters_read
-          }
-          const sessionValues = Object.values(byDay)
-          const avgSession = sessionValues.length
-            ? Math.round(sessionValues.reduce((s, v) => s + v, 0) / sessionValues.length)
-            : 0
-          const maxSession = sessionValues.length ? Math.max(...sessionValues) : 0
-
-          if (!droppedOrHold.length && !genreRates.length && !log.length) return null
-
-          return (
-            <>
-              {/* Two-column row: drop-off + genre completion — these pair naturally */}
-              {(droppedOrHold.length > 0 || genreRates.length > 0) && (
-                <div className="lg:grid lg:grid-cols-2 lg:gap-6">
-                  {droppedOrHold.length > 0 && (
-                    <div className="bg-zinc-900 rounded-xl p-5 mb-6">
-                      <h2 className="text-sm font-semibold mb-1">Where You Stop Reading</h2>
-                      <p className="text-xs text-zinc-500 mb-4">Chapter range when you dropped or paused ({droppedOrHold.length} titles)</p>
-                      <div className="space-y-2">
-                        {Object.entries(dropBuckets).map(([range, count]) => (
-                          <div key={range} className="flex items-center gap-3">
-                            <span className="text-xs text-zinc-500 w-16 shrink-0">Ch. {range}</span>
-                            <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${(count / maxDrop) * 100}%`, backgroundColor: 'rgba(255,71,87,0.7)' }} />
-                            </div>
-                            <span className="text-xs text-zinc-500 w-4 text-right shrink-0">{count}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {genreRates.length > 0 && (
-                    <div className="bg-zinc-900 rounded-xl p-5 mb-6">
-                      <h2 className="text-sm font-semibold mb-1">Completion Rate By Genre</h2>
-                      <p className="text-xs text-zinc-500 mb-4">How Often You Finish What You Start</p>
-                      <div className="space-y-2">
-                        {genreRates.map(({ genre, rate, total }) => (
-                          <div key={genre} className="flex items-center gap-3">
-                            <span className="text-xs text-zinc-400 w-24 shrink-0 truncate">{genre}</span>
-                            <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full"
-                                style={{ width: `${rate}%`, backgroundColor: rate >= 70 ? 'var(--success)' : rate >= 40 ? 'var(--screen-yellow)' : 'var(--danger)' }} />
-                            </div>
-                            <span className="text-xs text-zinc-500 w-14 text-right shrink-0">{rate}% / {total}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Session stats — full width, never orphaned in a half-empty row */}
-              {log.length > 0 && (
-                <div className="bg-zinc-900 rounded-xl p-5 mb-6">
-                  <h2 className="text-sm font-semibold mb-4">Reading Sessions</h2>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                    <div className="bg-zinc-800 rounded-xl p-3 text-center">
-                      <div className="text-2xl font-bold">{avgSession}</div>
-                      <div className="text-xs text-zinc-500 mt-1">Avg Ch Per Day</div>
-                    </div>
-                    <div className="bg-zinc-800 rounded-xl p-3 text-center">
-                      <div className="text-2xl font-bold">{maxSession}</div>
-                      <div className="text-xs text-zinc-500 mt-1">Best Single Day</div>
-                    </div>
-                    <div className="bg-zinc-800 rounded-xl p-3 text-center">
-                      <div className="text-2xl font-bold">{Object.keys(byDay).length}</div>
-                      <div className="text-xs text-zinc-500 mt-1">Reading Days (Yr)</div>
-                    </div>
-                    <div className="bg-zinc-800 rounded-xl p-3 text-center">
-                      <div className="text-2xl font-bold">{droppedOrHold.length}</div>
-                      <div className="text-xs text-zinc-500 mt-1">Abandoned Titles</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </>
-          )
-        })()}
+        {/* Personal analytics */}
+        {analyticsSection}
 
         {/* Duplicate detector */}
         <DuplicateDetector manga={manga} onDeleted={id => setManga(prev => prev.filter(m => m.id !== id))} />

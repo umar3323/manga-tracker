@@ -54,7 +54,9 @@ const STATUS_LABELS: Record<MangaStatus, string> = {
 type SortKey = 'last_read' | 'title' | 'chapter'
 
 export default function Home() {
-  const { mangaList: manga, setLibrary, activePeekId, openPeek, openDetail: openDetailStore, patchEntry } = useLibraryStore()
+  const { mangaList: manga, setLibrary, activePeekId, openPeek, openDetail: openDetailStore, closeDetail, patchEntry } = useLibraryStore()
+  const activeDetailId = useLibraryStore(s => s.activeDetailId)
+  const selectedManga = useLibraryStore(s => s.mangaList.find(m => m.id === s.activeDetailId) ?? null)
   const setManga = (updater: Manga[] | ((prev: Manga[]) => Manga[])) => {
     const next = typeof updater === 'function' ? updater(manga) : updater
     useLibraryStore.getState().setLibrary(next)
@@ -93,7 +95,6 @@ export default function Home() {
   const [syncing, setSyncing] = useState(false)
   const [syncResults, setSyncResults] = useState<{ updated: number; results: { title: string; changes: string[] }[]; timestamp: string } | null>(null)
   const [notifications, setNotifications] = useState<{ id: string; title: string; new_chapters: number; previous_chapters: number }[]>([])
-  const [selectedManga, setSelectedManga] = useState<Manga | null>(null)
   const [shelfPickerManga, setShelfPickerManga] = useState<Manga | null>(null)
   const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null)
   const [mood, setMood] = useState<string | null>(null)
@@ -212,6 +213,15 @@ export default function Home() {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [fetchManga])
 
+  // Periodic refresh every 60s while the tab is visible — catches extension-logged
+  // episode updates when YOMU is already in the foreground (visibilitychange won't fire).
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchManga()
+    }, 60_000)
+    return () => clearInterval(id)
+  }, [fetchManga])
+
   // Pace tracking: avg chapters/day over last 30 days
   useEffect(() => {
     const ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
@@ -288,9 +298,6 @@ export default function Home() {
     const timestamp = attr.precision === 'exact' && attr.date ? new Date(attr.date).toISOString() : now
     const patch = { current_chapter: next, last_read_at: timestamp }
 
-    // Also update selectedManga (DetailModal state) — patchEntry updates the store but not selectedManga
-    setSelectedManga(prev => prev?.id === id ? { ...prev, ...patch } : prev)
-
     await patchEntry(id, patch, showToast)
 
     if (delta > 0) {
@@ -304,7 +311,7 @@ export default function Home() {
       if (attr.precision === 'year_only') logRow.progress_year = attr.year
       await supabase.from('reading_log').insert(logRow)
     }
-  }, [patchEntry, showToast, setSelectedManga])
+  }, [patchEntry, showToast])
 
   const updateChapter = (id: string, delta: number, current: number) => {
     if (delta <= 0) {
@@ -398,7 +405,6 @@ export default function Home() {
       const { data: updated } = await supabase.from('manga_list').select('*').eq('id', id).single()
       if (updated) {
         setManga(prev => prev.map(m => m.id === id ? { ...m, ...updated } : m))
-        setSelectedManga(prev => prev?.id === id ? { ...prev, ...updated } : prev)
       }
       showToast('Sync Complete')
     } catch {
@@ -565,9 +571,6 @@ ${entries}
     const timestamp = attr.precision === 'exact' && attr.date ? new Date(attr.date).toISOString() : now
     const patch = { episodes_watched: next, last_read_at: timestamp }
 
-    // Also update selectedManga (DetailModal state) — patchEntry updates the store but not selectedManga
-    setSelectedManga(prev => prev?.id === id ? { ...prev, ...patch } : prev)
-
     await patchEntry(id, patch, showToast)
 
     if (delta > 0) {
@@ -581,7 +584,7 @@ ${entries}
       if (attr.precision === 'year_only') logRow.progress_year = attr.year
       await supabase.from('reading_log').insert(logRow)
     }
-  }, [patchEntry, showToast, setSelectedManga])
+  }, [patchEntry, showToast])
 
   const updateEpisodes = (id: string, delta: number, current: number) => {
     if (delta <= 0) {
@@ -1508,7 +1511,7 @@ ${entries}
                     <Play size={11} strokeWidth={2} /> Read
                   </a>
                 )}
-                <button onClick={() => setSelectedManga(lastRead)}
+                <button onClick={() => openDetailStore(lastRead.id)}
                   className="px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors">
                   Details
                 </button>
@@ -1712,7 +1715,7 @@ ${entries}
                 onDelete={confirmDelete}
                 onRefresh={refreshCardInfo}
                 onOpenPeek={(id) => openPeek(id)}
-                onOpenDetail={setSelectedManga}
+                onOpenDetail={(m) => openDetailStore(m.id)}
                 onAuthorClick={setSelectedAuthor}
                 onStudioClick={setSelectedStudio}
                 onShelfPick={setShelfPickerManga}
@@ -1805,10 +1808,9 @@ ${entries}
         <DetailModal
           manga={selectedManga}
           allManga={manga}
-          onClose={() => setSelectedManga(null)}
+          onClose={closeDetail}
           onStatusChange={(id, status) => {
             updateStatus(id, status)
-            setSelectedManga(prev => prev ? { ...prev, status } : null)
           }}
           onMerge={(removedId) => {
             setManga(prev => prev.filter(m => m.id !== removedId))
@@ -1818,43 +1820,32 @@ ${entries}
             const keep = pickKeeper(candidates)
             const toRemove = candidates.filter(m => m.id !== keep.id)
             await mergeMultiple(keep, toRemove)
-            // If the kept entry is different from the selected one, navigate to it
-            if (keep.id !== selectedManga!.id) setSelectedManga(keep)
+            if (keep.id !== selectedManga!.id) openDetailStore(keep.id)
           }}
-          onNavigate={(m) => setSelectedManga(m)}
+          onNavigate={(m) => openDetailStore(m.id)}
           onChapterReset={(chapterAtStart) => {
-            setManga(prev => prev.map(m => m.id === selectedManga!.id ? { ...m, current_chapter: 0 } : m))
-            setSelectedManga(prev => prev ? { ...prev, current_chapter: 0 } : prev)
+            setManga(prev => prev.map(m => m.id === activeDetailId ? { ...m, current_chapter: 0 } : m))
             showToast(`Re-Read Started — Ch. ${chapterAtStart} Saved, Reset To 0`)
           }}
           onEpisodesReset={(episodesAtStart) => {
-            setManga(prev => prev.map(m => m.id === selectedManga!.id ? { ...m, episodes_watched: 0 } : m))
-            setSelectedManga(prev => prev ? { ...prev, episodes_watched: 0 } : prev)
+            setManga(prev => prev.map(m => m.id === activeDetailId ? { ...m, episodes_watched: 0 } : m))
             showToast(`Re-Watch Started — Ep. ${episodesAtStart} Saved, Reset To 0`)
           }}
           onChapterRestored={(restored) => {
-            setManga(prev => prev.map(m => m.id === selectedManga!.id ? { ...m, current_chapter: restored } : m))
-            setSelectedManga(prev => prev ? { ...prev, current_chapter: restored } : prev)
+            setManga(prev => prev.map(m => m.id === activeDetailId ? { ...m, current_chapter: restored } : m))
             showToast(`Re-Read Complete — Progress Restored To Ch. ${restored}`)
           }}
           onEpisodesRestored={(restored) => {
-            setManga(prev => prev.map(m => m.id === selectedManga!.id ? { ...m, episodes_watched: restored } : m))
-            setSelectedManga(prev => prev ? { ...prev, episodes_watched: restored } : prev)
+            setManga(prev => prev.map(m => m.id === activeDetailId ? { ...m, episodes_watched: restored } : m))
             showToast(`Re-Watch Complete — Progress Restored To Ep. ${restored}`)
           }}
           onTotalChaptersUpdated={(n) => {
             const tc = n ?? null
-            setManga(prev => prev.map(m => m.id === selectedManga!.id ? { ...m, total_chapters: tc } : m))
-            setSelectedManga(prev => prev ? { ...prev, total_chapters: tc } : prev)
+            setManga(prev => prev.map(m => m.id === activeDetailId ? { ...m, total_chapters: tc } : m))
             if (tc != null) showToast(`Total Chapters Updated To ${tc}`)
           }}
           onSeriesUpdated={(patches) => {
-            setManga(prev => prev.map(m => {
-              if (patches[m.id]) return { ...m, ...patches[m.id] }
-              return m
-            }))
-            // Also update selectedManga if it's in the patches
-            setSelectedManga(prev => prev && patches[prev.id] ? { ...prev, ...patches[prev.id] } : prev)
+            setManga(prev => prev.map(m => patches[m.id] ? { ...m, ...patches[m.id] } : m))
           }}
           onSeriesEntryAdded={(entry) => {
             setManga(prev => [...prev, entry])
@@ -1937,6 +1928,7 @@ ${entries}
           mangaId={deepSearchTarget.id}
           malId={deepSearchTarget.mal_id}
           title={deepSearchTarget.title}
+          contentType={deepSearchTarget.content_type}
           onClose={() => {
             const remaining = [...deepSelected].filter(id => id !== deepSearchTarget.id)
             setDeepSelected(new Set(remaining))
@@ -1977,11 +1969,7 @@ ${entries}
       {activePeekId && (
         <QuickPeekSheet
           id={activePeekId}
-          onOpenDetail={(id) => {
-            const m = manga.find(x => x.id === id)
-            if (m) setSelectedManga(m)
-            openDetailStore(id)
-          }}
+          onOpenDetail={openDetailStore}
         />
       )}
     </main>

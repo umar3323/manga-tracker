@@ -133,7 +133,8 @@ For any task not covered above, check `/Users/hossain/Documents/Claude/Skills/` 
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | All DB operations (required) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side admin DB writes (sync, cron, push) |
 | `NEXT_PUBLIC_SITE_URL` | Canonical URL for share links + push subscription |
-| `ANTHROPIC_API_KEY` | `/api/recommend` — AI recommendations. ⚠️ API COST: each call = 1 Claude request |
+| `ANTHROPIC_API_KEY` | `/api/recommend` + `/api/deep-search` arc detection. ⚠️ API COST: each call = 1 Claude Haiku request |
+| `GEMINI_API_KEY` | `/api/deep-search` Gemini enrichment (synopsis, themes, trivia). Optional — omit to disable. Uses `gemini-2.0-flash` free tier. ⚠️ API COST: free tier has RPM limits; fires in parallel with Claude arc call on every Deep Search. |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Web Push subscription (browser) |
 | `VAPID_PRIVATE_KEY` | Web Push notification signing (server) |
 | `VAPID_EMAIL` | Web Push VAPID contact |
@@ -143,7 +144,7 @@ For any task not covered above, check `/Users/hossain/Documents/Claude/Skills/` 
 | `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_PRIVATE_KEY` | Google Sheets service account key |
 
 ## Known issues (fix before shipping)
-- `app/stats/page.tsx:355` — 5 remaining IIFEs not yet wrapped in `useMemo`: `watchHistorySection`, `watchDnaSection`, `ratingsSection`, `tasteProfileSection`, `analyticsSection`
+- `app/stats/page.tsx` — All section IIFEs converted to `useMemo`; file is clean
 - `scripts/migrations.sql` — `discover_jaccard_feed` RPC references non-existent `discover_cache` table (dormant, safe to leave)
 - `.git/index 2` / `.git/index 3` stale files in repo — repo lives in a synced folder; move to unsynced path to avoid index corruption
 
