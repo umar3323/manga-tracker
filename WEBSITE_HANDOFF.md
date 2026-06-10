@@ -447,9 +447,23 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 ## Change History
 
-### 2026-06-10 — Session 31 (Phase 1: DetailModal extraction)
-- `components/DetailView.tsx` (new) — `DetailModal`, `RelationMergeButton`, `SeriesPanel`, `EditableNumber` extracted from `app/page.tsx`. Single monolithic `useEffect` split into 8 isolated effects with per-section skeletons (`ScoresSkeleton`, `WikiSkeleton`, `RecsSkeleton`, etc.).
-- `app/page.tsx` — ~1 500 lines removed; imports `{ DetailModal, EditableNumber, RelationMergeButton }` from `@/components/DetailView`.
+### 2026-06-10 — Sessions 31–35 (UI refactor: Phases 1–5, all complete)
+- `components/DetailView.tsx` *(new)* — `DetailModal`, `RelationMergeButton`, `SeriesPanel`, `EditableNumber`; 8 isolated `useEffect` hooks with per-section skeletons.
+- `components/LibraryToolbar.tsx` *(new)* — Header action buttons + `MobileMenu`.
+- `components/LibraryFilters.tsx` *(new)* — Type-filter pills, status tabs, search, sort selector.
+- `components/LibraryCard.tsx` *(new)* — Full individual library card (562 lines).
+- `components/LibraryModals.tsx` *(new)* — 9 modal/panel components: `AuthorModal`, `StudioModal`, `RecommendationModal`, `ShelfPicker`, `ShareModal`, `TakeoutImportModal`, `HealthCheckModal`, `RecommendationsListModal`, `SyncResultsModal`.
+- `components/ReleaseCalendar.tsx` — Day strip: `clamp(52px, calc(100%/7), 64px)` pill widths; `scrollSnapType: 'x mandatory'`; auto-scroll to today on mount.
+- `app/page.tsx` — **3,520 → 1,969 lines** (−1,551). Container-query grid (`@container` / `@[740px]:grid-cols-2` / `@[1120px]:grid-cols-3`). All extracted components imported. Unused imports cleaned.
+
+### 2026-06-10 — Session 30 (Jikan proxy, warmup auth, Wikipedia, stats useMemo, incremental grid, AniList discover)
+- `app/api/jikan-proxy/route.ts` *(new)* — Server-side Jikan proxy with 429 retry.
+- `lib/jikan.ts` — `jikanGet()` routes all non-search browser calls through `/api/jikan-proxy`.
+- `proxy.ts` — Added `/api/catalog`, `/api/shonenjump`, `/api/goodreads`, `/api/webtoons`, `/api/mangaplus`, `/api/jikan-proxy` to `isPublicApi`.
+- `app/api/wikipedia/route.ts` — Extended `parseField` label lists.
+- `app/stats/page.tsx` — `useMemo` for `animeStatsSection` and `readingVelocitySection`.
+- `app/api/swipe-queue/route.ts` — AniList GraphQL random-page discovery; Jaccard scoring retained.
+- `app/page.tsx` — IntersectionObserver incremental grid (40 initial, +20 on scroll).
 
 ### 2026-06-09 — Sessions 22–24
 - `app/page.tsx` — Movie runtime gauge (total_episodes repurposed as runtime_minutes); quick-details panel on Add form
