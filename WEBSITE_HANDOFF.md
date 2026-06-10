@@ -10,6 +10,12 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 36 — CLAUDE.md full codebase navigation map (2026-06-10, commit `f910e6c`)
+
+- `CLAUDE.md` — Replaced the minimal skills-pointer stub with a full codebase navigation reference. Added 7 tables: entry points (15 files with roles), component map (33 components with what they render + where they're called from), API routes (28 routes with method/auth/cache TTL), lib/utility files (11 files with key exports), environment variables (13 vars with feature gates + ⚠️ API COST flags), known issues (3 items), and a 14-entry navigation guide ("if working on X → read Y"). Designed for zero-context agent sessions — any agent reading this file can navigate to the right file without scanning the codebase.
+
+---
+
 #### Session 35 — Phase 5: `app/page.tsx` under 2,000 lines (2026-06-10)
 
 Target met: 2,902 → **1,969 lines**. Build passes clean. No behaviour changes.
@@ -175,6 +181,8 @@ No information is now hover-only. Hover effects remain as enhancements only.
 - [x] **Phase 4: continue decomposing `app/page.tsx`** — Completed session 34. Extracted `LibraryToolbar`, `LibraryFilters`, `LibraryCard`. `app/page.tsx` is now 2 902 lines (was 3 520).
 
 - [x] **Phase 5: further `app/page.tsx` reduction** — Completed session 35. Final line count: 1,969. All modal components extracted to `components/LibraryModals.tsx`. Unused imports and helpers cleaned up.
+
+- [x] **CLAUDE.md codebase navigation** — Completed session 36. Full component map, API routes, env vars, and navigation guide written. Any new agent session starts with the correct file to read.
 
 - [ ] **Reload Chrome extension** — `background.js` changed in session 29. Go to `chrome://extensions` and click Reload on YOMU. The `syncFlush` alarm registers on next install/reload.
 
