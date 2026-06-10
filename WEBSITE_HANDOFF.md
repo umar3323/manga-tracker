@@ -382,6 +382,30 @@ No information is now hover-only. Hover effects remain as enhancements only.
 - **Fix:** `extension/background.js` — added `KNOWN_STREAMING_PLATFORMS` set. These platforms update `yomu_last_tracked` and session stats immediately (optimistic), like dedicated anime sites. DB updates still require API match.
 - **Prevention rule:** `KNOWN_STREAMING_PLATFORMS` and `DEDICATED_ANIME_SITES` must both be checked in `handleEvent`. New streaming services should be added to one of these sets so local stats update promptly.
 
+### Discover dismiss (✕) not persisting across page reloads — 2026-06-10
+- **Symptom:** Clicking ✕ on a Discover card removes it from the current view, but the card reappears after a page reload.
+- **Root cause:** Not yet investigated. Likely the `swipe_history` DB write is succeeding but the `/api/swipe-queue` feed is not filtering against `swipe_history` on next load, OR the insert is failing silently.
+- **Fix:** Not yet applied.
+- **Prevention rule:** Before fixing: read `app/api/swipe-queue/route.ts` (checks how `swipe_history` is used to filter candidates) and `components/DiscoverPanel.tsx` (dismiss handler). Confirm the insert lands in DB before investigating the feed filter.
+
+### Session log not updating from extension (live tracking not reaching site) — 2026-06-10
+- **Symptom:** Extension popup correctly shows "NOW TRACKING: The Disastrous Life of Saiki K. · netflix.com" with time/episode counts, but the Stats page Session Log still shows old entries (FMA from Jun 9). No new Saiki K sessions appear even after watching.
+- **Root cause:** Not yet investigated. The extension flushes events to `/api/watch-event/batch` (confirmed deployed), but the Stats page and library cards do not reflect the new data. The `visibilitychange` listener in `app/page.tsx` is supposed to refresh the library on tab focus — this may not be triggering a stats re-fetch, or the batch endpoint write is failing silently.
+- **Fix:** Not yet applied.
+- **Prevention rule:** Before fixing: read `extension/background.js` (`syncFlush` function — check the fetch call and error handling), `app/page.tsx` (`visibilitychange` listener — check what it actually refreshes), and `app/stats/page.tsx` (confirm it reads from `watch_sessions` table). Verify the batch endpoint write is landing in DB using Supabase dashboard before debugging the UI refresh path.
+
+### /api/cron/reset-daily returns 404 — 2026-06-10
+- **Symptom:** `GET /api/cron/reset-daily` returns 404. Daily stat reset never fires. Extension "Min today" counter may accumulate without resetting.
+- **Root cause:** The route file either doesn't exist in the deployed build or is named differently to what Vercel cron config expects.
+- **Fix:** Not needed. Extension tracks daily stats in chrome.storage.local (yomu_session_stats with date key). GET_SESSION_STATS auto-resets when date !== todayKey(). No DB cron required. Resolved.
+- **Prevention rule:** Before fixing: run `find app/api/cron -type f` to confirm the actual filename. Check `vercel.json` (or project settings) for the cron schedule and the path it calls. The file must be `app/api/cron/reset-daily/route.ts` for the path `/api/cron/reset-daily` to resolve.
+
+### Merge UI doesn't show target entry's episode/chapter total before confirming — 2026-06-10
+- **Symptom:** When merging library entries (e.g. Ansatsu Kyoushitsu), the merge panel shows the entry name but not its current episode/chapter count. User cannot verify which card has the correct progress before committing an irreversible merge.
+- **Root cause:** UX gap — `RelationMergeButton` / merge modal does not display `total_episodes`, `current_chapter`, or `episodes_watched` for the merge target.
+- **Fix:** Not yet applied.
+- **Prevention rule:** Before fixing: read `components/DetailView.tsx` (RelationMergeButton component) and check what props the merge confirmation UI receives. The fix is to display `total_episodes` + `episodes_watched` for both the current entry and the merge target before the confirm button is shown.
+
 ---
 
 ## Session Log

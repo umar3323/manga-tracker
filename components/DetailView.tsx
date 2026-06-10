@@ -156,15 +156,37 @@ export function RelationMergeButton({
   }
 
   return (
-    <button
-      onClick={handleMerge}
-      disabled={merging}
-      title={`Merge "${remove.title}" into this entry`}
-      className="text-[10px] px-1.5 py-0.5 rounded font-medium transition-colors disabled:opacity-40"
-      style={{ backgroundColor: 'rgba(43,230,220,0.12)', color: 'var(--cyan)' }}
-    >
-      {merging ? '…' : '⟷'}
-    </button>
+    <>
+      <div className="text-[10px] text-zinc-400 mb-1 grid grid-cols-2 gap-2">
+        <div>
+          <div className="text-zinc-300 font-medium truncate">{keep.title}</div>
+          {keep.current_chapter > 0 || keep.total_chapters ? (
+            <div>Ch. {keep.current_chapter}/{keep.total_chapters ?? '?'}</div>
+          ) : null}
+          {(keep.has_anime && (keep.episodes_watched > 0 || keep.total_episodes)) ? (
+            <div>Ep. {keep.episodes_watched}/{keep.total_episodes ?? '?'}</div>
+          ) : null}
+        </div>
+        <div>
+          <div className="text-zinc-300 font-medium truncate">{remove.title}</div>
+          {remove.current_chapter > 0 || remove.total_chapters ? (
+            <div>Ch. {remove.current_chapter}/{remove.total_chapters ?? '?'}</div>
+          ) : null}
+          {(remove.has_anime && (remove.episodes_watched > 0 || remove.total_episodes)) ? (
+            <div>Ep. {remove.episodes_watched}/{remove.total_episodes ?? '?'}</div>
+          ) : null}
+        </div>
+      </div>
+      <button
+        onClick={handleMerge}
+        disabled={merging}
+        title={`Merge "${remove.title}" into this entry`}
+        className="text-[10px] px-1.5 py-0.5 rounded font-medium transition-colors disabled:opacity-40"
+        style={{ backgroundColor: 'rgba(43,230,220,0.12)', color: 'var(--cyan)' }}
+      >
+        {merging ? '…' : '⟷'}
+      </button>
+    </>
   )
 }
 
@@ -1242,6 +1264,11 @@ export function DetailModal({
           {notifyLoading && <ScoresSkeleton />}
           {!notifyLoading && notifyError && notifyKey && (
             <p className="text-[10px] text-zinc-600 mb-4">Could not load notify.moe scores.</p>
+          )}
+          {!animeMalIdForNotify && (manga.has_anime || manga.content_type === 'anime' || manga.content_type === 'movie') && (
+            <div className="text-xs text-zinc-500 italic px-1">
+              Sync this entry to load anime scores &amp; streaming links
+            </div>
           )}
           {!notifyLoading && notifyMoe?.rating && (() => {
             const r = notifyMoe.rating

@@ -74,9 +74,14 @@ export default function DiscoverySection({ onSelect }: Props) {
     if (!item.mal_id) return
     setDismissedIds(prev => new Set([...prev, item.mal_id!]))
     // Record in swipe_history with direction 'skip' — feeds the taste profile negatively
-    await supabase.from('swipe_history').insert({
-      mal_id: item.mal_id, title: item.title, direction: 'skip', genres: item.genres ?? [],
+    const { error } = await supabase.from('swipe_history').insert({
+      mal_id: item.mal_id,
+      title: item.title,
+      direction: 'skip',
+      genres: item.genres ?? [],
+      swiped_at: new Date().toISOString(),
     })
+    if (error) console.error('[DiscoverySection] dismiss insert failed:', error)
   }, [])
 
   // Featured — hourly

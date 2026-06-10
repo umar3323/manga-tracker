@@ -342,6 +342,12 @@ export default function StatsPage() {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [load])
+
   const saveGoal = async () => {
     const n = parseInt(goalDraft, 10)
     if (!isNaN(n) && n > 0) {
