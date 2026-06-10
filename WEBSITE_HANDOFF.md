@@ -10,6 +10,13 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 40 — Sync nudge actionable + patchEntry wired to chapter/episode commit (2026-06-10, commit `5c5344f`)
+
+- `components/DetailView.tsx` — Added `onSync?: (id: string) => void` to `DetailModalProps` interface and destructured in `DetailModal`. Changed the static "Sync this entry to load anime scores & streaming links" text nudge in the notify.moe section to a clickable `<button>` that calls `onSync(manga.id)` when clicked. Renders only when `onSync` prop is provided (safe to omit).
+- `app/page.tsx` — Added `patchEntry` to `useLibraryStore` destructure (`lib/store.ts` already exports it). Added `syncEntry(id: string)` per-entry sync handler: calls `/api/sync` with `{ id }` in request body, then re-fetches that single entry from `manga_list` and updates both the store list and `selectedManga`. Passed `onSync={syncEntry}` to `<DetailModal>`. Converted `commitChapterProgress` and `commitEpisodeProgress` from plain `async` functions to `useCallback` wired to `patchEntry` (store handles optimistic update + Supabase write + rollback on error); `reading_log` insert kept local in each function. `setSelectedManga` still called explicitly alongside `patchEntry` since patchEntry updates the store list but not the local `selectedManga` state that drives the open detail panel.
+
+---
+
 #### Session 39 — 5 confirmed bug fixes (2026-06-10, commit `f05e4de`)
 
 - `app/stats/page.tsx` — Added `visibilitychange` listener after the existing `useEffect(() => { load() }, [load])`. Calls `load()` when `document.visibilityState === 'visible'`. Stats page now refreshes when the tab regains focus (e.g. after the extension logs a watch event in another tab).
@@ -228,9 +235,7 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 - [ ] **Phase 2b: Migrate DetailModal open/close to store** — `activeDetailId` and `closeDetail` are in the store but DetailModal is still driven by `selectedManga` local state in `app/page.tsx`. Replace `selectedManga` with `useLibraryStore(s => s.mangaList.find(m => m.id === s.activeDetailId))` and wire all `setSelectedManga(m)` calls to `openDetail(m.id)`. Read `app/page.tsx` lines 56–61 and the DetailModal block (~line 1820) before starting — the `openDetailStore` shim written in session 37 is the bridge.
 
-- [ ] **Phase 3: patchEntry wired to +1 buttons** — `patchEntry` in `lib/store.ts` is ready but the `onChapterUpdate` / `onEpisodeUpdate` callbacks in `app/page.tsx` still do their own optimistic update + Supabase call. In Phase 3: replace the Supabase calls inside `commitChapterProgress` and `commitEpisodeProgress` with `patchEntry()`. Pass the page-level `showToast` as the third argument. This removes ~30 lines of duplicated optimistic-update logic and ensures all patch paths go through the store.
-  - Files to read: `app/page.tsx` lines 279–312 (`commitChapterProgress`) and 546–578 (`commitEpisodeProgress`); `lib/store.ts` `patchEntry`.
-  - Do NOT change the reading-log insert logic — that stays local to the commit functions.
+- [x] **Phase 3: patchEntry wired to chapter/episode commit** — Completed session 40. `commitChapterProgress` and `commitEpisodeProgress` now delegate optimistic update + Supabase write + rollback to `patchEntry`. `reading_log` insert kept local.
 
 - [ ] **Reload Chrome extension** — `background.js` changed in session 29. Go to `chrome://extensions` and click Reload on YOMU. The `syncFlush` alarm registers on next install/reload.
 
@@ -417,14 +422,21 @@ No information is now hover-only. Hover effects remain as enhancements only.
 - **Prevention rule:** `RelationMergeButton` now always shows progress before the button. Do NOT remove the comparison grid — merges are irreversible and users need to confirm which entry has the correct progress.
 
 ### notify.moe / AniList sections silent when anime_mal_id is missing — 2026-06-10
-- **Symptom:** Entries with `has_anime=true` but no `anime_mal_id` showed empty notify.moe and AniList sections with no explanation.
-- **Root cause:** SWR key is `null` when `animeMalIdForNotify` is null — fetches skip silently with no UI feedback.
-- **Fix:** `components/DetailView.tsx` notify.moe section — added "Sync this entry to load anime scores & streaming links" nudge rendered when `!animeMalIdForNotify && (manga.has_anime || content_type === 'anime' || content_type === 'movie')`.
-- **Prevention rule:** Any section that silently skips due to a missing ID must show a nudge or explanation so the user knows what action to take. A null SWR key is invisible to the user without UI feedback.
+- **Symptom:** Entries with `has_anime=true` but no `anime_mal_id` showed empty notify.moe and AniList sections with no explanation. Static nudge text added in session 39 was not actionable.
+- **Root cause:** SWR key is `null` when `animeMalIdForNotify` is null — fetches skip silently with no UI feedback. Static text told user to sync but gave no way to do it.
+- **Fix (session 39):** `components/DetailView.tsx` notify.moe section — added static text nudge. **Fix (session 40):** nudge upgraded to a clickable `<button>` that calls `onSync(manga.id)`. `app/page.tsx` — `syncEntry(id)` handler added and passed as `onSync` to `<DetailModal>`.
+- **Prevention rule:** Any section that silently skips due to a missing ID must show an actionable button (not just text) so the user can fix the gap without leaving the current view. A null SWR key is invisible to the user without UI feedback.
 
 ---
 
 ## Session Log
+
+### Session — 2026-06-10 (session 40)
+- Sync nudge upgraded from static text → button. `onSync?: (id: string) => void` prop added to `DetailModalProps`; safe to omit (button only renders when prop is present).
+- `syncEntry(id)` in `page.tsx`: per-entry sync (not full-library). Calls `/api/sync` with `{ id }` body, then re-fetches the single row and patches both store + `selectedManga`. Reuses existing `setSyncing` + `showToast` so the toolbar sync indicator fires.
+- `patchEntry` wiring: both commit functions converted to `useCallback`. Deps are `[patchEntry, showToast, setSelectedManga]` — all stable references. `reading_log` insert kept local (not in store).
+- `setSelectedManga` must be called explicitly alongside `patchEntry` because patchEntry patches `mangaList` in the store but not the local React state that keeps the detail panel open.
+- Build clean. Deployed `5c5344f`.
 
 ### Session — 2026-06-10 (session 39)
 - Fixed 5 confirmed bugs: stats visibility refresh, dismiss persistence, merge UI progress preview, anime sync nudge, and cron/reset-daily non-issue clarification.
@@ -564,6 +576,12 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Change History
+
+### 2026-06-10 — Session 39 (5 bug fixes: stats visibility, dismiss persistence, merge progress preview, sync nudge, cron clarification)
+- `app/stats/page.tsx` — `visibilitychange` listener added; stats refresh on tab focus.
+- `components/DiscoverySection.tsx` — `swiped_at` added to dismiss insert; error logging on failure.
+- `components/DetailView.tsx` — `RelationMergeButton` two-column progress comparison grid. Static sync nudge added to notify.moe section.
+- `WEBSITE_HANDOFF.md` — `/api/cron/reset-daily` marked resolved (extension handles daily reset).
 
 ### 2026-06-10 — Session 37 (Phase 1 architecture: Zustand store + QuickPeekSheet)
 - `lib/store.ts` *(new)* — Zustand store: `mangaList`, `isLoading`, `activePeekId`, `activeDetailId`; actions: `setLibrary`, `openPeek`, `closePeek`, `openDetail`, `closeDetail`, `patchEntry` (optimistic with snapshot rollback).
