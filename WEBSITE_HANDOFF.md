@@ -10,6 +10,27 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 35 — Phase 5: `app/page.tsx` under 2,000 lines (2026-06-10)
+
+Target met: 2,902 → **1,969 lines**. Build passes clean. No behaviour changes.
+
+**New file**
+- `components/LibraryModals.tsx` — Contains all 9 self-contained modal/panel components extracted from `app/page.tsx`:
+  - `AuthorModal` — author works list (Jikan), add-to-library buttons
+  - `StudioModal` — studio anime titles (Jikan), add-to-library buttons
+  - `RecommendationModal` — full detail panel for a single AI/trending recommendation
+  - `ShelfPicker` — shelf assignment panel with create-shelf
+  - `ShareModal` — public-share toggle + URL display
+  - `TakeoutImportModal` — Google Takeout batch import
+  - `HealthCheckModal` — library health check + Jikan enrichment
+  - `RecommendationsListModal` — AI recommendations list overlay (loading/error/list)
+  - `SyncResultsModal` — sync completion results overlay
+
+**Modified files**
+- `app/page.tsx` — Removed all 9 modal function bodies; replaced with imports from `@/components/LibraryModals`. Removed unused imports: `Image`, `getAuthorWorks`, `getAuthorInfo`, `getMangaById`, `searchAnimeByProducer`, `ArcEditor` (component import), `RereadSection`, `RewatchSection`, `UrlImportModal`, `SeriesMapModal`, `AniListMangaData`, `AniListAnimeData`, `RELATION_LABELS`, `formatCountdown`, `MUSeriesData`, `ANNRelatedWork`, `deepDiveSeries`, `TAKEOUT_ENTRIES`, `EditableNumber`, `RelationMergeButton`. Removed unused helpers: `STATUS_COLORS`, `timeAgo`, `MarkdownBold`. **Final line count: 1,969**.
+
+---
+
 #### Session 34 — Phase 4: `app/page.tsx` decomposition (2026-06-10)
 
 Three new components extracted from `app/page.tsx`. Build passes clean.
@@ -153,7 +174,7 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 - [x] **Phase 4: continue decomposing `app/page.tsx`** — Completed session 34. Extracted `LibraryToolbar`, `LibraryFilters`, `LibraryCard`. `app/page.tsx` is now 2 902 lines (was 3 520).
 
-- [ ] **Phase 5: further `app/page.tsx` reduction** — Remaining large self-contained blocks still in page.tsx: the "Add form" with autocomplete/quick-details (~200 lines, lines ~1980–2240); the "Continue strip" IIFE (~60 lines); the "Backlog pressure score" IIFE (~30 lines); the "Sync Results" modal (~60 lines). All modal function components (`AuthorModal`, `StudioModal`, `RecommendationModal`, `ShelfPicker`, `ShareModal`, `TakeoutImportModal`, `HealthCheckModal`) could be moved to `components/` — each is self-contained. Target sub-2 000 lines. Do NOT extract hooks or anything requiring 5+ prop levels.
+- [x] **Phase 5: further `app/page.tsx` reduction** — Completed session 35. Final line count: 1,969. All modal components extracted to `components/LibraryModals.tsx`. Unused imports and helpers cleaned up.
 
 - [ ] **Reload Chrome extension** — `background.js` changed in session 29. Go to `chrome://extensions` and click Reload on YOMU. The `syncFlush` alarm registers on next install/reload.
 
@@ -310,6 +331,14 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Session Log
+
+### Session — 2026-06-10 (session 35)
+- Phase 5 of UI layout refactor: target was sub-2,000 lines in `app/page.tsx`.
+- Strategy: extract self-contained modal components only (no shared hooks, no prop-drilling of state that spans multiple sections).
+- 7 top-level function components (AuthorModal, StudioModal, RecommendationModal, ShelfPicker, ShareModal, TakeoutImportModal, HealthCheckModal) removed from page.tsx → `components/LibraryModals.tsx`. Saved ~782 lines.
+- 2 inline JSX blocks extracted to LibraryModals as `RecommendationsListModal` and `SyncResultsModal`. Saved ~120 more lines.
+- Cleaned all imports that were only used by the removed code — `Image`, 4 unused jikan functions, 8 unused type imports, 3 unused helpers (`STATUS_COLORS`, `timeAgo`, `MarkdownBold`). Saved ~30 more lines.
+- Final count: 1,969. Build passes clean. No behaviour changes.
 
 ### Session — 2026-06-10 (session 34)
 - Phase 4 of UI layout refactor: extracted 3 components out of `app/page.tsx`.
