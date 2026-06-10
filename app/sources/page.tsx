@@ -316,9 +316,15 @@ export default function SourcesPage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-sm">{s.name}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center gap-1">
-                        <CheckCircle size={9} strokeWidth={2} /> Live
-                      </span>
+                      {(() => {
+                        const cfg = STATUS_CONFIG[s.status]
+                        const Icon = cfg.icon
+                        return (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border flex items-center gap-1 ${cfg.bg} ${cfg.color}`}>
+                            <Icon size={9} strokeWidth={2} /> {cfg.label}
+                          </span>
+                        )
+                      })()}
                     </div>
                     <span className="text-[10px] text-zinc-600 font-mono">{s.via}</span>
                   </div>

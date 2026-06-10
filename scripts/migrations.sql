@@ -248,3 +248,14 @@ BEGIN
   WHERE id = ANY(drop_ids);
 END;
 $$;
+
+-- ── swipe_history: user_id column + RLS policies ─────────────────────────
+ALTER TABLE swipe_history ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS swipe_history_user_id_idx ON swipe_history(user_id);
+ALTER TABLE swipe_history ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can read own swipe history" ON swipe_history;
+CREATE POLICY "Users can read own swipe history" ON swipe_history
+  FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own swipe history" ON swipe_history;
+CREATE POLICY "Users can insert own swipe history" ON swipe_history
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
