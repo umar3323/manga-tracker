@@ -40,6 +40,7 @@ import type { AniListMangaData, AniListAnimeData } from '@/lib/anilist'
 import type { MUSeriesData } from '@/lib/mangaupdates'
 import type { ANNRelatedWork } from '@/lib/ann'
 import { GitMerge, Tv } from 'lucide-react'
+import Modal from '@/components/Modal'
 
 // ─── Re-exported constants (page.tsx still owns STATUS_LABELS / STATUS_COLORS) ─
 // We only need the type here — actual values stay in page.tsx to avoid duplication.
@@ -900,12 +901,9 @@ export function DetailModal({
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-50 flex items-end lg:items-stretch lg:justify-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div
-        className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-l-2xl lg:rounded-t-none w-full lg:w-[380px] max-h-[90vh] lg:max-h-none overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal onClose={onClose} containerClass="items-end lg:items-stretch lg:justify-end" labelledBy="detail-modal-title">
+      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-l-2xl lg:rounded-t-none w-full lg:w-[380px] max-h-[90vh] lg:max-h-none overflow-y-auto">
+
         {/* Drag handle on mobile */}
         <div className="flex justify-center pt-3 pb-1 md:hidden">
           <div className="w-10 h-1 bg-zinc-700 rounded-full" />
@@ -920,7 +918,7 @@ export function DetailModal({
                 className="w-20 h-28 object-cover rounded-lg shrink-0" />
             )}
             <div className="min-w-0">
-              <h2 className="font-bold text-lg leading-snug">{manga.title}</h2>
+              <h2 id="detail-modal-title" className="font-bold text-lg leading-snug">{manga.title}</h2>
               {manga.mal_id && (
                 <a href={`https://myanimelist.net/manga/${manga.mal_id}`} target="_blank" rel="noopener noreferrer"
                   className="text-xs text-violet-400 hover:text-violet-300 mt-1 inline-block">
@@ -2041,6 +2039,6 @@ export function DetailModal({
           }}
         />
       )}
-    </div>
+    </Modal>
   )
 }

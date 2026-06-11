@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Lightbulb } from 'lucide-react'
+import Modal from '@/components/Modal'
 
 const CATEGORIES = ['Feature', 'Bug report', 'Improvement', 'Content', 'Other']
 
@@ -35,19 +36,8 @@ export function FeatureRequestModal({ onClose }: Props) {
   }
 
   return (
-    /* backdrop */
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 100,
-        background: 'rgba(9,9,12,0.75)', backdropFilter: 'blur(6px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '0 16px',
-      }}
-    >
-      {/* panel */}
+    <Modal onClose={onClose} zIndex="z-[100]" containerClass="items-center justify-center p-4" labelledBy="feature-modal-title">
       <div
-        onClick={e => e.stopPropagation()}
         style={{
           width: '100%', maxWidth: 480,
           background: 'var(--ink-700)', border: 'var(--border-hair)',
@@ -61,7 +51,7 @@ export function FeatureRequestModal({ onClose }: Props) {
           padding: '18px 22px', borderBottom: 'var(--border-hair)',
         }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--fg-1)' }}>Request a Feature</div>
+            <h2 id="feature-modal-title" style={{ fontSize: 16, fontWeight: 800, color: 'var(--fg-1)', margin: 0 }}>Request a Feature</h2>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 2 }}>Your idea goes straight to the roadmap.</div>
           </div>
           <button onClick={onClose} style={{
@@ -191,7 +181,7 @@ export function FeatureRequestModal({ onClose }: Props) {
           </form>
         )}
       </div>
-    </div>
+    </Modal>
   )
 }
 

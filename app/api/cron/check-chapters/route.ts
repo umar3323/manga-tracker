@@ -78,10 +78,12 @@ export async function GET(req: NextRequest) {
   if (notifications.length > 0) {
     await supabase.from('chapter_notifications').insert(
       notifications.map(n => ({
+        user_id: n.user_id,
         manga_id: n.manga_id,
         title: n.title,
         previous_chapters: n.previous_chapters,
         new_chapters: n.new_chapters,
+        seen: false,
       }))
     )
 

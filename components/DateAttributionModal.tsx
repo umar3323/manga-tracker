@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Calendar, Hash, HelpCircle, X } from 'lucide-react'
+import Modal from '@/components/Modal'
 
 export type DateAttribution =
   | { precision: 'exact'; date: string }                               // single day YYYY-MM-DD
@@ -62,22 +63,15 @@ export default function DateAttributionModal({ title, delta, type, onConfirm, on
   ]
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
-      style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)' }}
-      onClick={onDismiss}
-    >
-      <div
-        className="relative w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal onClose={onDismiss} containerClass="items-end sm:items-center justify-center p-4" labelledBy="date-modal-title">
+      <div className="relative w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
         {/* Close */}
         <button onClick={onDismiss} className="absolute top-3 right-3 text-zinc-600 hover:text-zinc-400 transition-colors">
           <X size={15} strokeWidth={1.5} />
         </button>
 
         {/* Header */}
-        <p className="text-xs text-zinc-500 mb-0.5">When did you {type === 'chapter' ? 'read' : 'watch'} this?</p>
+        <h2 id="date-modal-title" className="text-xs text-zinc-500 mb-0.5 font-normal">When did you {type === 'chapter' ? 'read' : 'watch'} this?</h2>
         <p className="font-semibold text-sm text-white truncate mb-4">
           {title} <span className="font-normal text-violet-400">{label}</span>
         </p>
@@ -212,6 +206,6 @@ export default function DateAttributionModal({ title, delta, type, onConfirm, on
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

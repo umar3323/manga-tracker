@@ -10,6 +10,35 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 51 — Phase 1 audit fixes: middleware rename, user_settings migration, cron schema fix, duplicate dismissal — 2026-06-11
+
+- `middleware.ts` *(renamed from `proxy.ts`)* — `proxy.ts` was never loaded by Next.js because the framework requires the middleware file to be named `middleware.ts` (or `.js`). The exported function was also renamed from `proxy` to `middleware`. Auth was previously enforced only client-side (Supabase session checks in each page). `proxy.ts` deleted.
+- `CLAUDE.md` — All references to `proxy.ts` updated to `middleware.ts`.
+- `app/api/cron/check-chapters/route.ts` — Fixed `chapter_notifications` insert. The production table schema (`title text NOT NULL`, `previous_chapters integer`, `new_chapters integer NOT NULL`, `seen boolean NOT NULL`) differs from `migrations.sql`. Previous insert used `last_chapter`/`mal_id` (migrations.sql schema) — wrong columns, causing every insert to silently fail. Also added `user_id` to the insert (column added in this session's migration) and `seen: false`.
+- **Supabase DB (production)** — Applied migration `add_user_id_to_user_settings_and_chapter_notifications`: added `user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE` to both `user_settings` and `chapter_notifications`; created unique index `user_settings_user_key ON user_settings (user_id, key)` (replaces bare-key uniqueness); added RLS `"Users manage own settings"` and `"Users manage own chapter notifications"` policies on both tables.
+- `components/DuplicateDetector.tsx` — Fixed per-user isolation for dismissed duplicates. Previously had no `user_id` in read or write paths, so all users shared the same `dismissed_duplicates` key (last write wins; any user's dismissals would affect all). Now: `useEffect` calls `supabase.auth.getUser()` first, stores `userId` state, then queries `.eq('user_id', user.id).eq('key', 'dismissed_duplicates')`; `dismiss()` and reset both pass `user_id: userId` and `onConflict: 'user_id,key'` to upsert.
+
+---
+
+#### Session 50 — Magi series card fix: correct title, series-aware progress, sequel subtitle — 2026-06-11, commit `91bbbd5`
+
+- **DB (production)** — Renamed primary Magi series entry (`e68ba773`) from `"Magi: The Kingdom of Magic"` to `"Magi: The Labyrinth of Magic"` (correct S1 title), `anime_title` updated to match, `total_episodes` left at `25`. Non-primary entry (`c03632de`) updated: `anime_title = 'Magi: The Kingdom of Magic'` (was null). Both entries in series `d0dc3eda-9825-4a42-95f2-b69322cab364` — series episode sum is now `25 + 25 = 50`.
+- `components/LibraryCard.tsx` — When `seriesMembers.length > 1`, renders a subtitle line `"incl. [non-primary titles]"` below the primary card title. Shown only when at least one non-primary member has a different title. Truncates with `title=` tooltip for overflow. Wraps the title+subtitle in a `<div className="flex-1 min-w-0">` to preserve layout.
+- `components/QuickPeekSheet.tsx` — Now reads `series_id` from the entry and loads all matching series members from the Zustand store. Computes series-aware `seriesEpCurrent` / `seriesEpTotal` and `seriesChCurrent` / `seriesChTotal` using the same logic as `LibraryCard`. Progress label now shows `"Episode 50 / 50"` instead of raw `"Episode 50 / 25"` for multi-entry series.
+
+---
+
+#### Session 49 — Adult/hentai content blocking across all entry points — 2026-06-11, commit `e5ea9e7`
+
+- `lib/jikan.ts` — Added `BLOCKED_GENRES = new Set(['hentai', 'erotica'])`, `BLOCKED_GENRE_IDS = [12, 49]` (MAL genre IDs), and `isAdultContent(genres: string[]): boolean` exported helper. Changed `sfw='false'` → `sfw='true'` in both `searchMangaWithFiltersTyped` and `searchAnimeWithFiltersTyped`. Added `genres_exclude: BLOCKED_GENRE_IDS.join(',')` to both search functions. Added `filter(m => !isAdultContent(m.genres))` post-filter on all result arrays in both functions and `getTopMangaMultiPage`. Fixed implicit-any TS error: typed the `.filter()` callback as `(m: JikanSearchResult)` on the anime search result.
+- `app/api/jikan-search/route.ts` — Added `jikanParams.set('sfw', 'true')` unconditionally after building the params object. Callers cannot override this — SFW is always enforced server-side.
+- `app/api/swipe-queue/route.ts` — Changed import to include `isAdultContent` from `@/lib/jikan`. Added `if (isAdultContent(m.genres ?? [])) return false` in the `candidates.filter()` block, alongside the existing excludeSet and disliked-genre checks. AniList already sends `isAdult: false` in the GraphQL query; this adds a post-fetch guard.
+- `app/api/watch-event/route.ts` — Added `import { BLOCKED_GENRES } from '@/lib/jikan'`. Added `isAdultTitle(title: string): boolean` function that checks if the title string contains any blocked genre word (title-based heuristic for extension events where no genre list is available). Added early return at the top of the POST handler (after auth, before input sanitisation): if `isAdultTitle(title)` returns true, responds `{ ok: true, skipped: 'adult_content' }` — no DB writes, no session rows, no library updates.
+- **DB:** Production Supabase — `Spirited Away` row had a bad `genres` array containing `'hentai'` (Jikan data error). Fixed: `UPDATE manga_list SET genres = ARRAY(SELECT g FROM unnest(genres) AS g WHERE lower(g) NOT IN ('hentai', 'erotica', 'adult')) WHERE id = '4927aad3-...'`.
+- `scripts/migrations.sql` — Added `ALTER TABLE watch_sessions ALTER COLUMN idempotency_key SET DEFAULT gen_random_uuid();` (was already in the previous session — confirmed present).
+
+---
+
 #### Session 48 — iOS apple-touch-icon, Saiki K content_type fix, stats improvements — 2026-06-11, commits `1bdd599` `9f76201` `0790617` `5da066b`
 
 **iOS apple-touch-icon**
@@ -384,11 +413,56 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 - [ ] **Activate Gemini Deep Search** — `lib/gemini.ts` and `app/api/deep-search/route.ts` are already wired. Add `GEMINI_API_KEY` to Vercel environment variables (get free key from Google AI Studio: https://aistudio.google.com/app/apikey). No code changes needed — the feature activates automatically once the env var is present. ⚠️ API COST: `gemini-2.0-flash` free tier; fires once per Deep Search modal open in parallel with Claude.
 
+- [ ] **Fix Feature Request env var** — The feature request button fails for all users. Check Vercel project settings → Environment Variables. Ensure `GOOGLE_SERVICE_ACCOUNT_JSON` (full JSON blob) OR both `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_PRIVATE_KEY` are set, plus `Google_Sheet_ID` (or `GOOGLE_SHEET_ID`). The code at `app/api/feature-request/route.ts` line 35 returns a clear error message describing exactly which vars are missing — check the Vercel function logs for the exact error. No code changes needed.
+
+- [ ] **Phase 2 (audit) — Create shared `<Modal>` component** — All 9+ modals lack `role="dialog"`, `aria-modal="true"`, focus trapping, and focus restore on close. This is a WCAG 2.1 AA failure.
+  - Create `components/Modal.tsx` — wrapper div with `role="dialog"`, `aria-modal="true"`, `aria-labelledby`, Tab/Shift+Tab trap (use `querySelectorAll` of focusable elements), `useEffect` to focus first element on open and restore `document.activeElement` on close.
+  - Migrate all 9 modals in `components/LibraryModals.tsx` + `components/FeatureRequestModal.tsx` + `components/DateAttributionModal.tsx` to use the wrapper.
+  - Effort: **L**
+
+- [ ] **Phase 3 (audit) — Add PNG icons to PWA manifest** — Android install prompts and splash screens require raster PNG icons at 192×192 and 512×512. SVG-only manifests cannot trigger the Android install banner.
+  - Generate `public/icon-192.png` and `public/icon-512.png` from `public/icon.svg` using sharp (already in devDependencies): `npx tsx -e "import sharp from 'sharp'; sharp('public/icon.svg').resize(192).png().toFile('public/icon-192.png')"`.
+  - Generate a maskable 512px variant: add `"purpose": "maskable"` entry.
+  - Add both to `public/manifest.json` `icons` array alongside existing SVG entries.
+  - Effort: **S**
+
+- [ ] **Phase 3 (audit) — Proxy AniList GraphQL calls through `/api/anilist`** — `components/ReleaseCalendar.tsx` line ~88 and parts of `components/DetailView.tsx` call `https://graphql.anilist.co` directly from the browser. This bypasses the 24h server-side cache and hits AniList rate limits per user IP. Move these to use `fetch('/api/anilist?...')` instead. Effort: **M**
+
+- [ ] **Phase 3 (audit) — Fix session timer safe-area padding** — `components/SessionTimer.tsx` line ~80: fixed bottom button uses `bottom-24 lg:bottom-6` but does not add `pb-[env(safe-area-inset-bottom)]`. Hidden behind iOS home bar on notched phones. One-line fix. Effort: **S**
+
+- [ ] **Phase 3 (audit) — Add `sizes` prop to discovery grid images** — `components/DiscoverySection.tsx` and `components/DiscoverPanel.tsx` line ~74 use `<Image fill>` without a `sizes` attribute. Next.js serves full-resolution images at all breakpoints, inflating mobile LCP. Add `sizes="(max-width: 640px) 33vw, (max-width: 1024px) 20vw, 16vw"`. Effort: **S**
+
+- [ ] **Phase 4 (audit) — Remove second `DuplicateDetector` from stats page** — `DuplicateDetector` is rendered in both `app/page.tsx` and `app/stats/page.tsx`. Each runs an O(n²) title scan on every `manga` change. Remove the instance from `app/stats/page.tsx`. Effort: **S**
+
+- [ ] **Phase 4 (audit) — Add `aria-pressed` to type-filter pills** — `components/LibraryFilters.tsx` line ~73: type-filter pills (All/Manga/Manhwa/Webtoon/etc.) have no `aria-pressed` attribute. Status tabs already have it. One-line fix per pill. Effort: **S**
+
+- [ ] **Phase 4 (audit) — Add `aria-label` to unlabelled icon buttons** — Two buttons have no accessible name: (1) PenLine notes toggle in `components/LibraryCard.tsx` line ~306 — add `aria-label="Toggle notes"`; (2) minimised session timer button in `components/SessionTimer.tsx` line ~80 — add `aria-label="Expand session timer"`. Effort: **S**
+
+- [ ] **Phase 4 (audit) — Add `<label>` to bare placeholder inputs** — Three inputs use placeholder only (WCAG 1.3.1 failure): add-bar search input in `app/page.tsx` ~line 700; shelf name input in `app/shelves/page.tsx` line ~80; watch-prompt input in `components/LibraryCard.tsx` line ~534. Use `<label className="sr-only">` for each. Effort: **S**
+
 - [x] **Deep Search via Gemini (free)** — Implemented. `lib/gemini.ts` created: calls `gemini-2.0-flash` via REST (no new npm dependency), gated on `GEMINI_API_KEY` env var, 8s AbortSignal timeout, returns `{ synopsis, themes[], trivia }`. `app/api/deep-search/route.ts`: `enrichWithGemini()` runs in parallel with Claude arc detection via `Promise.all`; `DeepSearchResult` extended with `synopsis`, `themes`, `trivia` fields; `content_type` now accepted from request body and forwarded to Gemini. `components/DeepSearchModal.tsx`: displays Gemini synopsis (with "Save to entry" checkbox, auto-checked when synopsis exists), themes as violet pills, trivia in italic block; passes `content_type` in POST body; `handleSave` writes `synopsis` to `manga_list` when checkbox is checked. `app/page.tsx`: `content_type` passed to `<DeepSearchModal>`. `CLAUDE.md` env vars table updated with `GEMINI_API_KEY` entry. ⚠️ **To activate:** add `GEMINI_API_KEY` to Vercel environment variables (get key from Google AI Studio — free tier). Without the key the modal works exactly as before.
 
 ---
 
 ## Known Issues & Regressions
+
+### Auth middleware never running (proxy.ts not loaded by Next.js) — 2026-06-11
+- **Symptom:** Auth was enforced client-side only. Unauthenticated direct URL access to protected pages was not redirected server-side.
+- **Root cause:** The middleware file was named `proxy.ts` and exported a function named `proxy`. Next.js only loads a file named `middleware.ts` (or `.js`/`.mjs`) with a `middleware` named export (or default export) as its edge middleware. The file was never invoked.
+- **Fix:** `proxy.ts` → `middleware.ts`; `export async function proxy` → `export async function middleware`. `proxy.ts` deleted. `CLAUDE.md` references updated.
+- **Prevention rule:** The Next.js middleware file MUST be named `middleware.ts` at the project root and MUST export a function named `middleware` (or use `export default`). Any other name is silently ignored. Do not rename this file.
+
+### chapter_notifications insert silently failing (schema mismatch) — 2026-06-11
+- **Symptom:** Chapter-alert cron ran but no notification records were written and no push notifications were sent.
+- **Root cause:** `migrations.sql` describes `chapter_notifications` with columns `user_id`, `mal_id`, `last_chapter`. The production table has different columns: `title`, `previous_chapters`, `new_chapters`, `seen`. The insert used `migrations.sql` column names — every insert failed silently (Supabase error not checked).
+- **Fix:** `app/api/cron/check-chapters/route.ts` — insert now uses `user_id`, `manga_id`, `title`, `previous_chapters`, `new_chapters`, `seen: false` to match the actual production schema.
+- **Prevention rule:** The production `chapter_notifications` schema diverges from `migrations.sql`. Actual columns: `id`, `manga_id`, `title`, `previous_chapters`, `new_chapters`, `seen`, `created_at`, `user_id`. Always verify against the live schema (Supabase MCP `execute_sql SELECT column_name ...`) before writing inserts for this table.
+
+### DuplicateDetector dismissed pairs not scoped per user — 2026-06-11
+- **Symptom:** Dismissing a duplicate pair for one user could affect all users (last write wins on shared `key='dismissed_duplicates'`). Dismissed pairs also reappeared on reload because `user_settings` had no RLS and no `user_id` column.
+- **Root cause:** `user_settings` table was missing `user_id` column. Queries did not filter by user. Upserts had no per-user uniqueness constraint.
+- **Fix:** DB migration added `user_id` column + unique index `(user_id, key)` + RLS policy to `user_settings`. `components/DuplicateDetector.tsx` now calls `supabase.auth.getUser()` on mount, stores `userId`, and includes it in all reads and writes.
+- **Prevention rule:** Every `user_settings` read must `.eq('user_id', userId)`. Every upsert must include `user_id` and `onConflict: 'user_id,key'`. Never query `user_settings` without a `user_id` filter — the RLS policy enforces this server-side but client-side filtering is also required for the upsert conflict target.
 
 ### UrlImportModal closes immediately on interaction — 2026-06-08
 - **Symptom:** Clicking inside the "Import From URL" modal closed the DetailModal.
@@ -567,6 +641,12 @@ No information is now hover-only. Hover effects remain as enhancements only.
 - **Fix:** (1) DB: `ALTER TABLE watch_sessions ALTER COLUMN idempotency_key SET DEFAULT gen_random_uuid()` applied to production. (2) `app/api/watch-event/route.ts` — captured `{ error: sessionErr }` and added `console.error` log on failure. (3) `scripts/migrations.sql` — added DEFAULT line after the NOT NULL line.
 - **Prevention rule:** After adding a NOT NULL column to `watch_sessions`, always add `SET DEFAULT gen_random_uuid()` immediately (or supply the value at every insert site). Never fire-and-forget a Supabase insert without capturing the error result — silent insert failures are invisible to the user and extremely hard to diagnose.
 
+### Jikan returning adult genre tags on non-adult titles — 2026-06-11
+- **Symptom:** `Spirited Away` was tagged with `'hentai'` in its genres array. Would have been hidden from library after adult-content blocking was deployed.
+- **Root cause:** Jikan bad genre data — MAL occasionally mis-tags or returns stale genre arrays. YOMU synced the raw Jikan genres without filtering.
+- **Fix:** (1) Production DB: `UPDATE manga_list SET genres = ARRAY(SELECT g FROM unnest(genres) AS g WHERE lower(g) NOT IN ('hentai', 'erotica', 'adult')) WHERE id = '...'`. (2) `lib/jikan.ts` — all `searchManga`/`searchAnime`/`getTopManga` post-filter results with `isAdultContent()`. (3) `/api/sync` route also re-fetches genres from Jikan — future syncs will pick up corrected data if Jikan fixes its side.
+- **Prevention rule:** Never store Jikan genre arrays without post-filtering. Always apply `isAdultContent(genres)` when displaying or persisting genre data. For existing rows, use `unnest()` (not `jsonb_array_elements_text()`) to filter `text[]` columns in SQL.
+
 ### notify.moe / AniList sections silent when anime_mal_id is missing — 2026-06-10
 - **Symptom:** Entries with `has_anime=true` but no `anime_mal_id` showed empty notify.moe and AniList sections with no explanation. Static nudge text added in session 39 was not actionable.
 - **Root cause:** SWR key is `null` when `animeMalIdForNotify` is null — fetches skip silently with no UI feedback. Static text told user to sync but gave no way to do it.
@@ -576,6 +656,28 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Session Log
+
+### Session — 2026-06-11 (session 51)
+- Full site audit produced `YOMU_SITE_AUDIT.md` (38 issues: 3 Critical, 7 High, 16 Medium, 12 Low). Began Phase 1 critical fixes.
+- Discovered `proxy.ts` was never loaded as middleware — Next.js requires `middleware.ts` exactly. Renamed file and function; auth now enforced server-side.
+- `chapter_notifications` insert was silently failing: production schema diverges from `migrations.sql` (different column names). Fixed insert to match actual table. Also discovered the table and `user_settings` both lacked `user_id` — applied DB migration to add column + RLS.
+- `DuplicateDetector` was writing dismissed pairs with no user scope — any user's dismissals would overwrite others'. Fixed with `user_id` in reads, writes, and upsert conflict target.
+- Feature request still broken — user must check Vercel env vars (Google Sheets credentials). Code is correct; env vars are missing/corrupted.
+- Remaining 12 audit fixes queued as Outstanding Tasks above (Phases 2–4).
+
+### Session — 2026-06-11 (session 50)
+- Magi series card was showing "Episode 50 / 25" — root cause: primary entry was titled "Magi: The Kingdom of Magic" (S2) with `total_episodes=25`, but it also tracked 50 episodes across both seasons. S1 ("Labyrinth of Magic") was absent from the DB entirely.
+- Fixed DB directly: renamed primary entry to S1 title; both series members now each have `total_episodes=25`, summing to 50.
+- `LibraryCard` series subtitle: when `seriesMembers.length > 1` and non-primary members have distinct titles, a muted `"incl. [sequel]"` line appears below the card title. Works for any series grouping, not just Magi.
+- `QuickPeekSheet` series totals: previously read raw `entry.total_episodes`/`entry.total_chapters`. Now mirrors `LibraryCard` logic — sums across all series members from the Zustand store. No props change needed — store already holds full library.
+- Supabase MCP `execute_sql` required correct project ID `qbthmlojqmkfzscbisus` (not `nkbwdzahjukqoxaqibxm`). Committed and deployed `91bbbd5`.
+
+### Session — 2026-06-11 (session 49)
+- User requested all hentai/adult content be removed from the site and blocked at every entry point.
+- Multi-layer approach: (1) Jikan `sfw=true` + `genres_exclude=12,49` on all searches, (2) `isAdultContent()` post-filter on every result set, (3) `/api/jikan-search` forces `sfw=true` regardless of caller params, (4) swipe-queue filters candidates, (5) watch-event endpoint drops events with adult titles before any DB writes.
+- Production DB cleanup: `Spirited Away` had `'hentai'` in its genres array — bad Jikan data. Fixed directly via SQL `unnest()` filter. Note: `jsonb_array_elements_text()` would fail here because `genres` is `text[]` not `jsonb`; always use `unnest()` for `text[]` columns.
+- `isAdultTitle()` in watch-event route is a title-string heuristic (no genre list available from the extension). Returns early so no DB side-effects occur — library entry never created, session never logged.
+- Build passed clean after fixing TS2551 (implicit `any` in `.filter()` callback in `lib/jikan.ts`). Deployed `e5ea9e7`.
 
 ### Session — 2026-06-11 (session 48)
 - User asked to tackle any outstanding tasks independently. Completed 3: iOS icon, Saiki K content_type, stats improvements.
@@ -758,6 +860,38 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Change History
+
+### 2026-06-11 — Session 50 (Magi series card fix)
+- DB (production) — Renamed primary Magi entry to S1 title; `total_episodes` corrected on both members.
+- `components/LibraryCard.tsx` — Series subtitle line `"incl. [non-primary titles]"` below card title for multi-member series.
+- `components/QuickPeekSheet.tsx` — Series-aware episode/chapter totals using Zustand store members.
+
+### 2026-06-11 — Session 49 (adult/hentai content blocking)
+- `lib/jikan.ts` — `sfw=true`, `genres_exclude=12,49`, `isAdultContent()` post-filter on all search results.
+- `app/api/jikan-search/route.ts` — `sfw=true` enforced server-side unconditionally.
+- `app/api/swipe-queue/route.ts` — `isAdultContent()` filter on discovery candidates.
+- `app/api/watch-event/route.ts` — `isAdultTitle()` heuristic; early return before DB writes.
+- DB (production) — `Spirited Away` genres cleaned via `unnest()` SQL filter.
+
+### 2026-06-11 — Session 48 (iOS icon, Saiki K fix, stats improvements)
+- `public/apple-touch-icon.png` *(new)* — 180×180 PNG.
+- `public/manifest.json` + `app/layout.tsx` — PNG icon wired.
+- DB (production) — Saiki K `content_type` corrected to `'anime'`.
+- `app/stats/page.tsx` — Session log Sync button; manual updates → `watch_sessions`; heatmap hover tooltips.
+
+### 2026-06-11 — Session 47 (watch_sessions idempotency_key fix)
+- DB (production) — `ALTER TABLE watch_sessions ALTER COLUMN idempotency_key SET DEFAULT gen_random_uuid()`.
+- `app/api/watch-event/route.ts` — Error logging added for session insert failure.
+- `scripts/migrations.sql` — DEFAULT line added.
+
+### 2026-06-10 — Session 46 (5 extension bug fixes + /api/library-titles + achievements)
+- `extension/background.js` — Watch-time float accumulation; dedup windows type-specific; `fetchLibraryTitles()`; `notifyYomuTabs()` post-match push.
+- `extension/popup.js` — `chrome.storage.onChanged` live stats; `fmtTime` float fix.
+- `app/api/library-titles/route.ts` *(new)* — Bearer/cookie dual auth, `Cache-Control: private, max-age=300`.
+- `proxy.ts` — `/api/streaming-sites`, `/api/library-titles`, `/api/watch-event`, `/api/watch-event/*` added to `isPublicApi`.
+- `lib/achievements.ts` — 22 → 38 badges.
+- `app/page.tsx` — `exportMALXML` and `exportAniListJSON` produce separate manga + anime files.
+- `scripts/migrations.sql` — `swipe_history` `user_id` column + `'skip'` direction constraint.
 
 ### 2026-06-10 — Session 45 (install page, Gemini enrichment, stale index cleanup)
 - `app/install/page.tsx` *(new)* — Public `/install` page: iOS/Android/desktop guides + FAQ.

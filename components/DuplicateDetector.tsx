@@ -35,22 +35,32 @@ export default function DuplicateDetector({
   const [merged, setMerged]   = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState<string | null>(null)
   const [toast, setToast]     = useState('')
+  const [userId, setUserId]   = useState<string | null>(null)
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
   useEffect(() => {
-    supabase.from('user_settings').select('value').eq('key', 'dismissed_duplicates').single()
-      .then(({ data }) => {
-        if (data?.value) {
-          try { setDismissed(new Set(JSON.parse(data.value))) } catch {}
-        }
-      })
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      setUserId(user.id)
+      supabase.from('user_settings').select('value')
+        .eq('user_id', user.id).eq('key', 'dismissed_duplicates').single()
+        .then(({ data }) => {
+          if (data?.value) {
+            try { setDismissed(new Set(JSON.parse(data.value))) } catch {}
+          }
+        })
+    })
   }, [])
 
   const dismiss = async (key: string) => {
     const next = new Set([...dismissed, key])
     setDismissed(next)
-    const { error } = await supabase.from('user_settings').upsert({ key: 'dismissed_duplicates', value: JSON.stringify([...next]), updated_at: new Date().toISOString() })
+    if (!userId) { showToast('Could not save dismissal — it will reappear on reload'); return }
+    const { error } = await supabase.from('user_settings').upsert(
+      { user_id: userId, key: 'dismissed_duplicates', value: JSON.stringify([...next]), updated_at: new Date().toISOString() },
+      { onConflict: 'user_id,key' }
+    )
     if (error) showToast('Could not save dismissal — it will reappear on reload')
   }
 
@@ -252,7 +262,10 @@ export default function DuplicateDetector({
               <button
                 onClick={async () => {
                   setChecked(false); setDismissed(new Set()); setMerged(new Set())
-                  await supabase.from('user_settings').upsert({ key: 'dismissed_duplicates', value: '[]', updated_at: new Date().toISOString() })
+                  if (userId) await supabase.from('user_settings').upsert(
+                    { user_id: userId, key: 'dismissed_duplicates', value: '[]', updated_at: new Date().toISOString() },
+                    { onConflict: 'user_id,key' }
+                  )
                 }}
                 className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
               >

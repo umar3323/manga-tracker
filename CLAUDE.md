@@ -27,7 +27,7 @@ For any task not covered above, check `/Users/hossain/Documents/Claude/Skills/` 
 |---|---|
 | `app/page.tsx` | Main library view — 1,969 lines. Owns all library state (manga[], filters, modals open/close). Imports LibraryToolbar, LibraryFilters, LibraryCard, LibraryModals, DetailModal, ReleaseCalendar, TrendingSection, DiscoverySection. |
 | `app/layout.tsx` | Root layout — wraps all pages with Nav, Sidebar, ServiceWorkerRegistrar, ExtensionAuthPush, NotificationBell. |
-| `proxy.ts` | Next.js middleware — enforces Supabase auth on all routes; exempts `/api/cron/*`, `/api/warmup`, `/api/feature-request`, `/share/*`, and public catalog/external APIs via `isPublicApi`. |
+| `middleware.ts` | Next.js middleware — enforces Supabase auth on all routes; exempts `/api/cron/*`, `/api/warmup`, `/api/feature-request`, `/share/*`, and public catalog/external APIs via `isPublicApi`. |
 | `app/anime/page.tsx` | Anime-specific library view (separate from manga). Uses `lib/anime-data.ts`. |
 | `app/stats/page.tsx` | Stats dashboard — reading velocity, watch DNA, ratings, taste profile, donut + heatmap charts. Heavy sections wrapped in `useMemo`. |
 | `app/discover/page.tsx` | Swipe-style discovery feed. Calls `/api/swipe-queue` (AniList GraphQL + Jaccard scoring). |
@@ -161,7 +161,7 @@ If working on **airing calendar** → read `components/ReleaseCalendar.tsx`
 If working on **Jikan API calls** → read `lib/jikan.ts` + `app/api/jikan-proxy/route.ts`
 If working on **AniList data** → read `lib/anilist.ts` + `app/api/anilist/route.ts`
 If working on **Chrome extension** → read `extension/background.js`, `extension/content.js`, `extension/popup.js`. All extension-facing API routes (`/api/streaming-sites`, `/api/library-titles`, `/api/watch-event`, `/api/watch-event/batch`) must be in `isPublicApi` in `proxy.ts` and must do their own Bearer token auth internally.
-If working on **auth / middleware** → read `proxy.ts`
+If working on **auth / middleware** → read `middleware.ts`
 If working on **DB schema / RPCs** → read `scripts/migrations.sql`
 If working on **Web Push** → read `app/api/push/route.ts` + `components/ServiceWorkerRegistrar.tsx`
 If working on **stats page** → read `app/stats/page.tsx` (warning: still long, use `useMemo` for heavy JSX)

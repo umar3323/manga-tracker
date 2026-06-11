@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
+import Modal from '@/components/Modal'
 import { supabase, type Manga, type MangaStatus, type Author } from '@/lib/supabase'
 import {
   getAuthorWorks,
@@ -63,17 +64,15 @@ export function AuthorModal({ author, onClose }: { author: Author; onClose: () =
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg max-h-[85vh] flex flex-col"
-        onClick={e => e.stopPropagation()}>
+    <Modal onClose={onClose} labelledBy="author-modal-title">
+      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg max-h-[85vh] flex flex-col">
         <div className="flex justify-center pt-3 pb-1 md:hidden">
           <div className="w-10 h-1 bg-zinc-700 rounded-full" />
         </div>
         <div className="px-5 pt-4 pb-3 border-b border-zinc-800 shrink-0">
           <div className="flex items-start justify-between">
             <div>
-              <h2 className="font-bold text-lg">{author.name}</h2>
+              <h2 id="author-modal-title" className="font-bold text-lg">{author.name}</h2>
               {info?.about && (
                 <p className="text-xs text-zinc-500 mt-1 line-clamp-2">{info.about.slice(0, 120)}…</p>
               )}
@@ -114,7 +113,7 @@ export function AuthorModal({ author, onClose }: { author: Author; onClose: () =
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -158,10 +157,8 @@ export function StudioModal({ studio, onClose }: { studio: Author; onClose: () =
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg max-h-[85vh] flex flex-col"
-        onClick={e => e.stopPropagation()}>
+    <Modal onClose={onClose} zIndex="z-[60]" labelledBy="studio-modal-title">
+      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg max-h-[85vh] flex flex-col">
         <div className="flex justify-center pt-3 pb-1 md:hidden">
           <div className="w-10 h-1 bg-zinc-700 rounded-full" />
         </div>
@@ -169,7 +166,7 @@ export function StudioModal({ studio, onClose }: { studio: Author; onClose: () =
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] text-zinc-600 uppercase tracking-widest mb-0.5">Studio / Producer</p>
-              <h2 className="font-bold text-lg">{studio.name}</h2>
+              <h2 id="studio-modal-title" className="font-bold text-lg">{studio.name}</h2>
             </div>
             <button onClick={onClose} aria-label="Close" className="text-zinc-600 hover:text-zinc-400 text-xl ml-3 shrink-0">×</button>
           </div>
@@ -208,7 +205,7 @@ export function StudioModal({ studio, onClose }: { studio: Author; onClose: () =
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -256,12 +253,9 @@ export function RecommendationModal({ rec, onClose }: { rec: Recommendation; onC
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end lg:items-stretch lg:justify-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-      <div
-        className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-l-2xl lg:rounded-t-none w-full lg:w-[420px] max-h-[92vh] lg:max-h-none overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal onClose={onClose} labelledBy="rec-modal-title" containerClass="items-end lg:items-stretch lg:justify-end">
+      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-l-2xl lg:rounded-t-none w-full lg:w-[420px] max-h-[92vh] lg:max-h-none overflow-y-auto">
+
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1 lg:hidden">
           <div className="w-10 h-1 bg-zinc-700 rounded-full" />
@@ -274,7 +268,7 @@ export function RecommendationModal({ rec, onClose }: { rec: Recommendation; onC
             {/* Header */}
             <div className="flex items-start justify-between mb-4">
               <div className="flex-1 min-w-0 pr-3">
-                <h2 className="font-bold text-xl leading-tight">{rec.title}</h2>
+                <h2 id="rec-modal-title" className="font-bold text-xl leading-tight">{rec.title}</h2>
                 {detail?.authors && detail.authors.length > 0 && (
                   <p className="text-xs text-zinc-500 mt-1">by {detail.authors.map(a => a.name).join(', ')}</p>
                 )}
@@ -362,7 +356,7 @@ export function RecommendationModal({ rec, onClose }: { rec: Recommendation; onC
           <div className="mx-5 mb-5 text-xs text-zinc-500 text-center">{toast}</div>
         )}
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -401,11 +395,9 @@ export function ShelfPicker({ manga, onClose }: { manga: Manga; onClose: () => v
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-2xl w-full lg:max-w-sm p-5"
-        onClick={e => e.stopPropagation()}>
-        <h2 className="font-semibold mb-1">Add to shelf</h2>
+    <Modal onClose={onClose} containerClass="items-end lg:items-center justify-center" labelledBy="shelf-modal-title">
+      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-2xl w-full lg:max-w-sm p-5">
+        <h2 id="shelf-modal-title" className="font-semibold mb-1">Add to shelf</h2>
         <p className="text-xs text-zinc-500 mb-4 truncate">{manga.title}</p>
         <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
           {shelves.length === 0 && <p className="text-xs text-zinc-600">No shelves yet — create one below.</p>}
@@ -432,7 +424,7 @@ export function ShelfPicker({ manga, onClose }: { manga: Manga; onClose: () => v
         </div>
         <button onClick={onClose} className="mt-3 w-full py-2 text-xs text-zinc-600 hover:text-zinc-400">Done</button>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -447,11 +439,9 @@ export function ShareModal({ token, enabled, onToggle, onClose }: {
   const copy = () => { if (shareUrl) { navigator.clipboard.writeText(shareUrl) } }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-2xl w-full lg:max-w-sm p-5"
-        onClick={e => e.stopPropagation()}>
-        <h2 className="font-semibold mb-1">Share your list</h2>
+    <Modal onClose={onClose} containerClass="items-end lg:items-center justify-center" labelledBy="share-modal-title">
+      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-2xl w-full lg:max-w-sm p-5">
+        <h2 id="share-modal-title" className="font-semibold mb-1">Share your list</h2>
         <p className="text-xs text-zinc-500 mb-4">Generate a public read-only link to your manga list.</p>
         <div className="flex items-center justify-between bg-zinc-800 rounded-xl px-4 py-3 mb-4">
           <span className="text-sm font-medium">Sharing {enabled ? 'on' : 'off'}</span>
@@ -480,7 +470,7 @@ export function ShareModal({ token, enabled, onToggle, onClose }: {
         )}
         <button onClick={onClose} className="mt-4 w-full py-2 text-xs text-zinc-600 hover:text-zinc-400">Close</button>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -511,13 +501,11 @@ export function TakeoutImportModal({ existingTitles, onClose, onImported }: {
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
-      onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden"
-        onClick={e => e.stopPropagation()}>
+    <Modal onClose={onClose} zIndex="z-[80]" containerClass="items-center justify-center p-4" labelledBy="takeout-modal-title">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
           <div>
-            <h2 className="font-semibold text-base">📦 Google Takeout Import</h2>
+            <h2 id="takeout-modal-title" className="font-semibold text-base">📦 Google Takeout Import</h2>
             <p className="text-xs text-zinc-500 mt-0.5">33 series from your YouTube watch history analysis</p>
           </div>
           <button onClick={onClose} className="text-zinc-500 hover:text-white text-xl leading-none">×</button>
@@ -592,7 +580,7 @@ export function TakeoutImportModal({ existingTitles, onClose, onImported }: {
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -710,14 +698,13 @@ export function HealthCheckModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl"
-        onClick={e => e.stopPropagation()}>
+    <Modal onClose={onClose} containerClass="items-center justify-center p-4" labelledBy="health-modal-title">
+      <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
           <div>
-            <h2 className="font-bold text-lg">Library Health Check</h2>
+            <h2 id="health-modal-title" className="font-bold text-lg">Library Health Check</h2>
             <p className="text-xs text-zinc-500 mt-0.5">
               {manga.length} total cards ·{' '}
               <span className={scoreColor}>{pct}% healthy</span>
@@ -813,7 +800,7 @@ export function HealthCheckModal({
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -829,19 +816,12 @@ export function SyncResultsModal({
   onClose: () => void
 }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
-      style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)' }}
-      onClick={onClose}
-    >
-      <div
-        className="relative w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal onClose={onClose} containerClass="items-end sm:items-center justify-center p-4" labelledBy="sync-modal-title">
+      <div className="relative w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
           <div>
-            <h2 className="text-sm font-bold text-zinc-200">⟳ Sync Complete</h2>
+            <h2 id="sync-modal-title" className="text-sm font-bold text-zinc-200">⟳ Sync Complete</h2>
             <p className="text-xs text-zinc-500 mt-0.5">
               Checked {malTrackedCount} Titles · {syncResults.updated} Updated
               {syncResults.timestamp && ` · ${new Date(syncResults.timestamp).toLocaleTimeString()}`}
@@ -888,7 +868,7 @@ export function SyncResultsModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -916,17 +896,14 @@ export function RecommendationsListModal({
   onSelectRec: (rec: Recommendation) => void
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center"
-      onClick={() => { if (!loading) onClose() }}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-2xl w-full lg:max-w-lg max-h-[85vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}>
+    <Modal onClose={loading ? () => {} : onClose} containerClass="items-end lg:items-center justify-center" labelledBy="recs-modal-title">
+      <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl lg:rounded-2xl w-full lg:max-w-lg max-h-[85vh] overflow-y-auto">
         <div className="flex justify-center pt-3 pb-1 lg:hidden">
           <div className="w-10 h-1 bg-zinc-700 rounded-full" />
         </div>
         <div className="px-5 pt-4 pb-5">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-violet-300">✦ AI Recommendations</h2>
+            <h2 id="recs-modal-title" className="font-semibold text-violet-300">✦ AI Recommendations</h2>
             {!loading && (
               <button onClick={onClose} aria-label="Close" className="text-zinc-600 hover:text-zinc-400 text-xl leading-none">×</button>
             )}
@@ -984,6 +961,6 @@ export function RecommendationsListModal({
           <div ref={sentinelRef} className="col-span-full h-4" aria-hidden />
         )}
       </div>
-    </div>
+    </Modal>
   )
 }
