@@ -103,10 +103,10 @@ export default function Sidebar() {
           }}>YOM</span>
           {/* U: red rounded-square badge, height=cap-height, marginBottom lifts to M glyph */}
           <span style={{ position: 'relative', display: 'inline-block', marginLeft: 4, lineHeight: 0, marginBottom: 7,
-            background: 'var(--vermillion)', borderRadius: 8, padding: '3px 4px',
-            boxShadow: '0 0 0 1px rgba(255,45,70,0.5), 0 0 14px rgba(255,45,70,0.35)' }}>
+            background: '#0d0d0d', borderRadius: 8, padding: '3px 4px',
+            boxShadow: '0 0 0 1.5px var(--vermillion)' }}>
             <img src="/logo-star.png" alt="" style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', width: 22, height: 'auto', marginBottom: 3, filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.6))', pointerEvents: 'none' }} />
-            <img src="/logo-u-snake.png" alt="U" style={{ height: 29, width: 'auto', display: 'block', filter: 'brightness(0) invert(1)' }} />
+            <img src="/logo-u-snake.png" alt="U" style={{ height: 29, width: 'auto', display: 'block', filter: 'brightness(0) saturate(100%) invert(20%) sepia(100%) saturate(5000%) hue-rotate(330deg) brightness(1.1)' }} />
           </span>
           <span style={{ fontFamily: "'Osaka Pulse', var(--font-display)", fontSize: 44, color: 'var(--vermillion)', lineHeight: 1 }}>.</span>
         </Link>
