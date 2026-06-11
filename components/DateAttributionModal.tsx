@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { Calendar, Hash, HelpCircle, X } from 'lucide-react'
 
 export type DateAttribution =
-  | { precision: 'exact'; date: string }      // ISO date string YYYY-MM-DD
+  | { precision: 'exact'; date: string }                               // single day YYYY-MM-DD
+  | { precision: 'range'; startDate: string; endDate: string }         // spread across multiple days
   | { precision: 'year_only'; year: number }
   | { precision: 'unknown' }
 
@@ -13,7 +14,7 @@ interface Props {
   delta: number
   type: 'chapter' | 'episode'
   onConfirm: (attr: DateAttribution, applyToAll: boolean) => void
-  onDismiss: () => void  // treated as unknown
+  onDismiss: () => void
 }
 
 const currentYear = new Date().getFullYear()
@@ -21,11 +22,17 @@ const todayISO = new Date().toISOString().slice(0, 10)
 
 const YEARS = Array.from({ length: currentYear - 1999 }, (_, i) => currentYear - i)
 
-type Tab = 'exact' | 'year_only' | 'unknown'
+type Tab = 'exact' | 'range' | 'year_only' | 'unknown'
+
+function daysBetween(a: string, b: string) {
+  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000) + 1
+}
 
 export default function DateAttributionModal({ title, delta, type, onConfirm, onDismiss }: Props) {
   const [tab, setTab] = useState<Tab>('exact')
   const [date, setDate] = useState(todayISO)
+  const [startDate, setStartDate] = useState(todayISO)
+  const [endDate, setEndDate] = useState(todayISO)
   const [year, setYear] = useState(currentYear)
   const [applyToAll, setApplyToAll] = useState(false)
 
@@ -33,18 +40,25 @@ export default function DateAttributionModal({ title, delta, type, onConfirm, on
     ? `+${delta} chapter${delta !== 1 ? 's' : ''}`
     : `+${delta} episode${delta !== 1 ? 's' : ''}`
 
+  const rangeValid = tab !== 'range' || (!!startDate && !!endDate && startDate <= endDate)
+  const rangeDays = tab === 'range' && startDate && endDate && startDate <= endDate
+    ? daysBetween(startDate, endDate) : 0
+
   const confirm = () => {
+    if (!rangeValid) return
     let attr: DateAttribution
     if (tab === 'exact')          attr = { precision: 'exact', date }
+    else if (tab === 'range')     attr = { precision: 'range', startDate, endDate }
     else if (tab === 'year_only') attr = { precision: 'year_only', year }
     else                          attr = { precision: 'unknown' }
     onConfirm(attr, applyToAll)
   }
 
-  const TAB_OPTIONS: { id: Tab; label: string; icon: React.ReactNode; desc: string }[] = [
-    { id: 'exact',     label: 'Date',       icon: <Calendar size={13} strokeWidth={1.5} />,   desc: 'Pick An Exact Day' },
-    { id: 'year_only', label: 'Year Only',  icon: <Hash size={13} strokeWidth={1.5} />,        desc: 'Approximate Year' },
-    { id: 'unknown',   label: "Don't Know", icon: <HelpCircle size={13} strokeWidth={1.5} />, desc: 'Skip Date' },
+  const TAB_OPTIONS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: 'exact',     label: 'Date',       icon: <Calendar size={13} strokeWidth={1.5} /> },
+    { id: 'range',     label: 'Range',      icon: <span className="text-[11px] leading-none">↔</span> },
+    { id: 'year_only', label: 'Year',       icon: <Hash size={13} strokeWidth={1.5} /> },
+    { id: 'unknown',   label: "Unknown",    icon: <HelpCircle size={13} strokeWidth={1.5} /> },
   ]
 
   return (
@@ -63,7 +77,7 @@ export default function DateAttributionModal({ title, delta, type, onConfirm, on
         </button>
 
         {/* Header */}
-        <p className="text-xs text-zinc-500 mb-0.5">When did you read this?</p>
+        <p className="text-xs text-zinc-500 mb-0.5">When did you {type === 'chapter' ? 'read' : 'watch'} this?</p>
         <p className="font-semibold text-sm text-white truncate mb-4">
           {title} <span className="font-normal text-violet-400">{label}</span>
         </p>
@@ -74,7 +88,7 @@ export default function DateAttributionModal({ title, delta, type, onConfirm, on
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex-1 flex flex-col items-center gap-0.5 py-2 rounded-lg text-center transition-colors text-[11px] font-medium ${
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2 rounded-lg text-center transition-colors text-[10px] font-medium ${
                 tab === t.id ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
@@ -87,7 +101,7 @@ export default function DateAttributionModal({ title, delta, type, onConfirm, on
         {/* Tab content */}
         {tab === 'exact' && (
           <div className="mb-4">
-            <label className="text-xs text-zinc-500 block mb-1.5">Date read</label>
+            <label className="text-xs text-zinc-500 block mb-1.5">Date {type === 'chapter' ? 'read' : 'watched'}</label>
             <input
               type="date"
               value={date}
@@ -96,6 +110,46 @@ export default function DateAttributionModal({ title, delta, type, onConfirm, on
               className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-zinc-500 cursor-pointer"
               style={{ colorScheme: 'dark' }}
             />
+          </div>
+        )}
+
+        {tab === 'range' && (
+          <div className="mb-4 space-y-3">
+            <div>
+              <label className="text-xs text-zinc-500 block mb-1.5">From</label>
+              <input
+                type="date"
+                value={startDate}
+                max={endDate || todayISO}
+                onChange={e => setStartDate(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-zinc-500 cursor-pointer"
+                style={{ colorScheme: 'dark' }}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-500 block mb-1.5">To</label>
+              <input
+                type="date"
+                value={endDate}
+                min={startDate}
+                max={todayISO}
+                onChange={e => setEndDate(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-zinc-500 cursor-pointer"
+                style={{ colorScheme: 'dark' }}
+              />
+            </div>
+            {rangeDays > 0 && (
+              <p className="text-[11px] text-zinc-500 leading-relaxed">
+                {delta} {type}{delta !== 1 ? 's' : ''} spread across{' '}
+                <span className="text-zinc-300">{rangeDays} day{rangeDays !== 1 ? 's' : ''}</span>
+                {rangeDays > 1 && (
+                  <> — ~{(delta / rangeDays).toFixed(1)} per day</>
+                )}
+              </p>
+            )}
+            {startDate > endDate && (
+              <p className="text-[11px] text-red-400">Start date must be before end date</p>
+            )}
           </div>
         )}
 
@@ -123,7 +177,7 @@ export default function DateAttributionModal({ title, delta, type, onConfirm, on
 
         {tab === 'unknown' && (
           <p className="text-xs text-zinc-500 mb-4 leading-relaxed">
-            Progress will be saved without a date. It won't appear in weekly or timeline stats, but counts toward your total.
+            Progress will be saved without a date. It won&apos;t appear in weekly or timeline stats, but counts toward your total.
           </p>
         )}
 
@@ -144,7 +198,8 @@ export default function DateAttributionModal({ title, delta, type, onConfirm, on
         <div className="flex gap-2">
           <button
             onClick={confirm}
-            className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity"
+            disabled={!rangeValid}
+            className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity disabled:opacity-40"
             style={{ backgroundColor: 'var(--vermillion)' }}
           >
             Save

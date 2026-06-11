@@ -302,7 +302,10 @@ export default function Home() {
   const commitChapterProgress = useCallback(async (id: string, delta: number, current: number, attr: DateAttribution) => {
     const next = Math.max(0, current + delta)
     const now = new Date().toISOString()
-    const timestamp = attr.precision === 'exact' && attr.date ? new Date(attr.date).toISOString() : now
+    const timestamp =
+      attr.precision === 'exact' ? new Date(attr.date).toISOString() :
+      attr.precision === 'range' ? new Date(attr.endDate).toISOString() :
+      now
     const patch = { current_chapter: next, last_read_at: timestamp }
 
     await patchEntry(id, patch, showToast)
@@ -312,9 +315,11 @@ export default function Home() {
         manga_id: id,
         chapters_read: delta,
         media_type: 'manga',
-        date_precision: attr.precision,
+        // Store range as exact using the end date so it lands on the stats timeline
+        date_precision: attr.precision === 'range' ? 'exact' : attr.precision,
       }
       if (attr.precision === 'exact') logRow.progress_date = attr.date
+      if (attr.precision === 'range') logRow.progress_date = attr.endDate
       if (attr.precision === 'year_only') logRow.progress_year = attr.year
       await supabase.from('reading_log').insert(logRow)
     }
@@ -636,7 +641,10 @@ export default function Home() {
   const commitEpisodeProgress = useCallback(async (id: string, delta: number, current: number, attr: DateAttribution) => {
     const next = Math.max(0, current + delta)
     const now = new Date().toISOString()
-    const timestamp = attr.precision === 'exact' && attr.date ? new Date(attr.date).toISOString() : now
+    const timestamp =
+      attr.precision === 'exact' ? new Date(attr.date).toISOString() :
+      attr.precision === 'range' ? new Date(attr.endDate).toISOString() :
+      now
     const patch = { episodes_watched: next, last_read_at: timestamp }
 
     await patchEntry(id, patch, showToast)
@@ -646,30 +654,57 @@ export default function Home() {
         manga_id: id,
         chapters_read: 0,
         media_type: 'anime',
-        date_precision: attr.precision,
+        date_precision: attr.precision === 'range' ? 'exact' : attr.precision,
       }
       if (attr.precision === 'exact') logRow.progress_date = attr.date
+      if (attr.precision === 'range') logRow.progress_date = attr.endDate
       if (attr.precision === 'year_only') logRow.progress_year = attr.year
       await supabase.from('reading_log').insert(logRow)
 
-      // Also write to watch_sessions so the stats heatmap, session log, and Watch DNA
-      // reflect manually-entered episode progress — not just extension-tracked events.
-      // Insert one row per episode advanced (delta rows), each marked is_complete=true.
+      // Write watch_sessions rows so stats heatmap, session log, and Watch DNA reflect
+      // manual episode updates. For a range, distribute episodes evenly across days.
       const { data: { user: watchUser } } = await supabase.auth.getUser()
       const entry = useLibraryStore.getState().mangaList.find(m => m.id === id)
       if (watchUser && entry) {
-        const sessionRows = Array.from({ length: delta }, (_, i) => ({
-          user_id: watchUser.id,
-          manga_id: id,
-          title_raw: entry.title,
-          episode: current + i + 1,
-          season: null as number | null,
-          site: 'manual',
-          duration_seconds: 0,
-          watched_seconds: 0,
-          is_complete: true,
-          watched_at: timestamp,
-        }))
+        type SessionRow = {
+          user_id: string; manga_id: string; title_raw: string; episode: number
+          season: number | null; site: string; duration_seconds: number
+          watched_seconds: number; is_complete: boolean; watched_at: string
+        }
+        const sessionRows: SessionRow[] = []
+
+        if (attr.precision === 'range') {
+          // Spread episodes evenly across the date range — extra episodes fall on earlier days
+          const start = new Date(attr.startDate + 'T12:00:00')
+          const totalDays = Math.max(1, Math.round(
+            (new Date(attr.endDate + 'T12:00:00').getTime() - start.getTime()) / 86_400_000
+          ) + 1)
+          const basePerDay = Math.floor(delta / totalDays)
+          const extra = delta % totalDays
+          let epIdx = 0
+          for (let d = 0; d < totalDays && epIdx < delta; d++) {
+            const count = basePerDay + (d < extra ? 1 : 0)
+            const dayTs = new Date(start.getTime() + d * 86_400_000).toISOString()
+            for (let i = 0; i < count && epIdx < delta; i++) {
+              sessionRows.push({
+                user_id: watchUser.id, manga_id: id, title_raw: entry.title,
+                episode: current + epIdx + 1, season: null, site: 'manual',
+                duration_seconds: 0, watched_seconds: 0, is_complete: true, watched_at: dayTs,
+              })
+              epIdx++
+            }
+          }
+        } else {
+          // Single timestamp for exact / year_only / unknown
+          for (let i = 0; i < delta; i++) {
+            sessionRows.push({
+              user_id: watchUser.id, manga_id: id, title_raw: entry.title,
+              episode: current + i + 1, season: null, site: 'manual',
+              duration_seconds: 0, watched_seconds: 0, is_complete: true, watched_at: timestamp,
+            })
+          }
+        }
+
         const { error: wsErr } = await supabase.from('watch_sessions').insert(sessionRows)
         if (wsErr) console.error('[commitEpisodeProgress] watch_sessions insert failed:', wsErr.message)
       }
