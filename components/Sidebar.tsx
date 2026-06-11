@@ -102,7 +102,7 @@ export default function Sidebar() {
             color: 'var(--fg-1)', lineHeight: 1, position: 'relative', top: 2,
           }}>YOM</span>
           {/* U replaced by snake emblem with star floating above */}
-          <span style={{ position: 'relative', display: 'inline-block', marginLeft: 1 }}>
+          <span style={{ position: 'relative', display: 'inline-block', marginLeft: 1, top: 6 }}>
             <img src="/logo-star.png" alt="" style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', width: 20, height: 'auto', marginBottom: 2, filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.5))', pointerEvents: 'none' }} />
             <img src="/logo-u-snake.png" alt="U" style={{ width: 30, height: 'auto', display: 'block', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.4))' }} />
           </span>
