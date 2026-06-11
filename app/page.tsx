@@ -1318,11 +1318,25 @@ export default function Home() {
 
         {/* Anime stats row */}
         {(() => {
-          const trackedMinutes = manga.reduce((s, m) => s + (m.total_watch_time_minutes || 0), 0)
-          const totalHours  = animeList.reduce((s, e) => s + e.total_watch_hours, 0) + trackedMinutes / 60
-          const totalSeries = animeList.filter(e => !e.is_movie).length
-          const totalMovies = animeList.filter(e =>  e.is_movie).length
-          const activeCount = animeList.filter(e => getAnimeStatus(e) === 'active').length
+          // Merge anime_list (extension-tracked) with manga_list anime/movie entries.
+          // Dedup by normalised title so entries tracked in both tables aren't double-counted.
+          const alTitlesNorm = new Set(animeList.map(e => e.title.toLowerCase().trim()))
+          const mlAnimeExtra = manga.filter(m =>
+            (m.content_type === 'anime' || m.content_type === 'movie') &&
+            !alTitlesNorm.has(m.title.toLowerCase().trim())
+          )
+          // Hours: sum real session data from anime_list + episode-estimated hours from manga_list extras
+          const alHours = animeList.reduce((s, e) => s + e.total_watch_hours, 0)
+          const mlExtraHours = mlAnimeExtra.reduce((s, m) => {
+            const sessionH = (m.total_watch_time_minutes || 0) / 60
+            const estH = sessionH > 0 ? sessionH : ((m.episodes_watched || 0) * 22) / 60
+            return s + estH
+          }, 0)
+          const totalHours  = alHours + mlExtraHours
+          const totalSeries = animeList.filter(e => !e.is_movie).length + mlAnimeExtra.filter(m => m.content_type === 'anime').length
+          const totalMovies = animeList.filter(e =>  e.is_movie).length + mlAnimeExtra.filter(m => m.content_type === 'movie').length
+          const activeCount = animeList.filter(e => getAnimeStatus(e) === 'active').length +
+            mlAnimeExtra.filter(m => m.status === 'watching').length
           const stats = [
             { value: totalSeries,                 label: 'Anime series',  icon: <Tv          size={16} strokeWidth={1.5} className="icon-primary"   /> },
             { value: `${totalHours.toFixed(0)}h`, label: 'Hours watched', icon: <Timer       size={16} strokeWidth={1.5} className="icon-secondary" /> },
