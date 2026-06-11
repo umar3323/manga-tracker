@@ -46,6 +46,8 @@ export async function GET(req: NextRequest) {
   }
   if (!jikanParams.has('limit')) jikanParams.set('limit', '24')
   if (!jikanParams.has('page'))  jikanParams.set('page',  '1')
+  // Always enforce SFW — caller cannot override this
+  jikanParams.set('sfw', 'true')
 
   // 'manga' (default) or 'anime'
   const mediaType = searchParams.get('type') === 'anime' ? 'anime' : 'manga'

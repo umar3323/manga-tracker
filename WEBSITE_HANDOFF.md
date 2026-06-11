@@ -10,6 +10,35 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 48 — iOS apple-touch-icon, Saiki K content_type fix, stats improvements — 2026-06-11, commits `1bdd599` `9f76201` `0790617` `5da066b`
+
+**iOS apple-touch-icon**
+- `public/apple-touch-icon.png` *(new)* — 180×180 PNG generated from `public/icon.svg` using sharp. iOS "Add to Home Screen" now uses the PNG for crisp, correctly cropped rendering.
+- `public/manifest.json` — PNG added as first `icons` entry (`"sizes": "180x180", "purpose": "any"`). SVG entries retained as fallback.
+- `app/layout.tsx` — `icons.apple` updated from `'/icon.svg'` → `'/apple-touch-icon.png'`.
+
+**Saiki K content_type DB fix**
+- Production DB — `manga_list` row `bc28abaa-d953-408e-bc2a-858ccdd77277` (`Saiki Kusuo no Ψ-nan`) updated: `content_type = 'anime'`, `has_anime = true`. Was incorrectly tagged as `'manga'`.
+
+**Stats: Sync button on Session Log**
+- `app/stats/page.tsx` — Added `sessionsRefreshing` state + `refreshSessions` callback (re-queries `watch_sessions` top-500). Session Log header changed from `<h3>` alone to a flex row with `<h3>` + Sync button (rotating SVG icon, "Syncing…" text while loading). Allows user to pull latest sessions without full page reload.
+
+**Stats: manual episode updates → watch_sessions**
+- `app/page.tsx` `commitEpisodeProgress` — Now inserts one `watch_sessions` row per episode advanced (`is_complete: true, site: 'manual'`) so Stats heatmap, Session Log, and Watch DNA all reflect manual card updates, not just extension-tracked events. Uses `useLibraryStore.getState().mangaList` for the entry title; logs insert errors via `console.error`.
+
+**Stats: heatmap hover tooltips**
+- `app/stats/page.tsx` `WatchHeatmap` — Replaced native `title=` attribute with a floating React tooltip. Tracks `tooltip: { date, count, titles[], x, y } | null` state. On `onMouseEnter` of a non-empty cell, builds a deduplicated title list from `daySessionsMap`. Renders a `fixed z-50 pointer-events-none` div at cursor coordinates showing: formatted date, episode count (cyan), bullet list of anime titles (up to 5 + "+N more"). Clears on `onMouseLeave` of the container.
+
+---
+
+#### Session 47 — watch_sessions inserts silently failing (idempotency_key NOT NULL, no default) — 2026-06-11, commit `a1ef046`
+
+- `app/api/watch-event/route.ts` — Added error logging to the `watch_sessions` insert: result now captured in `{ error: sessionErr }` and logged via `console.error` on failure. Also added a comment explaining that the DB default (`gen_random_uuid()`) handles the idempotency_key; single-event inserts don't need client-supplied keys.
+- `scripts/migrations.sql` — Added `ALTER TABLE watch_sessions ALTER COLUMN idempotency_key SET DEFAULT gen_random_uuid();` immediately after the NOT NULL line so schema recreations produce a working table.
+- **DB (production):** Applied `ALTER TABLE watch_sessions ALTER COLUMN idempotency_key SET DEFAULT gen_random_uuid()` directly via Supabase MCP. Takes effect immediately for all future inserts.
+
+---
+
 #### Session 46 — 5 Chrome extension bug fixes + /api/library-titles + achievements (2026-06-10, commit `0e3687c`)
 
 **Bug (a): watch-time inflation fixed**
@@ -351,6 +380,10 @@ No information is now hover-only. Hover effects remain as enhancements only.
   - **Disconnects:** when the Supabase JWT expires (~1h), API 401s were calling `setAuthToken(null)` — permanently losing the token until the user visited YOMU again. Fixed by replacing `setAuthToken(null)` on 401 in both `sendToAPI` and `flushPending` with `tryRefreshToken()` — a new helper that finds any open YOMU tab, runs the cookie/localStorage harvest script, and silently reconnects. The duplicated token harvest code in `tabs.onUpdated` was refactored into a shared `harvestTokenFromTab(tabId)` helper.
   - **Live updates:** `visibilitychange` already handles tab-switch. Gap was YOMU open in foreground while extension logs — `visibilitychange` doesn't fire. Fixed by adding a 60s `setInterval` in `app/page.tsx` that calls `fetchManga()` while the tab is visible.
 
+- [x] **iOS apple-touch-icon (180×180 PNG)** — Completed session 48. `public/apple-touch-icon.png` generated via sharp, added to manifest + layout metadata.
+
+- [ ] **Activate Gemini Deep Search** — `lib/gemini.ts` and `app/api/deep-search/route.ts` are already wired. Add `GEMINI_API_KEY` to Vercel environment variables (get free key from Google AI Studio: https://aistudio.google.com/app/apikey). No code changes needed — the feature activates automatically once the env var is present. ⚠️ API COST: `gemini-2.0-flash` free tier; fires once per Deep Search modal open in parallel with Claude.
+
 - [x] **Deep Search via Gemini (free)** — Implemented. `lib/gemini.ts` created: calls `gemini-2.0-flash` via REST (no new npm dependency), gated on `GEMINI_API_KEY` env var, 8s AbortSignal timeout, returns `{ synopsis, themes[], trivia }`. `app/api/deep-search/route.ts`: `enrichWithGemini()` runs in parallel with Claude arc detection via `Promise.all`; `DeepSearchResult` extended with `synopsis`, `themes`, `trivia` fields; `content_type` now accepted from request body and forwarded to Gemini. `components/DeepSearchModal.tsx`: displays Gemini synopsis (with "Save to entry" checkbox, auto-checked when synopsis exists), themes as violet pills, trivia in italic block; passes `content_type` in POST body; `handleSave` writes `synopsis` to `manga_list` when checkbox is checked. `app/page.tsx`: `content_type` passed to `<DeepSearchModal>`. `CLAUDE.md` env vars table updated with `GEMINI_API_KEY` entry. ⚠️ **To activate:** add `GEMINI_API_KEY` to Vercel environment variables (get key from Google AI Studio — free tier). Without the key the modal works exactly as before.
 
 ---
@@ -528,6 +561,12 @@ No information is now hover-only. Hover effects remain as enhancements only.
 - **Fix:** `components/DetailView.tsx` `RelationMergeButton` — added a two-column `grid grid-cols-2` comparison div above the button. Displays title, Ch. X/Y (if chapter data present), and Ep. X/Y (if `has_anime` and episode data present) for both `keep` and `remove` entries.
 - **Prevention rule:** `RelationMergeButton` now always shows progress before the button. Do NOT remove the comparison grid — merges are irreversible and users need to confirm which entry has the correct progress.
 
+### watch_sessions inserts silently failing since idempotency_key column added — 2026-06-11
+- **Symptom:** Library card episode counter advanced correctly (e.g. ep 31 → 32) but the Session Log on the Stats page showed no new rows. No error appeared anywhere.
+- **Root cause:** Session 29 added `idempotency_key uuid NOT NULL` to `watch_sessions` with no default. The single-event `/api/watch-event` endpoint never provided this value. Every `watch_sessions.insert()` call failed with a Postgres NOT NULL constraint violation. The error was not checked (`await supabase.from(...).insert({...})` — no `const { error }` capture). Execution continued past the failed insert and the library `manga_list` update ran successfully — so the card updated but no session row was written.
+- **Fix:** (1) DB: `ALTER TABLE watch_sessions ALTER COLUMN idempotency_key SET DEFAULT gen_random_uuid()` applied to production. (2) `app/api/watch-event/route.ts` — captured `{ error: sessionErr }` and added `console.error` log on failure. (3) `scripts/migrations.sql` — added DEFAULT line after the NOT NULL line.
+- **Prevention rule:** After adding a NOT NULL column to `watch_sessions`, always add `SET DEFAULT gen_random_uuid()` immediately (or supply the value at every insert site). Never fire-and-forget a Supabase insert without capturing the error result — silent insert failures are invisible to the user and extremely hard to diagnose.
+
 ### notify.moe / AniList sections silent when anime_mal_id is missing — 2026-06-10
 - **Symptom:** Entries with `has_anime=true` but no `anime_mal_id` showed empty notify.moe and AniList sections with no explanation. Static nudge text added in session 39 was not actionable.
 - **Root cause:** SWR key is `null` when `animeMalIdForNotify` is null — fetches skip silently with no UI feedback. Static text told user to sync but gave no way to do it.
@@ -537,6 +576,21 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Session Log
+
+### Session — 2026-06-11 (session 48)
+- User asked to tackle any outstanding tasks independently. Completed 3: iOS icon, Saiki K content_type, stats improvements.
+- apple-touch-icon: used `sharp` (already in devDependencies) to rasterise the existing SVG to 180×180 PNG. No new dependencies added.
+- Saiki K was tagged `content_type: 'manga'` despite being an anime — fixed directly in production DB via Supabase MCP.
+- Stats improvements (Sync button, manual→watch_sessions, heatmap tooltips) were from this session's user requests, not backlog — all deployed and verified live.
+- Only remaining actionable task: user must add `GEMINI_API_KEY` to Vercel — no code changes needed.
+
+### Session — 2026-06-11 (session 47)
+- User reported episode 32 visible on library card but no session log entry for it.
+- DB query confirmed `manga_list.episodes_watched = 32`, `last_read_at = 23:19 UTC`, but latest `watch_sessions` row was ep 31 at 22:40. No ep 32 rows at all.
+- Root cause: `watch_sessions.idempotency_key` was added NOT NULL (session 29) with no DB default. Single-event endpoint never supplied this value → every session insert silently failed. Library update still ran (error not checked) → card advanced, session log didn't.
+- Fix: DB default (`gen_random_uuid()`) applied to production; error logging added to catch future silent failures.
+- The batch endpoint (`/api/watch-event/batch`) always supplied `idempotency_key` (UUID per event) so it was unaffected. That's why some earlier rows did appear (they came from flushed batches), but completion events that went through the single endpoint left no session rows.
+- Deployed `a1ef046`.
 
 ### Session — 2026-06-10 (session 46)
 - Fixed all 5 extension bugs from research doc. Root causes were: float rounding at wrong point (a), single dedup window (b), no library title cache (c), no storage change listener (d), no push from background to open YOMU tabs (e).

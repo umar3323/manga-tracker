@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
-import type { JikanSearchResult } from '@/lib/jikan'
+import { isAdultContent, type JikanSearchResult } from '@/lib/jikan'
 
 export const maxDuration = 30
 
@@ -162,9 +162,10 @@ export async function GET() {
       if (m.mal_id && !seen.has(m.mal_id)) { seen.add(m.mal_id); catalog.push(m) }
     }
 
-    // Filter out excluded + heavily disliked, then score with Jaccard
+    // Filter out excluded, adult content, and heavily disliked, then score with Jaccard
     const candidates = catalog.filter(m => {
       if (!m.mal_id || excludeSet.has(m.mal_id)) return false
+      if (isAdultContent(m.genres ?? [])) return false
       const dislikedCount = (m.genres ?? []).filter(g => dislikedGenres.has(g)).length
       const totalGenres = (m.genres ?? []).length || 1
       return dislikedCount / totalGenres <= 0.6

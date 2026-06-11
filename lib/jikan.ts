@@ -1,4 +1,18 @@
 // Module version: 2026-06-08
+
+// ── Adult content filter ──────────────────────────────────────────────────
+// Genres that should never appear in search results, discovery, or auto-created
+// library entries. Applied as a post-filter after every Jikan/AniList result set.
+// Jikan genre IDs: 9=Ecchi (borderline, allowed), 12=Hentai, 49=Erotica.
+export const BLOCKED_GENRES = new Set([
+  'hentai', 'erotica',
+])
+// Jikan genre IDs to exclude via genres_exclude param
+export const BLOCKED_GENRE_IDS = [12, 49]  // Hentai, Erotica
+
+export function isAdultContent(genres: string[]): boolean {
+  return genres.some(g => BLOCKED_GENRES.has(g.toLowerCase()))
+}
 export interface JikanManga {
   coverUrl: string | null
   totalChapters: number | null
@@ -100,14 +114,16 @@ export async function searchMangaWithFiltersTyped(filters: SearchFilters): Promi
     const p = new URLSearchParams()
     if (filters.query?.trim())           p.set('q',              filters.query.trim())
     if (filters.includeGenres?.length)   p.set('genres',         filters.includeGenres.join(','))
-    if (filters.excludeGenres?.length)   p.set('genres_exclude', filters.excludeGenres.join(','))
+    // Always exclude adult genre IDs (merge with any caller-specified excludes)
+    const excludeIds = [...BLOCKED_GENRE_IDS, ...(filters.excludeGenres ?? []).map(Number).filter(Boolean)]
+    p.set('genres_exclude', excludeIds.join(','))
     if (filters.status)                  p.set('status',         filters.status)
     if (filters.orderBy)                 p.set('order_by',       filters.orderBy)
     if (filters.sort)                    p.set('sort',           filters.sort)
     if (filters.minScore)                p.set('min_score',      String(filters.minScore))
     p.set('limit', '24')
     p.set('page',  String(filters.page ?? 1))
-    p.set('sfw', 'false')
+    p.set('sfw', 'true')
 
     const res = await jikanGet(`/manga?${p.toString()}`)
 
@@ -123,6 +139,7 @@ export async function searchMangaWithFiltersTyped(filters: SearchFilters): Promi
     }
 
     let results = (json.data ?? []).map(mapMangaResult) as JikanSearchResult[]
+    results = results.filter(m => !isAdultContent(m.genres))
     if (filters.minChapters) results = results.filter(m => !m.total_chapters || m.total_chapters >= filters.minChapters!)
     if (filters.maxChapters) results = results.filter(m => !m.total_chapters || m.total_chapters <= filters.maxChapters!)
 
@@ -208,7 +225,8 @@ export async function searchAnimeWithFiltersTyped(
     p.set('sort',     filters.sort    ?? 'desc')
     p.set('limit', '12')
     p.set('page',  String(filters.page ?? 1))
-    p.set('sfw', 'false')
+    p.set('sfw', 'true')
+    p.set('genres_exclude', BLOCKED_GENRE_IDS.join(','))
 
     const res = await jikanGet(`/anime?${p.toString()}`)
     if (res.status === 503 || res.status === 504) return { ok: false, reason: 'mal_unavailable' }
@@ -219,7 +237,7 @@ export async function searchAnimeWithFiltersTyped(
       return { ok: false, reason: 'mal_unavailable' }
     }
 
-    const results: JikanSearchResult[] = (json.data ?? []).map(mapAnimeResult)
+    const results: JikanSearchResult[] = (json.data ?? []).map(mapAnimeResult).filter((m: JikanSearchResult) => !isAdultContent(m.genres))
     return { ok: true, results }
   } catch {
     return { ok: false, reason: 'network_error' }
@@ -235,15 +253,18 @@ export async function getTopMangaMultiPage(
 ): Promise<JikanSearchResult[]> {
   const results: JikanSearchResult[] = []
   const seen = new Set<number>(excludeMalIds)
+  const blocked = BLOCKED_GENRE_IDS.join(',')
   for (let page = 1; page <= pages; page++) {
     try {
       if (page > 1) await delay(450) // Jikan rate limit
-      const res = await jikanGet(`/top/manga?limit=25&page=${page}`)
+      const res = await jikanGet(`/top/manga?limit=25&page=${page}&sfw=true&genres_exclude=${blocked}`)
       if (!res.ok) break
       const json = await res.json()
       for (const item of json.data ?? []) {
         const m = mapMangaResult(item)
-        if (m.mal_id && !seen.has(m.mal_id)) { seen.add(m.mal_id); results.push(m) }
+        if (m.mal_id && !seen.has(m.mal_id) && !isAdultContent(m.genres)) {
+          seen.add(m.mal_id); results.push(m)
+        }
       }
     } catch { break }
   }

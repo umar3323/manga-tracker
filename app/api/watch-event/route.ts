@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { BLOCKED_GENRES } from '@/lib/jikan'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface WatchEventBody {
@@ -45,6 +46,14 @@ const KNOWN_ANIME_SITES = new Set([
 function isKnownAnimeSite(site: string): boolean {
   const lower = site.toLowerCase()
   return [...KNOWN_ANIME_SITES].some(s => lower === s || lower.endsWith('.' + s) || lower.includes(s))
+}
+
+// ── Adult content title blocklist ─────────────────────────────────────────
+// Titles containing these substrings are silently dropped — never logged
+// to watch_sessions or used to create/update library entries.
+function isAdultTitle(title: string): boolean {
+  const lower = title.toLowerCase()
+  return [...BLOCKED_GENRES].some(g => lower.includes(g))
 }
 
 // ── Fuzzy title matching ───────────────────────────────────────────────────
@@ -101,6 +110,11 @@ export async function POST(req: NextRequest) {
 
   const { title, episode, season, site, source, duration_seconds, watched_seconds, is_complete, timestamp } = body
   if (!title?.trim()) return NextResponse.json({ error: 'title required' }, { status: 400 })
+
+  // ── Adult content guard ───────────────────────────────────────────────────
+  if (isAdultTitle(title)) {
+    return NextResponse.json({ ok: true, skipped: 'adult_content' })
+  }
 
   // ── Input validation & sanitisation ──────────────────────────────────────
   // Clamp strings to safe lengths
