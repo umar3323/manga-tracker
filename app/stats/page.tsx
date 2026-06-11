@@ -340,6 +340,14 @@ function WatchHeatmap({ sessions }: { sessions: WatchSession[] }) {
 
 interface MostWatchedItem { title: string; eps: number; mangaId: string; isRewatch: boolean }
 
+/** Convert episode count to a human-readable time string at ~22 min/episode. */
+function epsToTimeStr(eps: number): string {
+  const totalMins = eps * 22
+  const h = Math.floor(totalMins / 60)
+  const m = totalMins % 60
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
+
 function MostWatchedSection({
   items, maxEps, rewatchCount, onSave,
 }: {
@@ -364,16 +372,13 @@ function MostWatchedSection({
 
   return (
     <div className="bg-zinc-900 rounded-xl p-5 mb-4">
-      <h3 className="text-sm font-semibold mb-4">Most Watched <span className="text-zinc-600 font-normal text-[10px]">by episodes</span></h3>
+      <h3 className="text-sm font-semibold mb-4">Most Watched <span className="text-zinc-600 font-normal text-[10px]">est. at 22 min/ep</span></h3>
       <div className="space-y-3">
         {items.map((item, i) => (
           <div key={item.mangaId} className="flex items-center gap-3">
             <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
             <span className="text-xs text-zinc-300 flex-1 truncate">{item.title}</span>
             {item.isRewatch && <span className="text-[9px] text-cyan-500 shrink-0 border border-cyan-700 rounded px-1">RE</span>}
-            <div className="w-20 h-2 bg-zinc-800 rounded-full overflow-hidden shrink-0">
-              <div className="h-full rounded-full" style={{ width: `${(item.eps / maxEps) * 100}%`, backgroundColor: '#a78bfa' }} />
-            </div>
             {editingId === item.mangaId ? (
               <input
                 type="number"
@@ -383,18 +388,22 @@ function MostWatchedSection({
                 onChange={e => setEditValue(e.target.value)}
                 onBlur={() => commit(item.mangaId)}
                 onKeyDown={e => { if (e.key === 'Enter') commit(item.mangaId); if (e.key === 'Escape') setEditingId(null) }}
-                className="w-12 text-[10px] text-right bg-zinc-800 border border-zinc-600 rounded px-1 py-0.5 text-white outline-none focus:border-violet-500"
+                className="w-14 text-[10px] text-right bg-zinc-800 border border-zinc-600 rounded px-1 py-0.5 text-white outline-none focus:border-violet-500"
                 style={{ colorScheme: 'dark' }}
               />
             ) : (
               <button
                 onClick={() => startEdit(item)}
-                title="Click to edit"
-                className="text-[10px] text-zinc-500 hover:text-violet-400 w-12 text-right shrink-0 tabular-nums transition-colors"
+                title={`${item.eps} episodes — click to edit`}
+                className="text-[10px] text-zinc-600 hover:text-violet-400 shrink-0 tabular-nums transition-colors"
               >
                 {item.eps}ep
               </button>
             )}
+            <div className="w-16 h-2 bg-zinc-800 rounded-full overflow-hidden shrink-0">
+              <div className="h-full rounded-full" style={{ width: `${(item.eps / maxEps) * 100}%`, backgroundColor: '#a78bfa' }} />
+            </div>
+            <span className="text-[10px] text-zinc-400 w-14 text-right shrink-0 tabular-nums">{epsToTimeStr(item.eps)}</span>
           </div>
         ))}
       </div>
@@ -666,7 +675,11 @@ export default function StatsPage() {
       titleCount[t] = (titleCount[t] ?? 0) + (s.is_complete ? 1 : 0)
       titleTime[t] = (titleTime[t] ?? 0) + (s.watched_seconds ?? 0)
     }
-    const topTitles = Object.entries(titleTime).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    // Sort by episode count (most reliable), fall back to session time for untitled entries
+    const topTitles = Object.entries(titleCount)
+      .filter(([, n]) => n > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
 
     const last7eps = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(now); d.setDate(now.getDate() - (6 - i))
@@ -815,22 +828,19 @@ export default function StatsPage() {
 
           {/* Most watched */}
           <div className="bg-zinc-900 rounded-xl p-5 mb-4">
-            <h3 className="text-sm font-semibold mb-4">Most Watched</h3>
+            <h3 className="text-sm font-semibold mb-4">Most Watched <span className="text-zinc-600 font-normal text-[10px]">est. at 22 min/ep</span></h3>
             <div className="space-y-3">
-              {topTitles.map(([title, secs], i) => {
-                const h = Math.floor(secs / 3600)
-                const m = Math.floor((secs % 3600) / 60)
-                const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`
-                const eps = titleCount[title] ?? 0
+              {topTitles.map(([title, eps], i) => {
+                const maxEps = topTitles[0][1]
                 return (
                   <div key={title} className="flex items-center gap-3">
                     <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
                     <span className="text-xs text-zinc-300 flex-1 truncate">{title}</span>
-                    <span className="text-[10px] text-zinc-500 shrink-0">{eps} ep</span>
+                    <span className="text-[10px] text-zinc-600 shrink-0">{eps} ep</span>
                     <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden shrink-0">
-                      <div className="h-full rounded-full" style={{ width: `${(secs / topTitles[0][1]) * 100}%`, backgroundColor: 'var(--cyan)' }} />
+                      <div className="h-full rounded-full" style={{ width: `${(eps / maxEps) * 100}%`, backgroundColor: 'var(--cyan)' }} />
                     </div>
-                    <span className="text-[10px] text-zinc-500 w-12 text-right shrink-0">{timeStr}</span>
+                    <span className="text-[10px] text-zinc-400 w-14 text-right shrink-0 tabular-nums">{epsToTimeStr(eps)}</span>
                   </div>
                 )
               })}

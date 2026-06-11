@@ -15,6 +15,7 @@ import type { Recommendation } from '@/app/api/recommend/route'
 import MangaFact from '@/components/MangaFact'
 import CompletionModal from '@/components/CompletionModal'
 import DateAttributionModal, { type DateAttribution } from '@/components/DateAttributionModal'
+import ProgressDateLogModal from '@/components/ProgressDateLogModal'
 import DeepSearchModal from '@/components/DeepSearchModal'
 import { getStatus as getAnimeStatus, type AnimeRow } from '@/lib/anime-data'
 import { DetailModal } from '@/components/DetailView'
@@ -96,6 +97,7 @@ export default function Home() {
   const [syncResults, setSyncResults] = useState<{ updated: number; results: { title: string; changes: string[] }[]; timestamp: string } | null>(null)
   const [notifications, setNotifications] = useState<{ id: string; title: string; new_chapters: number; previous_chapters: number }[]>([])
   const [shelfPickerManga, setShelfPickerManga] = useState<Manga | null>(null)
+  const [dateLogTarget, setDateLogTarget] = useState<Manga | null>(null)
   const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null)
   const [mood, setMood] = useState<string | null>(null)
 
@@ -1852,6 +1854,7 @@ export default function Home() {
                 onWatchPromptInputChange={(id, val) => setWatchPrompt(p => p ? { ...p, epInput: val } : { id, epInput: val })}
                 onWatchPromptConfirm={confirmWatching}
                 onWatchPromptCancel={() => setWatchPrompt(null)}
+                onDateLog={setDateLogTarget}
               />
             ))}
           </div>
@@ -1917,6 +1920,11 @@ export default function Home() {
       {/* Shelf picker */}
       {shelfPickerManga && (
         <ShelfPicker manga={shelfPickerManga} onClose={() => setShelfPickerManga(null)} />
+      )}
+
+      {/* Progress date log */}
+      {dateLogTarget && (
+        <ProgressDateLogModal manga={dateLogTarget} onClose={() => setDateLogTarget(null)} />
       )}
 
       {/* Author modal */}

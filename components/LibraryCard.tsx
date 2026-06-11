@@ -83,6 +83,7 @@ export interface LibraryCardProps {
   onWatchPromptInputChange: (id: string, val: string) => void
   onWatchPromptConfirm: () => void
   onWatchPromptCancel: () => void
+  onDateLog: (m: Manga) => void
 }
 
 export default function LibraryCard({
@@ -123,6 +124,7 @@ export default function LibraryCard({
   onWatchPromptInputChange,
   onWatchPromptConfirm,
   onWatchPromptCancel,
+  onDateLog,
 }: LibraryCardProps) {
   const currentArc = arcs.find(a => m.current_chapter >= a.chapter_start && m.current_chapter <= a.chapter_end) ?? null
 
@@ -304,8 +306,25 @@ export default function LibraryCard({
               </span>
             )}
             <button onClick={() => onNotesToggle(m.id)}
+              aria-label="Toggle notes"
               className={`transition-colors ${expandedNotes || m.notes ? 'text-violet-400' : 'text-zinc-700 hover:text-zinc-400'}`}>
               <PenLine size={12} strokeWidth={1.5} />
+            </button>
+            <button onClick={() => onDateLog(m)} title="Log progress dates"
+              aria-label="Log progress dates"
+              className="text-zinc-700 hover:text-amber-400 transition-colors">
+              {/* Calendar/history icon */}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+                <line x1="8" y1="14" x2="8" y2="14"/>
+                <line x1="12" y1="14" x2="12" y2="14"/>
+                <line x1="16" y1="14" x2="16" y2="14"/>
+                <line x1="8" y1="18" x2="8" y2="18"/>
+                <line x1="12" y1="18" x2="12" y2="18"/>
+              </svg>
             </button>
             <div className="ml-auto flex items-center gap-1.5">
               {m.status === 'reading' && (

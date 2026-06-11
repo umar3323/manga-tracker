@@ -270,3 +270,13 @@ CREATE POLICY "Users can insert own swipe history" ON swipe_history
 -- Default 0 = no offset (most entries). User sets this via the library card UI
 -- when they notice the wrong episode number being recorded.
 ALTER TABLE manga_list ADD COLUMN IF NOT EXISTS episode_offset integer NOT NULL DEFAULT 0;
+
+-- ── Progress date range logging ───────────────────────────────────────────────
+-- Allows users to annotate which episode/chapter range they watched on a given
+-- date (or date range). Separate from the auto-incremented reading_log entries.
+ALTER TABLE reading_log ADD COLUMN IF NOT EXISTS from_progress integer;
+ALTER TABLE reading_log ADD COLUMN IF NOT EXISTS to_progress integer;
+ALTER TABLE reading_log ADD COLUMN IF NOT EXISTS progress_date_end date;
+CREATE INDEX IF NOT EXISTS reading_log_manga_progress_idx
+  ON reading_log (manga_id, from_progress)
+  WHERE from_progress IS NOT NULL;

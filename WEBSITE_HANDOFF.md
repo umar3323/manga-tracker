@@ -10,6 +10,16 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 52 — Phase 2: shared Modal component, all 12 modals migrated to WCAG 2.1 AA — 2026-06-11, commit `9eb9648`
+
+- `components/Modal.tsx` *(new)* — Shared accessible modal wrapper. `role="dialog"`, `aria-modal="true"`, `aria-labelledby` wired to each modal's heading `id`. Tab/Shift+Tab focus trap keeps keyboard focus inside the dialog. Escape key closes. Focus is captured from `document.activeElement` on mount and restored to that element on unmount. `onCloseRef` pattern keeps the keydown handler stable without re-subscribing. Uses `display:contents` (`className="contents"`) on the dialog wrapper div so it is layout-transparent — the panel remains a direct flex child of the outer container, preserving all existing sizing and positioning classes.
+- `components/LibraryModals.tsx` — Migrated all 9 modals to `<Modal>`. Each modal: outer `div.fixed` replaced with `<Modal>`, backdrop `div.absolute` removed, `onClick={e => e.stopPropagation()}` removed from panel div, heading `<h2>` given a unique `id`, `labelledBy` passed to Modal. `AuthorModal` (`z-50`, `items-end md:items-center justify-center`), `StudioModal` (`z-[60]`), `RecommendationModal` (`items-end lg:items-stretch lg:justify-end`), `ShelfPicker` (`items-end lg:items-center justify-center`), `ShareModal` (same), `TakeoutImportModal` (`z-[80]`, `items-center justify-center p-4`), `HealthCheckModal` (`items-center justify-center p-4`), `SyncResultsModal` (`items-end sm:items-center justify-center p-4`, was using inline styles for backdrop), `RecommendationsListModal` (`loading ? () => {} : onClose` guard preserved via wrapper).
+- `components/FeatureRequestModal.tsx` — Migrated to `<Modal>` (`z-[100]`, `items-center justify-center p-4`). `<div>` heading changed to `<h2>` for correct semantics.
+- `components/DateAttributionModal.tsx` — Migrated to `<Modal>` (`items-end sm:items-center justify-center p-4`). Top `<p>` "When did you read/watch this?" promoted to `<h2>` with `id="date-modal-title"`.
+- `components/DetailView.tsx` (DetailModal) — Migrated to `<Modal>` (`items-end lg:items-stretch lg:justify-end`). `<h2>` heading given `id="detail-modal-title"`.
+
+---
+
 #### Session 51 — Phase 1 audit fixes: middleware rename, user_settings migration, cron schema fix, duplicate dismissal — 2026-06-11
 
 - `middleware.ts` *(renamed from `proxy.ts`)* — `proxy.ts` was never loaded by Next.js because the framework requires the middleware file to be named `middleware.ts` (or `.js`). The exported function was also renamed from `proxy` to `middleware`. Auth was previously enforced only client-side (Supabase session checks in each page). `proxy.ts` deleted.
@@ -415,7 +425,7 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 - [ ] **Fix Feature Request env var** — The feature request button fails for all users. Check Vercel project settings → Environment Variables. Ensure `GOOGLE_SERVICE_ACCOUNT_JSON` (full JSON blob) OR both `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_PRIVATE_KEY` are set, plus `Google_Sheet_ID` (or `GOOGLE_SHEET_ID`). The code at `app/api/feature-request/route.ts` line 35 returns a clear error message describing exactly which vars are missing — check the Vercel function logs for the exact error. No code changes needed.
 
-- [ ] **Phase 2 (audit) — Create shared `<Modal>` component** — All 9+ modals lack `role="dialog"`, `aria-modal="true"`, focus trapping, and focus restore on close. This is a WCAG 2.1 AA failure.
+- [x] **Phase 2 (audit) — Create shared `<Modal>` component** — Completed session 52. `components/Modal.tsx` created. All 12 modals migrated: `LibraryModals.tsx` (9), `FeatureRequestModal.tsx`, `DateAttributionModal.tsx`, `DetailView.tsx` (DetailModal).
   - Create `components/Modal.tsx` — wrapper div with `role="dialog"`, `aria-modal="true"`, `aria-labelledby`, Tab/Shift+Tab trap (use `querySelectorAll` of focusable elements), `useEffect` to focus first element on open and restore `document.activeElement` on close.
   - Migrate all 9 modals in `components/LibraryModals.tsx` + `components/FeatureRequestModal.tsx` + `components/DateAttributionModal.tsx` to use the wrapper.
   - Effort: **L**
@@ -656,6 +666,12 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Session Log
+
+### Session — 2026-06-11 (session 52)
+- Phase 2 (accessibility): created `components/Modal.tsx` with full WCAG 2.1 AA modal semantics.
+- Migrated all 12 modals across 4 files. Key decisions: `display:contents` on the ARIA wrapper div keeps all panels as direct flex children of the outer container — no layout breakage. `onCloseRef` keeps the keydown handler stable on the first mount without re-subscribing on every render.
+- `RecommendationsListModal` preserves its loading guard via `onClose={loading ? () => {} : onClose}`.
+- TakeoutImportModal, HealthCheckModal had non-standard backdrop colours (80% vs 60%) — standardised to 60% (Modal default) as the visual difference is imperceptible and prevents needing a `backdropClass` prop.
 
 ### Session — 2026-06-11 (session 51)
 - Full site audit produced `YOMU_SITE_AUDIT.md` (38 issues: 3 Critical, 7 High, 16 Medium, 12 Low). Began Phase 1 critical fixes.
