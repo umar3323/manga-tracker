@@ -94,21 +94,19 @@ export default function Sidebar() {
 
       {/* ── BRAND ── */}
       <div style={{ padding: '20px 18px 16px', borderBottom: '1px solid var(--ink-600)' }}>
-        <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 32, height: 32, background: 'var(--vermillion)',
-            borderRadius: 8, display: 'grid', placeItems: 'center', flexShrink: 0,
-            boxShadow: '0 0 0 1px rgba(255,45,70,0.4), 0 0 18px rgba(255,45,70,0.25)',
-          }}>
-            <span style={{ fontFamily: 'var(--font-display)', fontSize: 17, color: '#fff', lineHeight: 1 }}>Y</span>
-          </div>
+        <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 0 }}>
+          {/* YOM letters */}
           <span style={{
             fontFamily: "'Osaka Pulse', var(--font-display)",
             fontSize: 30, letterSpacing: '1px',
-            color: 'var(--fg-1)', lineHeight: 1, position: 'relative', top: 3,
-          }}>
-            YOMU<span style={{ color: 'var(--vermillion)' }}>.</span>
+            color: 'var(--fg-1)', lineHeight: 1, position: 'relative', top: 2,
+          }}>YOM</span>
+          {/* U replaced by snake emblem with star above */}
+          <span style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'center', marginLeft: 1 }}>
+            <img src="/logo-star.png" alt="" style={{ width: 22, height: 'auto', display: 'block', marginBottom: 1, filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.5))' }} />
+            <img src="/logo-u-snake.png" alt="U" style={{ width: 30, height: 'auto', display: 'block', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.4))' }} />
           </span>
+          <span style={{ fontFamily: "'Osaka Pulse', var(--font-display)", fontSize: 30, color: 'var(--vermillion)', lineHeight: 1, position: 'relative', top: 2 }}>.</span>
         </Link>
       </div>
 
