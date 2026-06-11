@@ -221,10 +221,20 @@ export default function LibraryCard({
                 <span title={m.publishing_status} className="shrink-0 w-2 h-2 rounded-full mt-[5px]"
                   style={{ backgroundColor: m.publishing_status === 'Publishing' ? '#2FCF7A' : m.publishing_status === 'On Hiatus' ? '#FFB02E' : '#52525b' }} />
               )}
-              <button onClick={() => onOpenPeek ? onOpenPeek(m.id) : onOpenDetail(m)}
-                className="font-semibold text-sm leading-snug text-left hover:text-violet-300 transition-colors flex-1 min-w-0 truncate">
-                {m.title}
-              </button>
+              <div className="flex-1 min-w-0">
+                <button onClick={() => onOpenPeek ? onOpenPeek(m.id) : onOpenDetail(m)}
+                  className="font-semibold text-sm leading-snug text-left hover:text-violet-300 transition-colors w-full truncate block">
+                  {m.title}
+                </button>
+                {seriesMembers.length > 1 && (() => {
+                  const sequels = seriesMembers.filter(s => s.id !== m.id && s.title !== m.title).map(s => s.title)
+                  return sequels.length > 0 ? (
+                    <p className="text-[10px] text-zinc-600 truncate mt-0.5" title={`incl. ${sequels.join(', ')}`}>
+                      incl. {sequels.join(', ')}
+                    </p>
+                  ) : null
+                })()}
+              </div>
               {m.total_chapters && m.current_chapter < m.total_chapters && m.status === 'reading' && (
                 <span className="shrink-0 text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full whitespace-nowrap">
                   +{m.total_chapters - m.current_chapter}

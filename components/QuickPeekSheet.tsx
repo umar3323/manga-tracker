@@ -40,6 +40,9 @@ interface Props {
 
 export default function QuickPeekSheet({ id, onOpenDetail }: Props) {
   const entry = useLibraryStore(s => s.mangaList.find(m => m.id === id))
+  const seriesMembers = useLibraryStore(s =>
+    entry?.series_id ? s.mangaList.filter(m => m.series_id === entry.series_id) : []
+  )
   const closePeek = useLibraryStore(s => s.closePeek)
 
   if (!entry) return null
@@ -52,9 +55,16 @@ export default function QuickPeekSheet({ id, onOpenDetail }: Props) {
   const genres = entry.genres?.slice(0, 3) ?? []
 
   const isAnime = ct === 'anime' || ct === 'movie'
+
+  const epMembers = seriesMembers.filter(e => (e.has_anime || e.content_type === 'anime' || e.content_type === 'movie'))
+  const seriesEpCurrent = epMembers.length > 1 ? epMembers.reduce((s, e) => s + e.episodes_watched, 0) : entry.episodes_watched
+  const seriesEpTotal = epMembers.length > 1 ? (epMembers.reduce((s, e) => s + (e.total_episodes ?? 0), 0) || null) : entry.total_episodes
+  const seriesChCurrent = seriesMembers.length > 1 ? seriesMembers.reduce((s, e) => s + e.current_chapter, 0) : entry.current_chapter
+  const seriesChTotal = seriesMembers.length > 1 ? (seriesMembers.reduce((s, e) => s + (e.total_chapters ?? 0), 0) || null) : entry.total_chapters
+
   const progressLabel = isAnime
-    ? `Episode ${entry.episodes_watched}${entry.total_episodes ? ` / ${entry.total_episodes}` : ''}`
-    : `Chapter ${entry.current_chapter}${entry.total_chapters ? ` / ${entry.total_chapters}` : ''}`
+    ? `Episode ${seriesEpCurrent}${seriesEpTotal ? ` / ${seriesEpTotal}` : ''}`
+    : `Chapter ${seriesChCurrent}${seriesChTotal ? ` / ${seriesChTotal}` : ''}`
 
   const handleOpenDetail = () => {
     onOpenDetail(id)
