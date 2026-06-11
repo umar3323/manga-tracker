@@ -2045,12 +2045,18 @@ export default function Home() {
         <CompletionModal
           manga={completionManga}
           onClose={() => setCompletionManga(null)}
-          onSaved={(id, rating, note) => {
+          onSaved={(id, rating, note, statusOverride) => {
             setManga(prev => prev.map(m => m.id === id
-              ? { ...m, user_rating: rating, notes: note ? (m.notes ? m.notes.trim() + '\n' : '') + `[Completed] ${note}` : m.notes }
+              ? {
+                  ...m,
+                  user_rating: rating,
+                  notes: note ? (m.notes ? m.notes.trim() + '\n' : '') + `[Completed] ${note}` : m.notes,
+                  ...(statusOverride ? { status: statusOverride } : {}),
+                }
               : m
             ))
-            showToast(`"${completionManga.title}" Logged ✓`)
+            const suffix = statusOverride === 'on_hold' ? ' — Set To On Hold' : ''
+            showToast(`"${completionManga.title}" Logged ✓${suffix}`)
           }}
         />
       )}

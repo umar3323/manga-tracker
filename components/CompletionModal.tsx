@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Sparkles, Star, X } from 'lucide-react'
-import { supabase, type Manga } from '@/lib/supabase'
+import { supabase, type Manga, type MangaStatus } from '@/lib/supabase'
 
 interface Props {
   manga: Manga
   onClose: () => void
-  onSaved: (id: string, rating: 'up' | 'down' | null, note: string) => void
+  onSaved: (id: string, rating: 'up' | 'down' | null, note: string, statusOverride?: MangaStatus) => void
 }
 
 interface Particle {
@@ -70,9 +70,13 @@ export default function CompletionModal({ manga, onClose, onSaved }: Props) {
   // Is this a mixed entry (has both readable chapters AND watchable anime)?
   const isMixed = !!(manga.has_anime && (manga.total_chapters || manga.current_chapter > 0))
   const isAnimeOnly = (manga.content_type === 'anime' || manga.has_anime) && !manga.total_chapters && manga.current_chapter === 0
+  // Show type selector for any entry that involves anime
+  const showTypeSelector = isMixed || isAnimeOnly
 
   const defaultType: CompletedType = isMixed ? 'both' : isAnimeOnly ? 'anime' : 'manga'
   const [completedType, setCompletedType] = useState<CompletedType>(defaultType)
+  // null = not answered yet, true = more coming, false = fully done
+  const [moreAnimePlanned, setMoreAnimePlanned] = useState<boolean | null>(null)
 
   const [dateTab, setDateTab] = useState<DateTab>('today')
   const [date, setDate] = useState(todayISO)
@@ -90,6 +94,17 @@ export default function CompletionModal({ manga, onClose, onSaved }: Props) {
     return new Date().toISOString()
   }
 
+  const animeInvolved = completedType === 'anime' || completedType === 'both'
+  // Status to revert to when the manga portion is still ongoing
+  const statusOverride: MangaStatus | undefined = (() => {
+    if (!showTypeSelector) return undefined
+    if (completedType === 'manga') return undefined // manga done → keep 'completed'
+    if (completedType === 'anime' && isMixed) return 'on_hold' // manga still ongoing
+    if (completedType === 'anime' && isAnimeOnly) return moreAnimePlanned ? 'on_hold' : undefined
+    if (completedType === 'both') return moreAnimePlanned ? 'on_hold' : undefined
+    return undefined
+  })()
+
   const handleSave = async () => {
     if (!rangeValid) return
     setSaving(true)
@@ -103,25 +118,28 @@ export default function CompletionModal({ manga, onClose, onSaved }: Props) {
     }
     if (dateTab === 'unknown') delete updates.last_read_at
 
+    if (statusOverride) updates.status = statusOverride
+
     if (note.trim()) {
       const existing = manga.notes ? manga.notes.trim() + '\n' : ''
       updates.notes = existing + `[Completed] ${note.trim()}`
     }
 
     // Auto-fill progress gauges to max where applicable
-    const fillManga = !isMixed || completedType === 'manga' || completedType === 'both'
-    const fillAnime = !isMixed || completedType === 'anime' || completedType === 'both'
+    const fillManga = !showTypeSelector || completedType === 'manga' || completedType === 'both'
+    const fillAnime = showTypeSelector ? (completedType === 'anime' || completedType === 'both') : true
 
     if (fillManga && !isAnimeOnly && manga.total_chapters) {
       updates.current_chapter = manga.total_chapters
     }
-    if (fillAnime && (isAnimeOnly || isMixed) && manga.total_episodes) {
+    // Only fill episodes to max if the anime is fully done (not just caught up)
+    if (fillAnime && (isAnimeOnly || isMixed) && manga.total_episodes && !moreAnimePlanned) {
       updates.episodes_watched = manga.total_episodes
     }
 
     await supabase.from('manga_list').update(updates).eq('id', manga.id)
     setSaving(false)
-    onSaved(manga.id, rating, note.trim())
+    onSaved(manga.id, rating, note.trim(), statusOverride)
     onClose()
   }
 
@@ -170,15 +188,15 @@ export default function CompletionModal({ manga, onClose, onSaved }: Props) {
           </div>
           <h2 className="text-lg font-bold text-white mb-4 leading-tight">{manga.title}</h2>
 
-          {/* What did you complete? — only for mixed entries */}
-          {isMixed && (
+          {/* What did you complete? — shown for any has_anime entry */}
+          {showTypeSelector && (
             <div className="mb-4">
               <p className="text-xs text-zinc-500 mb-2">What did you complete?</p>
               <div className="flex gap-2">
-                {(['manga', 'anime', 'both'] as CompletedType[]).map(t => (
+                {(isMixed ? (['manga', 'anime', 'both'] as CompletedType[]) : (['anime'] as CompletedType[])).map(t => (
                   <button
                     key={t}
-                    onClick={() => setCompletedType(t)}
+                    onClick={() => { setCompletedType(t as CompletedType); setMoreAnimePlanned(null) }}
                     className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors capitalize ${
                       completedType === t
                         ? 'bg-violet-500/20 border-violet-500 text-violet-300'
@@ -189,6 +207,47 @@ export default function CompletionModal({ manga, onClose, onSaved }: Props) {
                   </button>
                 ))}
               </div>
+
+              {/* More episodes planned? — shown when anime is part of completion */}
+              {animeInvolved && (
+                <div className="mt-3">
+                  <p className="text-xs text-zinc-500 mb-2">Are there more episodes or seasons planned?</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setMoreAnimePlanned(true)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                        moreAnimePlanned === true
+                          ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                          : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      Yes — caught up
+                    </button>
+                    <button
+                      onClick={() => setMoreAnimePlanned(false)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                        moreAnimePlanned === false
+                          ? 'bg-green-500/20 border-green-500 text-green-300'
+                          : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      No — fully done
+                    </button>
+                  </div>
+                  {moreAnimePlanned === true && (
+                    <p className="text-[10px] text-amber-400/70 mt-2 leading-relaxed">
+                      {completedType === 'anime' && isMixed
+                        ? 'Status set to On Hold — the manga may still be ongoing.'
+                        : 'Status set to On Hold until the next season arrives.'}
+                    </p>
+                  )}
+                  {completedType === 'anime' && isMixed && moreAnimePlanned === false && (
+                    <p className="text-[10px] text-zinc-600 mt-2 leading-relaxed">
+                      Anime logged as complete. The manga portion is tracked separately.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

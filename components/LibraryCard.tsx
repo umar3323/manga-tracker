@@ -1,9 +1,10 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import {
   Timer, Play, Clapperboard, PenLine, Flag, Tv, Search,
-  RefreshCw, MapPin,
+  RefreshCw, MapPin, BookOpen,
 } from 'lucide-react'
 import { supabase, type Manga, type MangaStatus, type Author } from '@/lib/supabase'
 import { EditableNumber } from '@/components/DetailView'
@@ -146,8 +147,24 @@ export default function LibraryCard({
     : m
 
   const ct = m.content_type ?? 'manga'
-  const isAnimePrimary = ct === 'anime'
-  const isMangaPrimary = ct !== 'anime'
+  const isDualMode = m.has_anime && ct !== 'anime' && ct !== 'movie'
+
+  // Per-entry reading/watching mode, persisted in localStorage
+  const storageKey = `yomu_track_mode_${m.id}`
+  const [trackingMode, setTrackingMode] = useState<'reading' | 'watching'>('reading')
+  useEffect(() => {
+    if (!isDualMode) return
+    const saved = localStorage.getItem(storageKey)
+    if (saved === 'watching') setTrackingMode('watching')
+  }, [m.id, isDualMode, storageKey])
+  const toggleTrackingMode = () => {
+    const next = trackingMode === 'reading' ? 'watching' : 'reading'
+    setTrackingMode(next)
+    localStorage.setItem(storageKey, next)
+  }
+
+  const isAnimePrimary = ct === 'anime' || (isDualMode && trackingMode === 'watching')
+  const isMangaPrimary = !isAnimePrimary
 
   const SITE_LABEL_MAP: Record<string, string> = {
     'netflix.com': 'Netflix', 'netflix': 'Netflix',
@@ -253,11 +270,21 @@ export default function LibraryCard({
                 style={{ background: typeStyle.bg, color: typeStyle.color, border: typeStyle.border }}>
                 {ct}
               </span>
-              {showAnimeBadge && (
-                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide font-semibold whitespace-nowrap"
-                  style={{ background: animeStyle.bg, color: animeStyle.color, border: animeStyle.border }}>
-                  anime
-                </span>
+              {isDualMode && (
+                <button
+                  onClick={e => { e.stopPropagation(); toggleTrackingMode() }}
+                  title={trackingMode === 'reading' ? 'Switch to watching mode' : 'Switch to reading mode'}
+                  className="shrink-0 flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide font-semibold whitespace-nowrap transition-colors"
+                  style={trackingMode === 'watching'
+                    ? { background: animeStyle.bg, color: animeStyle.color, border: animeStyle.border }
+                    : { background: typeStyles.manga.bg, color: typeStyles.manga.color, border: typeStyles.manga.border }
+                  }
+                >
+                  {trackingMode === 'watching'
+                    ? <><Clapperboard size={8} aria-hidden /> watching</>
+                    : <><BookOpen size={8} aria-hidden /> reading</>
+                  }
+                </button>
               )}
             </div>
 

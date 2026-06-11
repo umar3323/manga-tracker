@@ -48,6 +48,8 @@ interface WatchSession {
 const HEAT_COLORS = ['#30303D', '#5a0a18', '#a01c30', '#D11B33', '#FF2D46']
 
 function ReadingHeatmap({ log }: { log: LogEntry[] }) {
+  const [tooltip, setTooltip] = useState<{ date: string; chapters: number; x: number; y: number } | null>(null)
+
   const activityMap: Record<string, number> = {}
   log.forEach(l => {
     const d = new Date(l.logged_at).toISOString().slice(0, 10)
@@ -103,7 +105,7 @@ function ReadingHeatmap({ log }: { log: LogEntry[] }) {
           <span>{activeDays} Active Days</span>
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" onMouseLeave={() => setTooltip(null)}>
         {/* Month labels */}
         <div className="flex gap-[3px] mb-1 pl-5 text-[10px] text-zinc-600">
           {weeks.map((_, wi) => {
@@ -123,9 +125,11 @@ function ReadingHeatmap({ log }: { log: LogEntry[] }) {
             <div key={wi} className="flex flex-col gap-[3px]">
               {week.map((day, di) => (
                 <div key={di}
-                  className="w-3 h-3 rounded-sm transition-colors"
+                  className="w-3 h-3 rounded-sm transition-colors cursor-default"
                   style={{ backgroundColor: HEAT_COLORS[level(day.chapters)] }}
-                  title={`${day.date}: ${day.chapters} chapter${day.chapters !== 1 ? 's' : ''}`}
+                  onMouseEnter={e => day.chapters > 0 && setTooltip({ date: day.date, chapters: day.chapters, x: e.clientX, y: e.clientY })}
+                  onMouseMove={e => tooltip && setTooltip(t => t ? { ...t, x: e.clientX, y: e.clientY } : t)}
+                  onMouseLeave={() => setTooltip(null)}
                 />
               ))}
             </div>
@@ -136,9 +140,21 @@ function ReadingHeatmap({ log }: { log: LogEntry[] }) {
           <span className="text-[10px] text-zinc-600">Less</span>
           {HEAT_COLORS.map((c, i) => <div key={i} className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
           <span className="text-[10px] text-zinc-600">More</span>
-
         </div>
       </div>
+
+      {tooltip && (
+        <div className="fixed z-50 pointer-events-none" style={{ left: tooltip.x + 12, top: tooltip.y - 8 }}>
+          <div className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 shadow-xl text-left min-w-[150px]">
+            <p className="text-[11px] font-semibold text-zinc-200 mb-1">
+              {new Date(tooltip.date + 'T12:00:00').toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+            </p>
+            <p className="text-[10px] text-red-400">
+              {tooltip.chapters} chapter{tooltip.chapters !== 1 ? 's' : ''} read
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -516,7 +532,27 @@ export default function StatsPage() {
   // With empty initial arrays these run in <0.1ms.
 
   const animeStatsSection = useMemo(() => {
-    const al = animeList
+    // Merge anime_list (extension-tracked) with manga_list anime/movie entries.
+    // Deduplication: if a title already exists in anime_list, skip the manga_list copy.
+    const alTitlesNorm = new Set(animeList.map(e => e.title.toLowerCase().trim()))
+    const mlAnimeRows: AnimeRow[] = manga
+      .filter(m => (m.content_type === 'anime' || m.content_type === 'movie') && !alTitlesNorm.has(m.title.toLowerCase().trim()))
+      .map(m => ({
+        id: m.id,
+        title: m.title,
+        current_ep: m.episodes_watched ? `E${m.episodes_watched}` : '—',
+        season: null,
+        episode_number: m.episodes_watched ?? null,
+        total_watch_hours: Math.round(((m.total_watch_time_minutes ?? 0) / 60) * 10) / 10,
+        last_watched: m.last_read_at ? m.last_read_at.slice(0, 10) : '1970-01-01',
+        is_movie: m.content_type === 'movie',
+        netflix_rating: null,
+        user_rating: m.user_rating ?? null,
+        cover_url: m.cover_url ?? null,
+        created_at: m.created_at ?? '',
+        updated_at: m.updated_at ?? '',
+      }))
+    const al = [...animeList, ...mlAnimeRows]
     const totalAnimeSeries  = al.filter(e => !e.is_movie).length
     const totalAnimeMovies  = al.filter(e =>  e.is_movie).length
     const totalAnimeHours   = al.reduce((s, e) => s + e.total_watch_hours, 0)

@@ -133,45 +133,72 @@ const PARSERS = [
   },
 
   // ── Netflix ───────────────────────────────────────────────────────────
-  // Tab title is usually just "Show Name | Netflix" with no episode info.
-  // Try DOM scraping first, then fall back to title parsing.
+  // Netflix tab title formats:
+  //   "Show Title | Netflix"                        (show/browse page)
+  //   "Show Title: Season N: Episode Title (Episode N) | Netflix"
+  //   "S1:E5 Episode Title - Show Title | Netflix"  (some regions)
+  // DOM scraping tries data-uia attributes (stable) before class names (volatile).
   {
     match: /netflix\.com/i,
     parse(url, title) {
-      const t = title.replace(/\s*[-|]\s*netflix.*/i, '').trim()
+      const t = title.replace(/\s*[\|]\s*netflix.*/i, '').trim()
 
-      // 1. DOM: Netflix player overlays episode info in several possible selectors
+      // 1. DOM — prefer data-uia attributes which Netflix keeps stable across redesigns
       let epFromDom = null, sFromDom = null, showFromDom = null
       try {
-        // "S1:E5 Episode Title" label shown in the player UI
-        const labelEl = document.querySelector(
-          '[data-uia="video-title"], .watch-video--player-view .title-logo-div, ' +
-          '.VideoMetadata--title, .ltr-1l7esfg, .ltr-i8lf9x'
+        // Main title element (series name)
+        const mainEl = document.querySelector(
+          '[data-uia="video-title--main-title"], [data-uia="player-title-main"], ' +
+          '[data-uia="video-title"], .watch-title'
         )
-        const labelText = labelEl?.textContent?.trim() || ''
-        // "S1:E5" or "Season 1: Episode 5" patterns
-        const seM = labelText.match(/S(\d+)[:\s]*E(\d+)/i)
+        if (mainEl) showFromDom = mainEl.textContent?.trim() || null
+
+        // Secondary element often holds "S1:E5 Episode Title"
+        const secEl = document.querySelector(
+          '[data-uia="video-title--secondary-title"], [data-uia="player-title-secondary"]'
+        )
+        const secText = secEl?.textContent?.trim() || ''
+        const seM = secText.match(/S(\d+)[:\s]*E(\d+)/i)
         if (seM) { sFromDom = +seM[1]; epFromDom = +seM[2] }
-        // Show title: try the series title element
-        const seriesEl = document.querySelector(
-          '.watch-video--player-view h4, [data-uia="video-title--main-title"], .ltr-1l7esfg'
-        )
-        if (seriesEl) showFromDom = seriesEl.textContent?.trim() || null
+
+        // Fallback: scan all data-uia elements for an S#:E# pattern
+        if (!epFromDom) {
+          document.querySelectorAll('[data-uia]').forEach(el => {
+            if (epFromDom) return
+            const m2 = (el.textContent || '').match(/S(\d+)[:\s]*E(\d+)/i)
+            if (m2) { sFromDom = +m2[1]; epFromDom = +m2[2] }
+          })
+        }
       } catch {}
 
-      // 2. Title string: handles "S1:E5 Title - Show | Netflix" and "Episode N" patterns
-      const seM2  = t.match(/S(\d+)[:\s]*E(\d+)/i)
-      const epM   = seM2 ? null : (t.match(/\bep(?:isode)?\s*\.?\s*(\d+)/i) || t.match(/\bE(\d+)\b/))
-      const sM    = t.match(/\bseason\s*(\d+)/i) || t.match(/\bS(\d+)E?\d*\b/i)
-      const ep    = epFromDom ?? (seM2 ? +seM2[2] : (epM ? +epM[1] : null))
-      const sn    = sFromDom  ?? (seM2 ? +seM2[1] : (sM  ? +sM[1]  : null))
-      const show  = showFromDom || t
-        .replace(/\s*[-–]\s*S\d+[:\s]*E\d+.*/i, '')
-        .replace(/\s*[-–]\s*season\s*\d+.*/i, '')
-        .replace(/\s*[-–]\s*S\d+.*/i, '')
-        .trim()
-      // If show is empty or just "Netflix" we couldn't extract a title — return null
-      // so the watch-event API uses the +1 increment fallback rather than logging a blank title.
+      // 2. Title string parsing
+      // Format A: "S1:E5 Episode Title - Show Title"
+      const seM2 = t.match(/S(\d+)[:\s]*E(\d+)/i)
+      // Format B: "Show Title: Season N: Episode Title (Episode N)"  ← Netflix colon format
+      const colonSeasonM = t.match(/^(.+?):\s*Season\s*(\d+)\s*:/i)
+      // Format C: generic episode/season patterns
+      const epM = seM2 ? null : (t.match(/\bep(?:isode)?\s*\.?\s*(\d+)/i) || t.match(/\(Episode\s*(\d+)\)/i))
+      const sM  = t.match(/\bseason\s*(\d+)/i) || t.match(/\bS(\d+)E?\d*\b/i)
+
+      const ep = epFromDom ?? (seM2 ? +seM2[2] : (epM ? +epM[1] : null))
+      const sn = sFromDom  ?? (seM2 ? +seM2[1] : (sM  ? +sM[1]  : null))
+
+      // Show title: colon format gives us the cleanest extraction
+      let show
+      if (showFromDom) {
+        show = showFromDom
+      } else if (colonSeasonM) {
+        // "Show Title: Season N: ..." → take everything before ": Season N"
+        show = colonSeasonM[1].trim()
+      } else {
+        show = t
+          .replace(/\s*[-–]\s*S\d+[:\s]*E\d+.*/i, '')
+          .replace(/\s*[-–]\s*season\s*\d+.*/i, '')
+          .replace(/\s*[-–]\s*S\d+.*/i, '')
+          .replace(/\s*\(Episode\s*\d+\).*/i, '')
+          .trim()
+      }
+
       if (!show || /^netflix$/i.test(show)) return null
       return { title: show, episode: ep, season: sn }
     }
