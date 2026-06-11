@@ -94,19 +94,19 @@ export default function Sidebar() {
 
       {/* ── BRAND ── */}
       <div style={{ padding: '20px 18px 16px', borderBottom: '1px solid var(--ink-600)' }}>
-        <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'baseline', gap: 0 }}>
+        <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'flex-end', gap: 0 }}>
           {/* YOM letters */}
           <span style={{
             fontFamily: "'Osaka Pulse', var(--font-display)",
-            fontSize: 30, letterSpacing: '1px',
+            fontSize: 44, letterSpacing: '1px',
             color: 'var(--fg-1)', lineHeight: 1,
           }}>YOM</span>
-          {/* U: inline-block so its bottom edge = baseline; star floats above via absolute */}
-          <span style={{ position: 'relative', display: 'inline-block', marginLeft: 1, verticalAlign: 'text-bottom', lineHeight: 0 }}>
-            <img src="/logo-star.png" alt="" style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', width: 20, height: 'auto', marginBottom: 2, filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.5))', pointerEvents: 'none' }} />
-            <img src="/logo-u-snake.png" alt="U" style={{ width: 30, height: 'auto', display: 'block', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.4))' }} />
+          {/* U: sized to match cap-height; star floats above via absolute */}
+          <span style={{ position: 'relative', display: 'inline-block', marginLeft: 2, lineHeight: 0 }}>
+            <img src="/logo-star.png" alt="" style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', width: 24, height: 'auto', marginBottom: 2, filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.5))', pointerEvents: 'none' }} />
+            <img src="/logo-u-snake.png" alt="U" style={{ height: 38, width: 'auto', display: 'block', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.4))' }} />
           </span>
-          <span style={{ fontFamily: "'Osaka Pulse', var(--font-display)", fontSize: 30, color: 'var(--vermillion)', lineHeight: 1 }}>.</span>
+          <span style={{ fontFamily: "'Osaka Pulse', var(--font-display)", fontSize: 44, color: 'var(--vermillion)', lineHeight: 1 }}>.</span>
         </Link>
       </div>
 
