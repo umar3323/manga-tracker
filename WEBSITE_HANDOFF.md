@@ -2,13 +2,38 @@
 
 ## Project Overview
 
-YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, and Supabase (Postgres + auth). Live at `manga-tracker-hazel.vercel.app`. All core features are active: library tracking, series grouping, discovery, airing calendar, sync, stats, sharing, Chrome extension for watch tracking, and community totals crowd-sourcing. This session fixed all 5 Chrome extension bugs identified by research: watch-time inflation, dedup over-suppression, non-anime tracking gate, stale popup stats, and slow UI refresh after a watch event. Also added `/api/library-titles` route, wired extension-facing API routes into the proxy middleware exemption list, and expanded achievements to 38 badges.
+YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, and Supabase (Postgres + auth). Live at `manga-tracker-hazel.vercel.app`. All core features are active: library tracking, series grouping, discovery, airing calendar, sync, stats, sharing, Chrome extension for watch tracking, and community totals crowd-sourcing. Most recent work: personal watch history imported from Netflix GDPR export + browser history Excel file; reading heatmap hover tooltips; stats anime section merged from both DB tables; dual manga/anime tracking toggle on library cards; Netflix extension parser fix; popup logo fix; and CompletionModal smart per-type completion with anime/manga independence awareness.
 
 ---
 
 ## Current State
 
 ### Latest Changes
+
+#### Session 53 — Personal history import, stats/card UX improvements, extension fixes, CompletionModal rework — 2026-06-11, commit `beac1e2`
+
+**Personal viewing history imported into DB**
+- **Netflix GDPR export** (`/Downloads/Personal/2c45812e…zip` → `ViewingActivity.csv`): extracted watch hours per title. Added 5 entries to `anime_list` (Assassination Classroom, Avatar, JJK 0 as `is_movie=true`, My Neighbor Totoro `is_movie=true`, Suzume `is_movie=true`). Applied corrections: Black Clover rewatch #1 (ep 0→8) logged in `rewatches` table; Assassination Classroom status set to `completed`; JJK 0 merged into the JJK entry (deleted standalone row, updated JJK to ch 146 with movie note).
+- **Browser history Excel** (`Anime_Manga_History.xlsx`, 551 entries Dec 2025–Jun 2026): cross-referenced 27 titles against `manga_list`; updated statuses and episode counts for all matches; *So I'm a Spider, So What?* — reread ch 2–10 logged in `rereads`, chapter updated to Dec 2025 release.
+
+**Stats page**
+- `app/stats/page.tsx` — Reading heatmap now has React floating tooltip on hover (date + chapter count, same style as Watch heatmap). Previously used native `title=` attribute only.
+- `app/stats/page.tsx` `animeStatsSection` useMemo — merged rows from `manga_list` (entries with `content_type='anime'` or `'movie'` not already in `anime_list` by normalised title). Extension-tracked anime automatically appear in stats without requiring a separate `anime_list` row.
+
+**Library card: Reading/Watching toggle**
+- `components/LibraryCard.tsx` — Entries where `has_anime=true` and `content_type` is not `'anime'`/`'movie'` now show a toggle pill (Book / Clapperboard icon) after the type badge. Preference persisted to `localStorage` key `yomu_track_mode_${id}`. When in Watching mode, episode tracker is shown as primary; chapter tracker secondary. `isAnimePrimary` / `isMangaPrimary` derived from `trackingMode`.
+
+**Extension: Netflix title parser fix**
+- `extension/content.js` — Netflix tab titles use colon-separated format: `"Assassination Classroom: Season 1: Episode Title | Netflix"`. Old regex only stripped dash patterns (`[-–]`), so the show name was the full string. Fixed by adding `colonSeasonM` regex before the dash-strip chain: matches `^(.+?):\s*Season\s*(\d+)\s*:` and extracts group 1 as show title. DOM selectors updated to use stable `[data-uia]` attributes; fallback scans all `[data-uia]` elements for S#:E# pattern. Added `\(Episode\s*\d+\)` extraction for episode number.
+
+**Extension popup: logo star clipping fix**
+- `extension/popup.html` — Star icon was `position:absolute; bottom:100%` with no top padding → clipped at popup viewport top. Fixed: `padding-top:20px` on wrapper, star moved to `top:0`, star 30→26px, logo 52→44px.
+
+**CompletionModal: smart per-type completion**
+- `components/CompletionModal.tsx` — "What did you complete?" now shown for ALL `has_anime` entries (was only for `isMixed`). Added "More episodes planned?" sub-question (Yes = caught up / No = fully done) when anime is selected. Status override logic: anime-only on mixed entry always → `on_hold` (manga ongoing); pure anime + caught up → `on_hold`; pure anime + fully done → `completed`; both + caught up → `on_hold`; both + fully done → `completed`; manga-only → `completed`. Episodes NOT auto-filled to `total_episodes` when "caught up". `onSaved` prop extended with optional `statusOverride?: MangaStatus`.
+- `app/page.tsx` — `onSaved` handler accepts `statusOverride` and applies it to local state; toast appends "— Set To On Hold" when status is overridden.
+
+---
 
 #### Session 52 — Phase 2: shared Modal component, all 12 modals migrated to WCAG 2.1 AA — 2026-06-11, commit `9eb9648`
 
@@ -666,6 +691,16 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Session Log
+
+### Session — 2026-06-11 (session 53)
+- Imported personal watch history from two sources: Netflix GDPR export (CSV in zip) and browser history Excel file (27 titles). DB operations: 5 `anime_list` inserts, rewatches/rereads rows, status corrections, JJK merge.
+- `current_chapter NOT NULL` and `current_ep NOT NULL` constraints required explicit `0` / `'—'` defaults on new inserts — not nullable even for movies.
+- Stats anime section was missing extension-tracked entries because `animeStatsSection` only read `anime_list`. Fixed by merging `manga_list` rows with `content_type='anime'`/`'movie'` using normalised-title dedup. Future extension events appear automatically.
+- Reading heatmap tooltip: replaced native `title=` attr with floating React div (same pattern as Watch heatmap). The two heatmaps are now consistent.
+- Library card toggle: `localStorage`-persisted `reading`/`watching` mode for any `has_anime` mixed entry. `isAnimePrimary` flips which tracker is shown as primary.
+- Netflix extension parser: root cause was tab title format `"Show: Season N: Episode Title | Netflix"` — regex only handled dash-separated formats. Fixed with `colonSeasonM` regex. Updated DOM selectors to stable `[data-uia]` attributes for resilience.
+- Extension popup star was clipping at top of popup viewport — padding-top fix unblocks it.
+- CompletionModal: user's explicit requirement — completing the anime does NOT imply the manga is complete. Resolved via `statusOverride` passed back from modal to parent; `on_hold` used rather than a new status value (simpler, works with existing filter/sort logic).
 
 ### Session — 2026-06-11 (session 52)
 - Phase 2 (accessibility): created `components/Modal.tsx` with full WCAG 2.1 AA modal semantics.
