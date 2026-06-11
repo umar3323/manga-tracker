@@ -32,10 +32,13 @@ export default function Nav() {
         height: '100vh', position: 'sticky', top: 0,
       }}>
         <Link href="/" style={{
-          width: 36, height: 36, borderRadius: 9,
-          display: 'grid', placeItems: 'center', textDecoration: 'none', marginBottom: 14, flexShrink: 0,
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          textDecoration: 'none', marginBottom: 14, flexShrink: 0, position: 'relative',
         }}>
-          <img src="/logo-u-snake.png" alt="YOMU" style={{ width: 30, height: 30, objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(255,45,70,0.4))' }} />
+          <img src="/logo-star.png" alt="" style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', width: 16, height: 'auto', marginBottom: 2, filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.6))', pointerEvents: 'none' }} />
+          <span style={{ background: '#0d0d0d', borderRadius: 8, padding: '3px 4px', boxShadow: '0 0 0 1.5px #FF2D46', display: 'inline-flex' }}>
+            <img src="/logo-u-snake.png" alt="YOMU" style={{ width: 26, height: 26, objectFit: 'contain', filter: 'brightness(0) saturate(100%) invert(20%) sepia(100%) saturate(5000%) hue-rotate(330deg) brightness(1.1)' }} />
+          </span>
         </Link>
 
         {tabletTabs.map(t => {
