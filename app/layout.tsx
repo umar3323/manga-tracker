@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   description: 'Track your manga reading and anime watching progress',
   manifest: '/manifest.json',
   appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'YOMU' },
-  icons: { apple: '/apple-touch-icon.png', icon: '/logo-u-snake.png' },
+  icons: { apple: '/apple-touch-icon.png', icon: '/logo-badge.png' },
 }
 
 export const viewport: Viewport = {
