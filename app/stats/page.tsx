@@ -338,6 +338,75 @@ function WatchHeatmap({ sessions }: { sessions: WatchSession[] }) {
   )
 }
 
+interface MostWatchedItem { title: string; eps: number; mangaId: string; isRewatch: boolean }
+
+function MostWatchedSection({
+  items, maxEps, rewatchCount, onSave,
+}: {
+  items: MostWatchedItem[]
+  maxEps: number
+  rewatchCount: number
+  onSave: (mangaId: string, newEps: number) => Promise<void>
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+
+  const startEdit = (item: MostWatchedItem) => {
+    setEditingId(item.mangaId)
+    setEditValue(String(item.eps))
+  }
+
+  const commit = async (mangaId: string) => {
+    const n = parseInt(editValue, 10)
+    if (!isNaN(n) && n >= 0) await onSave(mangaId, n)
+    setEditingId(null)
+  }
+
+  return (
+    <div className="bg-zinc-900 rounded-xl p-5 mb-4">
+      <h3 className="text-sm font-semibold mb-4">Most Watched <span className="text-zinc-600 font-normal text-[10px]">by episodes</span></h3>
+      <div className="space-y-3">
+        {items.map((item, i) => (
+          <div key={item.mangaId} className="flex items-center gap-3">
+            <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
+            <span className="text-xs text-zinc-300 flex-1 truncate">{item.title}</span>
+            {item.isRewatch && <span className="text-[9px] text-cyan-500 shrink-0 border border-cyan-700 rounded px-1">RE</span>}
+            <div className="w-20 h-2 bg-zinc-800 rounded-full overflow-hidden shrink-0">
+              <div className="h-full rounded-full" style={{ width: `${(item.eps / maxEps) * 100}%`, backgroundColor: '#a78bfa' }} />
+            </div>
+            {editingId === item.mangaId ? (
+              <input
+                type="number"
+                value={editValue}
+                min={0}
+                autoFocus
+                onChange={e => setEditValue(e.target.value)}
+                onBlur={() => commit(item.mangaId)}
+                onKeyDown={e => { if (e.key === 'Enter') commit(item.mangaId); if (e.key === 'Escape') setEditingId(null) }}
+                className="w-12 text-[10px] text-right bg-zinc-800 border border-zinc-600 rounded px-1 py-0.5 text-white outline-none focus:border-violet-500"
+                style={{ colorScheme: 'dark' }}
+              />
+            ) : (
+              <button
+                onClick={() => startEdit(item)}
+                title="Click to edit"
+                className="text-[10px] text-zinc-500 hover:text-violet-400 w-12 text-right shrink-0 tabular-nums transition-colors"
+              >
+                {item.eps}ep
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      {rewatchCount > 0 && (
+        <div className="mt-4 pt-3 border-t border-zinc-800">
+          <p className="text-xs text-zinc-500">🔁 Rewatched <span className="text-white">{rewatchCount}</span> {rewatchCount === 1 ? 'series' : 'series'} — because once wasn&#39;t enough</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function StatsPage() {
   const [manga, setManga] = useState<Manga[]>([])
   const [animeList, setAnimeList] = useState<AnimeRow[]>([])
@@ -398,6 +467,13 @@ export default function StatsPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const saveEpisodeCount = useCallback(async (mangaId: string, newEps: number) => {
+    await supabase.from('manga_list').update({ episodes_watched: newEps }).eq('id', mangaId)
+    // Trim watch_sessions rows whose episode number exceeds the new count
+    await supabase.from('watch_sessions').delete().eq('manga_id', mangaId).gt('episode', newEps)
+    load()
+  }, [load])
 
   const refreshSessions = useCallback(async () => {
     setSessionsRefreshing(true)
@@ -936,12 +1012,18 @@ export default function StatsPage() {
       'Sci-Fi': 'Future-gazer',      Shounen: 'Power-level chaser',
     }
 
-    const titleEpCount: Record<string, number> = {}
-    for (const s of watchSessions) {
-      if (s.is_complete) titleEpCount[s.title_raw] = (titleEpCount[s.title_raw] ?? 0) + 1
-    }
-    const topWatchTitles = Object.entries(titleEpCount).sort((a, b) => b[1] - a[1]).slice(0, 5)
-    const maxEpTitle = topWatchTitles[0]?.[1] ?? 1
+    // Use manga_list.episodes_watched as the authoritative source — avoids session double-count issues
+    const topWatchItems: MostWatchedItem[] = manga
+      .filter(m => (m.has_anime || m.content_type === 'anime') && (m.episodes_watched ?? 0) > 0)
+      .map(m => ({
+        title: m.anime_title ?? m.title,
+        eps: m.episodes_watched ?? 0,
+        mangaId: m.id,
+        isRewatch: !!(m.total_episodes && m.episodes_watched > m.total_episodes),
+      }))
+      .sort((a, b) => b.eps - a.eps)
+      .slice(0, 5)
+    const maxEpTitle = topWatchItems[0]?.eps ?? 1
 
     const todayEps = watchSessions.filter(s => s.is_complete && new Date(s.watched_at).toDateString() === now.toDateString()).length
     const todaySec = watchSessions.filter(s => new Date(s.watched_at).toDateString() === now.toDateString())
@@ -1010,38 +1092,19 @@ export default function StatsPage() {
             </div>
           )}
 
-          {/* Top titles by episodes watched */}
-          {topWatchTitles.length > 0 && (
-            <div className="bg-zinc-900 rounded-xl p-5 mb-4">
-              <h3 className="text-sm font-semibold mb-4">Most Watched <span className="text-zinc-600 font-normal text-[10px]">by episodes</span></h3>
-              <div className="space-y-3">
-                {topWatchTitles.map(([title, eps], i) => {
-                  const entry = titleToManga[title.toLowerCase()]
-                  const isRewatch = entry?.total_episodes && entry.episodes_watched > entry.total_episodes
-                  return (
-                    <div key={title} className="flex items-center gap-3">
-                      <span className="text-xs text-zinc-600 w-4 shrink-0 text-right">{i + 1}</span>
-                      <span className="text-xs text-zinc-300 flex-1 truncate">{title}</span>
-                      {isRewatch && <span className="text-[9px] text-cyan-500 shrink-0 border border-cyan-700 rounded px-1">RE</span>}
-                      <div className="w-20 h-2 bg-zinc-800 rounded-full overflow-hidden shrink-0">
-                        <div className="h-full rounded-full" style={{ width: `${(eps / maxEpTitle) * 100}%`, backgroundColor: '#a78bfa' }} />
-                      </div>
-                      <span className="text-[10px] text-zinc-500 w-8 text-right shrink-0">{eps}ep</span>
-                    </div>
-                  )
-                })}
-              </div>
-              {rewatchCount > 0 && (
-                <div className="mt-4 pt-3 border-t border-zinc-800">
-                  <p className="text-xs text-zinc-500">🔁 Rewatched <span className="text-white">{rewatchCount}</span> {rewatchCount === 1 ? 'series' : 'series'} — because once wasn&#39;t enough</p>
-                </div>
-              )}
-            </div>
+          {/* Top titles by episodes watched — editable inline */}
+          {topWatchItems.length > 0 && (
+            <MostWatchedSection
+              items={topWatchItems}
+              maxEps={maxEpTitle}
+              rewatchCount={rewatchCount}
+              onSave={saveEpisodeCount}
+            />
           )}
         </div>
       </div>
     )
-  }, [watchSessions, manga])
+  }, [watchSessions, manga, saveEpisodeCount])
 
   const ratingsSection = useMemo(() => {
     const liked    = manga.filter(m => m.user_rating === 'up')
