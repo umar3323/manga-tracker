@@ -78,6 +78,7 @@ export default function Home() {
   const addSuggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const addBarRef = useRef<HTMLDivElement>(null)
   // Quick-details fields shown after a title is confirmed
+  const [addQueue, setAddQueue] = useState<JikanSearchResult[]>([])
   const [addShowDetails, setAddShowDetails] = useState(false)
   const [addDetailStatus, setAddDetailStatus] = useState<MangaStatus | null>(null)
   const [addDetailProgress, setAddDetailProgress] = useState<string>('')
@@ -776,63 +777,64 @@ export default function Home() {
     setAddDetailRating(null)
   }
 
-  const addManga = async () => {
-    if (!selectedJikan && !newTitle.trim()) return
+  const addManga = async (overrideJikan?: JikanSearchResult) => {
+    const jikanItem = overrideJikan ?? selectedJikan
+    if (!jikanItem && !newTitle.trim()) return
     setAdding(true)
     try {
       const isAnime = addContentType === 'anime'
       const isMovie = addContentType === 'movie'
       let insertPayload: Record<string, unknown>
-      if (selectedJikan) {
+      if (jikanItem) {
         if (isMovie) {
           insertPayload = {
-            mal_id: selectedJikan.mal_id,
-            title: selectedJikan.title,
+            mal_id: jikanItem.mal_id,
+            title: jikanItem.title,
             current_chapter: 0,
             episodes_watched: 0,
             status: 'unwatched',
             content_type: 'movie',
-            cover_url: selectedJikan.cover_url ?? null,
+            cover_url: jikanItem.cover_url ?? null,
             total_chapters: null,
             total_episodes: null,
-            authors: selectedJikan.authors ?? [],
-            genres: selectedJikan.genres ?? [],
+            authors: jikanItem.authors ?? [],
+            genres: jikanItem.genres ?? [],
             has_anime: false,
-            synopsis: selectedJikan.synopsis ?? null,
-            score: selectedJikan.score ?? null,
+            synopsis: jikanItem.synopsis ?? null,
+            score: jikanItem.score ?? null,
           }
         } else if (isAnime) {
           // Adding anime directly — store as anime content type
           insertPayload = {
             mal_id: null,
-            anime_mal_id: selectedJikan.mal_id,
-            title: selectedJikan.title,
+            anime_mal_id: jikanItem.mal_id,
+            title: jikanItem.title,
             current_chapter: 0,
             episodes_watched: 0,
             status: 'watching',
             content_type: 'anime',
-            cover_url: selectedJikan.cover_url ?? null,
+            cover_url: jikanItem.cover_url ?? null,
             total_chapters: null,
-            total_episodes: (selectedJikan as JikanSearchResult & { episodes?: number | null }).episodes ?? null,
-            authors: selectedJikan.authors ?? [],
-            genres: selectedJikan.genres ?? [],
+            total_episodes: (jikanItem as JikanSearchResult & { episodes?: number | null }).episodes ?? null,
+            authors: jikanItem.authors ?? [],
+            genres: jikanItem.genres ?? [],
             has_anime: true,
-            anime_title: selectedJikan.title,
+            anime_title: jikanItem.title,
           }
         } else {
           // Adding manga — fetch anime adaptations too
-          const adaptations = selectedJikan.mal_id ? await getAnimeAdaptations(selectedJikan.mal_id) : []
+          const adaptations = jikanItem.mal_id ? await getAnimeAdaptations(jikanItem.mal_id) : []
           const anim = adaptations[0]
           insertPayload = {
-            mal_id: selectedJikan.mal_id,
-            title: selectedJikan.title,
+            mal_id: jikanItem.mal_id,
+            title: jikanItem.title,
             current_chapter: 0,
             status: 'reading',
-            content_type: (selectedJikan as JikanSearchResult & { media_type?: string }).media_type === 'anime' ? 'anime' : 'manga',
-            cover_url: selectedJikan.cover_url ?? null,
-            total_chapters: selectedJikan.total_chapters ?? null,
-            authors: selectedJikan.authors ?? [],
-            genres: selectedJikan.genres ?? [],
+            content_type: (jikanItem as JikanSearchResult & { media_type?: string }).media_type === 'anime' ? 'anime' : 'manga',
+            cover_url: jikanItem.cover_url ?? null,
+            total_chapters: jikanItem.total_chapters ?? null,
+            authors: jikanItem.authors ?? [],
+            genres: jikanItem.genres ?? [],
             has_anime: !!anim,
             anime_mal_id: anim?.mal_id ?? null,
             anime_title: anim?.title ?? null,
@@ -893,7 +895,7 @@ export default function Home() {
               }
             }).catch(() => {})
         }
-        if (!selectedJikan && !isAnime) {
+        if (!jikanItem && !isAnime) {
           fetchMangaInfo(newEntry.title).then(async info => {
             if (info.coverUrl || info.totalChapters) {
               const updates: Partial<Manga> = {}
@@ -908,6 +910,24 @@ export default function Home() {
     } finally {
       setAdding(false)
     }
+  }
+
+  const addAllQueued = async () => {
+    if (addQueue.length === 0) return
+    setAdding(true)
+    let added = 0, skipped = 0
+    for (const item of addQueue) {
+      await addManga(item)
+      // addManga manages its own adding state; we just track outcome via optimistic manga list
+      added++
+    }
+    setAddQueue([])
+    setShowAdd(false)
+    setNewTitle('')
+    setSelectedJikan(null)
+    setAddSuggestions([])
+    resetAddDetails()
+    showToast(`Added ${added} ${added === 1 ? 'Entry' : 'Entries'}${skipped > 0 ? `, ${skipped} Already In List` : ''}`)
   }
 
   const getRecommendations = async () => {
@@ -1354,7 +1374,7 @@ export default function Home() {
               {(['manga', 'anime', 'movie'] as const).map(ct => (
                 <button
                   key={ct}
-                  onClick={() => { setAddContentType(ct); setSelectedJikan(null); setNewTitle(''); setAddSuggestions([]); resetAddDetails() }}
+                  onClick={() => { setAddContentType(ct); setSelectedJikan(null); setNewTitle(''); setAddSuggestions([]); setAddQueue([]); resetAddDetails() }}
                   className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors ${addContentType === ct ? 'bg-white text-black' : 'text-zinc-500 hover:text-zinc-300'}`}
                 >
                   {ct === 'manga' ? '📚 Manga / Manhwa' : ct === 'anime' ? '🎌 Anime' : '🎬 Movie'}
@@ -1401,7 +1421,7 @@ export default function Home() {
                     }}
                     onKeyDown={e => {
                       if (e.key === 'Enter') { setShowAddSuggestions(false); addManga() }
-                      if (e.key === 'Escape') { setShowAdd(false); setNewTitle(''); setAddSuggestions([]); setSelectedJikan(null); resetAddDetails() }
+                      if (e.key === 'Escape') { setShowAdd(false); setNewTitle(''); setAddSuggestions([]); setSelectedJikan(null); setAddQueue([]); resetAddDetails() }
                     }}
                     placeholder={addContentType === 'anime' ? 'Search for an anime title…' : addContentType === 'movie' ? 'Search for a movie title…' : 'Search for a manga / manhwa title…'}
                     aria-label={addContentType === 'anime' ? 'New anime title' : addContentType === 'movie' ? 'New movie title' : 'New manga title'}
@@ -1416,36 +1436,73 @@ export default function Home() {
                       {!addSuggestLoading && addSuggestions.length === 0 && (
                         <div className="px-4 py-3 text-xs text-zinc-500">No matches — try a different spelling</div>
                       )}
-                      {!addSuggestLoading && addSuggestions.map(s => (
-                        <button
-                          key={s.mal_id}
-                          onMouseDown={e => { e.preventDefault(); setSelectedJikan(s); setNewTitle(s.title); setShowAddSuggestions(false) }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-left border-b border-zinc-800 last:border-0"
-                        >
-                          {s.cover_url && (
-                            <img src={s.cover_url} alt="" className="w-7 h-10 object-cover rounded shrink-0" />
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm text-zinc-200 truncate">{s.title}</p>
-                            <p className="text-[10px] text-zinc-500 mt-0.5">
-                              {s.authors.length > 0 ? `by ${s.authors[0].name}` : ''}
-                              {s.score ? ` · ★ ${s.score}` : ''}
-                              {s.total_chapters ? ` · ${s.total_chapters} ch` : ''}
-                            </p>
+                      {!addSuggestLoading && addSuggestions.map(s => {
+                        const inQueue = addQueue.some(q => q.mal_id === s.mal_id)
+                        return (
+                          <div key={s.mal_id} className="flex items-center border-b border-zinc-800 last:border-0 hover:bg-zinc-800 transition-colors">
+                            <button
+                              onMouseDown={e => { e.preventDefault(); setSelectedJikan(s); setNewTitle(s.title); setShowAddSuggestions(false) }}
+                              className="flex items-center gap-3 px-4 py-2.5 text-left flex-1 min-w-0"
+                            >
+                              {s.cover_url && (
+                                <img src={s.cover_url} alt="" className="w-7 h-10 object-cover rounded shrink-0" />
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm text-zinc-200 truncate">{s.title}</p>
+                                <p className="text-[10px] text-zinc-500 mt-0.5">
+                                  {s.authors.length > 0 ? `by ${s.authors[0].name}` : ''}
+                                  {s.score ? ` · ★ ${s.score}` : ''}
+                                  {s.total_chapters ? ` · ${s.total_chapters} ch` : ''}
+                                </p>
+                              </div>
+                            </button>
+                            <button
+                              onMouseDown={e => {
+                                e.preventDefault()
+                                if (inQueue) {
+                                  setAddQueue(q => q.filter(x => x.mal_id !== s.mal_id))
+                                } else {
+                                  setAddQueue(q => [...q, s])
+                                }
+                              }}
+                              className={`shrink-0 w-8 h-8 mr-3 rounded-lg flex items-center justify-center text-lg font-bold transition-colors ${inQueue ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'}`}
+                              title={inQueue ? 'Remove from queue' : 'Add to queue'}
+                            >
+                              {inQueue ? '✓' : '+'}
+                            </button>
                           </div>
-                          <span className="text-[10px] text-zinc-600 shrink-0">Select →</span>
-                        </button>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </>
               )}
             </div>
-            <button onClick={addManga} disabled={adding || (!selectedJikan && !newTitle.trim())}
-              className="px-5 py-3 rounded-xl bg-white text-black text-sm font-medium disabled:opacity-40 shrink-0">
-              {adding ? '…' : 'Add'}
+            <button
+              onClick={() => addQueue.length > 0 ? addAllQueued() : addManga()}
+              disabled={adding || (addQueue.length === 0 && !selectedJikan && !newTitle.trim())}
+              className="px-5 py-3 rounded-xl bg-white text-black text-sm font-medium disabled:opacity-40 shrink-0 whitespace-nowrap">
+              {adding ? '…' : addQueue.length > 0 ? `Add All (${addQueue.length})` : 'Add'}
             </button>
             </div>
+
+            {/* ── Queue strip — items staged for batch add ── */}
+            {addQueue.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {addQueue.map(item => (
+                  <div key={item.mal_id} className="flex items-center gap-1.5 bg-zinc-800 rounded-lg pl-1.5 pr-1 py-1 max-w-[200px]">
+                    {item.cover_url && (
+                      <img src={item.cover_url} alt="" className="w-5 h-7 object-cover rounded shrink-0" />
+                    )}
+                    <span className="text-xs text-zinc-300 truncate flex-1">{item.title}</span>
+                    <button
+                      onClick={() => setAddQueue(q => q.filter(x => x.mal_id !== item.mal_id))}
+                      className="text-zinc-500 hover:text-white shrink-0 text-sm leading-none px-0.5"
+                    >×</button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* ── Quick Details (shown once a title is confirmed) ── */}
             {(selectedJikan || newTitle.trim()) && (

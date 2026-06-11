@@ -543,7 +543,7 @@ export default function StatsPage() {
         current_ep: m.episodes_watched ? `E${m.episodes_watched}` : '—',
         season: null,
         episode_number: m.episodes_watched ?? null,
-        total_watch_hours: Math.round(((m.total_watch_time_minutes ?? 0) / 60) * 10) / 10,
+        total_watch_hours: Math.round((((m.total_watch_time_minutes && m.total_watch_time_minutes > 0) ? m.total_watch_time_minutes : (m.episodes_watched ?? 0) * 22) / 60) * 10) / 10,
         last_watched: m.last_read_at ? m.last_read_at.slice(0, 10) : '1970-01-01',
         is_movie: m.content_type === 'movie',
         netflix_rating: null,

@@ -137,31 +137,63 @@ const PARSERS = [
   //   "Show Title | Netflix"                        (show/browse page)
   //   "Show Title: Season N: Episode Title (Episode N) | Netflix"
   //   "S1:E5 Episode Title - Show Title | Netflix"  (some regions)
-  // DOM scraping tries data-uia attributes (stable) before class names (volatile).
+  // DOM scraping priority:
+  //   1. Evidence overlay (pause/hover UI) — most reliable, contains h2 title + season/episode
+  //   2. Older data-uia player title elements
+  //   3. Tab title string parsing
   {
     match: /netflix\.com/i,
     parse(url, title) {
       const t = title.replace(/\s*[\|]\s*netflix.*/i, '').trim()
 
-      // 1. DOM — prefer data-uia attributes which Netflix keeps stable across redesigns
       let epFromDom = null, sFromDom = null, showFromDom = null
       try {
-        // Main title element (series name)
-        const mainEl = document.querySelector(
-          '[data-uia="video-title--main-title"], [data-uia="player-title-main"], ' +
-          '[data-uia="video-title"], .watch-title'
-        )
-        if (mainEl) showFromDom = mainEl.textContent?.trim() || null
+        // 1. Evidence overlay — shown when paused or hovering during playback.
+        //    Structure: container with h2 (show title), h4[data-uia="evidence-overlay-season-title"],
+        //    h3[data-uia="evidence-overlay-episode-title"] ("Episode N: Ep. N")
+        const seasonEl  = document.querySelector('[data-uia="evidence-overlay-season-title"]')
+        const episodeEl = document.querySelector('[data-uia="evidence-overlay-episode-title"]')
 
-        // Secondary element often holds "S1:E5 Episode Title"
-        const secEl = document.querySelector(
-          '[data-uia="video-title--secondary-title"], [data-uia="player-title-secondary"]'
-        )
-        const secText = secEl?.textContent?.trim() || ''
-        const seM = secText.match(/S(\d+)[:\s]*E(\d+)/i)
-        if (seM) { sFromDom = +seM[1]; epFromDom = +seM[2] }
+        if (seasonEl || episodeEl) {
+          // Walk up to find the overlay container, then query for the h2 show title inside it
+          const anchor = seasonEl || episodeEl
+          const container = anchor.closest('[data-uia*="overlay"], [class*="overlay"], [class*="evidence"]')
+                         || anchor.parentElement?.parentElement
+                         || anchor.parentElement
+          const h2 = container?.querySelector('h2') || null
+          if (h2) showFromDom = h2.textContent?.trim() || null
 
-        // Fallback: scan all data-uia elements for an S#:E# pattern
+          // "Season 1" → 1
+          if (seasonEl) {
+            const sm = seasonEl.textContent?.match(/Season\s*(\d+)/i)
+            if (sm) sFromDom = +sm[1]
+          }
+          // "Episode 2: Ep. 2" or "Episode 2" → 2
+          if (episodeEl) {
+            const em = episodeEl.textContent?.match(/Episode\s*(\d+)/i)
+            if (em) epFromDom = +em[1]
+          }
+        }
+
+        // 2. Older player title elements (fallback for non-overlay state)
+        if (!showFromDom) {
+          const mainEl = document.querySelector(
+            '[data-uia="video-title--main-title"], [data-uia="player-title-main"], ' +
+            '[data-uia="video-title"], .watch-title'
+          )
+          if (mainEl) showFromDom = mainEl.textContent?.trim() || null
+        }
+
+        if (!epFromDom) {
+          const secEl = document.querySelector(
+            '[data-uia="video-title--secondary-title"], [data-uia="player-title-secondary"]'
+          )
+          const secText = secEl?.textContent?.trim() || ''
+          const seM = secText.match(/S(\d+)[:\s]*E(\d+)/i)
+          if (seM) { sFromDom = +seM[1]; epFromDom = +seM[2] }
+        }
+
+        // 3. Last resort: scan all data-uia elements for S#:E# pattern
         if (!epFromDom) {
           document.querySelectorAll('[data-uia]').forEach(el => {
             if (epFromDom) return
@@ -171,7 +203,12 @@ const PARSERS = [
         }
       } catch {}
 
-      // 2. Title string parsing
+      // 2. Use cached overlay data if available (most reliable — set by MutationObserver)
+      if (_netflixCache?.title) {
+        return _netflixCache
+      }
+
+      // 3. Title string parsing
       // Format A: "S1:E5 Episode Title - Show Title"
       const seM2 = t.match(/S(\d+)[:\s]*E(\d+)/i)
       // Format B: "Show Title: Season N: Episode Title (Episode N)"  ← Netflix colon format
@@ -523,6 +560,43 @@ function siteName() {
   return location.hostname.replace(/^www\./, '')
 }
 
+// ── Netflix evidence overlay cache ───────────────────────────────────────
+// The evidence overlay (pause/hover info panel) contains the most reliable
+// show/season/episode data, but only exists in the DOM while visible.
+// A MutationObserver watches for it to appear and caches the extracted values
+// so the parser can use them even when the overlay is hidden.
+let _netflixCache = null // { title, episode, season } | null
+
+function _extractNetflixOverlay() {
+  const seasonEl  = document.querySelector('[data-uia="evidence-overlay-season-title"]')
+  const episodeEl = document.querySelector('[data-uia="evidence-overlay-episode-title"]')
+  if (!seasonEl && !episodeEl) return
+
+  const anchor    = seasonEl || episodeEl
+  const container = anchor.closest('[data-uia*="overlay"], [class*="overlay"], [class*="evidence"]')
+                 || anchor.parentElement?.parentElement
+                 || anchor.parentElement
+  const h2 = container?.querySelector('h2') || null
+  const showTitle = h2?.textContent?.trim() || null
+  if (!showTitle) return
+
+  const sm = seasonEl?.textContent?.match(/Season\s*(\d+)/i)
+  const em = episodeEl?.textContent?.match(/Episode\s*(\d+)/i)
+  _netflixCache = {
+    title:   showTitle,
+    season:  sm ? +sm[1] : null,
+    episode: em ? +em[1] : null,
+  }
+}
+
+function _startNetflixOverlayObserver() {
+  if (!/netflix\.com/i.test(location.hostname)) return
+  const obs = new MutationObserver(() => { try { _extractNetflixOverlay() } catch {} })
+  obs.observe(document.documentElement, { childList: true, subtree: true })
+  // Also try immediately in case the overlay is already visible on inject
+  try { _extractNetflixOverlay() } catch {}
+}
+
 // ── Session state ─────────────────────────────────────────────────────────
 let session     = null   // current watch session
 let heartbeat   = null   // interval id
@@ -710,6 +784,7 @@ function scheduleScan() {
 }
 const domObserver = new MutationObserver(scheduleScan)
 domObserver.observe(document.documentElement, { childList: true, subtree: true })
+_startNetflixOverlayObserver()
 scanForVideos()
 
 // ── SPA navigation detection ──────────────────────────────────────────────
@@ -718,6 +793,7 @@ function handleNavigation() {
   if (location.href !== lastUrlCheck) {
     lastUrlCheck = location.href
     session = null
+    _netflixCache = null
     detachVideo()
     setTimeout(scanForVideos, 500)
   }

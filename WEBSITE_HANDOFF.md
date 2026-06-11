@@ -2,13 +2,40 @@
 
 ## Project Overview
 
-YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, and Supabase (Postgres + auth). Live at `manga-tracker-hazel.vercel.app`. All core features are active: library tracking, series grouping, discovery, airing calendar, sync, stats, sharing, Chrome extension for watch tracking, and community totals crowd-sourcing. Most recent work: personal watch history imported from Netflix GDPR export + browser history Excel file; reading heatmap hover tooltips; stats anime section merged from both DB tables; dual manga/anime tracking toggle on library cards; Netflix extension parser fix; popup logo fix; and CompletionModal smart per-type completion with anime/manga independence awareness.
+YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, and Supabase (Postgres + auth). Live at `manga-tracker-hazel.vercel.app`. All core features are active: library tracking, series grouping, discovery, airing calendar, sync, stats, sharing, Chrome extension for watch tracking (including Netflix via evidence overlay MutationObserver), multi-entry batch add, and community totals crowd-sourcing. Most recent work: Netflix extension overhauled to use DOM MutationObserver caching for reliable tracking; multi-add queue in the Add panel; stats watch time fallback from episode count; Avatar entry fixed with correct synopsis/cover.
 
 ---
 
 ## Current State
 
 ### Latest Changes
+
+#### Session 54 — Netflix extension MutationObserver, multi-add queue, stats watch time fix, Avatar DB fix — 2026-06-11
+
+**Netflix extension: MutationObserver overlay cache (`extension/content.js`)**
+- Root cause of Netflix not tracking: tab title is just "Netflix" (no show info) and the evidence overlay (`h2` show title, `h4[data-uia="evidence-overlay-season-title"]`, `h3[data-uia="evidence-overlay-episode-title"]`) only appears on hover/pause — not present when `onPlay()` fires.
+- Added `_netflixCache` module variable + `_extractNetflixOverlay()` function that walks up from the overlay season/episode elements to find the container `h2` for show title. Parses `"Season 1"` → `sFromDom=1`, `"Episode 2: Ep. 2"` → `epFromDom=2`.
+- Added `_startNetflixOverlayObserver()`: starts a `MutationObserver` watching the full document for overlay elements to appear; caches extracted data immediately. Called at init alongside `domObserver`.
+- Netflix `parse()` function updated to return `_netflixCache` as the first priority (before any DOM query or title string parsing) — cache persists through the session.
+- `handleNavigation()` now sets `_netflixCache = null` on URL change so stale episode data doesn't bleed into the next episode.
+- **Extension must be reloaded** in `chrome://extensions` for these changes to take effect.
+
+**Multi-add queue (`app/page.tsx`)**
+- Added `addQueue: JikanSearchResult[]` state (line ~81).
+- `addManga()` refactored to accept optional `overrideJikan?: JikanSearchResult` — uses it instead of `selectedJikan` when provided. All internal `selectedJikan` refs replaced with `jikanItem`.
+- Added `addAllQueued()`: iterates `addQueue`, calls `addManga(item)` for each, clears queue, closes panel, shows "Added N Entries" toast.
+- Dropdown results now show a `+` / `✓` toggle button (right side). Clicking `+` adds to queue (green ✓ when queued); clicking again removes. Selecting a result (left side click) still works as single-add as before.
+- Queue strip shown below the search row: small cover thumb + title chip + `×` remove button per item.
+- Add button text changes to `Add All (N)` when queue is non-empty; calls `addAllQueued()` instead of `addManga()`.
+- Queue cleared on: content type switch, Escape key, `addAllQueued()` completion.
+
+**Stats watch time fallback (`app/stats/page.tsx`)**
+- `animeStatsSection` line ~546: `total_watch_hours` now falls back to `episodes_watched × 22 min / 60` when `total_watch_time_minutes` is 0 or null. Previously, 54/55 entries showed 0h in the totals and `topAnime` bar chart because only FMA had real DB session data. All entries now show correct estimated hours.
+
+**Avatar DB fix (Supabase production)**
+- Entry `0e5db480` (`Avatar: The Last Airbender`) had wrong synopsis (Ultima game) and wrong cover (Japanese manga). Updated via SQL: synopsis from OMDB, cover from Amazon CDN, genres set to `['Animation', 'Action', 'Adventure']`.
+
+---
 
 #### Session 53 — Personal history import, stats/card UX improvements, extension fixes, CompletionModal rework — 2026-06-11, commit `beac1e2`
 
@@ -477,6 +504,8 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 - [x] **Deep Search via Gemini (free)** — Implemented. `lib/gemini.ts` created: calls `gemini-2.0-flash` via REST (no new npm dependency), gated on `GEMINI_API_KEY` env var, 8s AbortSignal timeout, returns `{ synopsis, themes[], trivia }`. `app/api/deep-search/route.ts`: `enrichWithGemini()` runs in parallel with Claude arc detection via `Promise.all`; `DeepSearchResult` extended with `synopsis`, `themes`, `trivia` fields; `content_type` now accepted from request body and forwarded to Gemini. `components/DeepSearchModal.tsx`: displays Gemini synopsis (with "Save to entry" checkbox, auto-checked when synopsis exists), themes as violet pills, trivia in italic block; passes `content_type` in POST body; `handleSave` writes `synopsis` to `manga_list` when checkbox is checked. `app/page.tsx`: `content_type` passed to `<DeepSearchModal>`. `CLAUDE.md` env vars table updated with `GEMINI_API_KEY` entry. ⚠️ **To activate:** add `GEMINI_API_KEY` to Vercel environment variables (get key from Google AI Studio — free tier). Without the key the modal works exactly as before.
 
+- [ ] **Verify Netflix extension tracking end-to-end** — After reloading the extension, watch a Netflix anime, hover/pause once to trigger the evidence overlay, then confirm the YOMU popup shows the correct title and `watch_sessions` table receives rows with `site ILIKE '%netflix%'`. Query: `SELECT title_raw, episode, season, site, watched_at FROM watch_sessions WHERE site ILIKE '%netflix%' ORDER BY watched_at DESC LIMIT 5`. If no rows appear after ~90 seconds, check the background service worker console for errors.
+
 ---
 
 ## Known Issues & Regressions
@@ -691,6 +720,13 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Session Log
+
+### Session — 2026-06-11 (session 54)
+- Netflix not tracking because tab title is literally "Netflix" (no show info) and DOM overlay only appears on hover/pause — not at `onPlay()` time. Fixed with MutationObserver that caches title/season/episode the moment the overlay becomes visible; parser reads cache first.
+- `addManga()` refactored to accept optional `overrideJikan` param to enable batch calls without relying on React state.
+- Multi-add queue: "+" per dropdown result, queue strip with chips, "Add All (N)" button. Single-add flow unchanged — clicking the left side of a result still selects as before.
+- Stats `total_watch_hours` was 0 for 54/55 entries because `total_watch_time_minutes` column is only populated by extension sessions (most entries have none). Fixed with `episodes_watched × 22` fallback.
+- Avatar entry had wrong synopsis (Ultima RPG game) and wrong MAL cover. Neither AniList nor MAL have Avatar TLA (Western cartoon). Used OMDB for correct synopsis + Amazon CDN for correct poster.
 
 ### Session — 2026-06-11 (session 53)
 - Imported personal watch history from two sources: Netflix GDPR export (CSV in zip) and browser history Excel file (27 titles). DB operations: 5 `anime_list` inserts, rewatches/rereads rows, status corrections, JJK merge.
