@@ -40,8 +40,14 @@ interface Props {
 
 export default function QuickPeekSheet({ id, onOpenDetail }: Props) {
   const entry = useLibraryStore(s => s.mangaList.find(m => m.id === id))
-  const seriesMembers = useLibraryStore(s =>
-    entry?.series_id ? s.mangaList.filter(m => m.series_id === entry.series_id) : []
+  // Derive series_id directly from store to avoid a stale-closure filter that
+  // returns a new array reference on every selector call → Zustand re-render loop.
+  const seriesMembers = useLibraryStore(
+    s => {
+      const e = s.mangaList.find(m => m.id === id)
+      return e?.series_id ? s.mangaList.filter(m => m.series_id === e.series_id) : []
+    },
+    (a, b) => a.length === b.length && a.every((m, i) => m.id === b[i].id),
   )
   const closePeek = useLibraryStore(s => s.closePeek)
 
