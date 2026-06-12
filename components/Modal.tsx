@@ -81,7 +81,7 @@ export default function Modal({
       onClick={onClose}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/60" />
       {/* Dialog wrapper — display:contents keeps it layout-transparent so the
           panel remains a direct flex child of the outer container, preserving
           all existing sizing and positioning classes. */}
