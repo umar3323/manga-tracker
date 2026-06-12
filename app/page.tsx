@@ -242,7 +242,7 @@ export default function Home() {
         setPacePerDay(total / 30)
       })
     // Public share token
-    supabase.from('public_shares').select('token, enabled').limit(1).single()
+    supabase.from('public_shares').select('token, enabled').limit(1).maybeSingle()
       .then(({ data }) => { if (data) { setShareToken(data.token); setShareEnabled(data.enabled) } })
     // Bulk fetch all arcs for arc-aware progress display
     supabase.from('arcs').select('*').order('chapter_start')
