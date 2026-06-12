@@ -2,6 +2,7 @@
 
 import Image from 'next/image'
 import { useLibraryStore } from '@/lib/store'
+import { useShallow } from 'zustand/react/shallow'
 import type { MangaStatus } from '@/lib/supabase'
 
 const STATUS_LABELS: Record<MangaStatus, string> = {
@@ -40,14 +41,14 @@ interface Props {
 
 export default function QuickPeekSheet({ id, onOpenDetail }: Props) {
   const entry = useLibraryStore(s => s.mangaList.find(m => m.id === id))
-  // Derive series_id directly from store to avoid a stale-closure filter that
-  // returns a new array reference on every selector call → Zustand re-render loop.
+  // useShallow prevents infinite re-renders: without it, .filter() returns a new
+  // array reference on every selector call → Zustand re-renders on every store
+  // event → React error #185 (max update depth) → page crash on card click.
   const seriesMembers = useLibraryStore(
-    s => {
+    useShallow(s => {
       const e = s.mangaList.find(m => m.id === id)
       return e?.series_id ? s.mangaList.filter(m => m.series_id === e.series_id) : []
-    },
-    (a, b) => a.length === b.length && a.every((m, i) => m.id === b[i].id),
+    })
   )
   const closePeek = useLibraryStore(s => s.closePeek)
 
