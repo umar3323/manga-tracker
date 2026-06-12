@@ -10,6 +10,44 @@ YOMU is a personal anime/manga tracking web app built with Next.js 16 (App Route
 
 ### Latest Changes
 
+#### Session 57 — Fix card-click page crash (React Error #185) + extension Brotherhood tracking fix — 2026-06-12, commit `400992a`
+
+**QuickPeekSheet infinite re-render crash fixed — `components/QuickPeekSheet.tsx`**
+- **Root cause:** the `seriesMembers` selector called `.filter()` which always returns a new array reference. Zustand uses `Object.is` equality by default; seeing "changed" on every store update, it re-rendered `QuickPeekSheet` every time ANY Zustand state changed (including `activePeekId` being set). Each re-render triggered another selector evaluation → new array → re-render → React Error #185 "Maximum update depth exceeded" → page crash ("This page couldn't load") on every card click.
+- **Fix:** changed the second `useLibraryStore` call to derive `series_id` directly from the store (no stale closure capture of `entry`), and added an ID-based equality function `(a, b) => a.length === b.length && a.every((m, i) => m.id === b[i].id)` so Zustand only re-renders when the actual series members change.
+- **Prevention rule:** any Zustand selector that returns a new array/object via `.filter()`, `.map()`, `.slice()`, or object literals MUST include a custom equality function (second arg to `useLibraryStore`) or use `useShallow` — otherwise every store update triggers a re-render.
+
+**Extension: aniwaves.ru SPA video detection fixed — `extension/content.js`, commit `05b6d3c`**
+- **Root cause:** `scanForVideos()` skipped `videoWidth=0, videoHeight=0` video elements permanently. On SPA navigation to a new episode, the new `<video>` is injected before media loads (dimensions 0×0) and was silently discarded — never retried.
+- **Fix:** attached a one-time `loadedmetadata` listener on zero-dimension videos (guarded by `_yomuWaiting` flag to prevent accumulating multiple listeners). Extension must be reloaded in `chrome://extensions` for this to take effect.
+- aniwaves.ru URL parser already correctly extracts `"Fullmetal Alchemist Brotherhood"` from `/watch/fullmetal-alchemist-brotherhood-79365/ep-2` — no parser change needed.
+
+---
+
+#### Session 56 — Takeout scan: 24 new entries added, MAL IDs pre-populated, FMA fix, Modal crash fix — 2026-06-12, commits `9087fd5` `ba57724`
+
+**24 new library entries (DB only)**
+- Batch-inserted into `manga_list` via Supabase SQL: Natsume's Book of Friends, Oshi no Ko, Bocchi the Rock, Shadows House, Dead Mount Death Play, Overlord, KonoSuba, Grand Blue, Violet Evergarden, My Next Life as a Villainess, Infinite Mage, Loner Life in Another World, Jack-of-All-Trades (Party of None), Pick Me Up Infinite Gacha, Hell Mode, The Max Level Hero Has Returned, Unnamed Memory, Aho Girl, The Ancient Magus' Bride, Ranking of Kings, Akame ga Kill!, Is It Wrong to Pick Up Girls in a Dungeon?, Darker than Black, Kill la Kill.
+- All inserted with `current_chapter=0`, correct `content_type` (anime/manga/manhwa), `status='plan_to_read'` or `'plan_to_watch'`.
+- MAL IDs pre-populated via Jikan search (`mal_id` for manga, `anime_mal_id` for anime) + `total_episodes` set where known. Toolbar ⟳ Sync can now enrich covers/genres/synopsis for all 24.
+
+**FMA Brotherhood DB fix (production)**
+- Entry `9a725f11` (Fullmetal Alchemist: Brotherhood) had wrong synopsis ("First of two One Piece prototype one-shots") because `mal_id=5114` was being read as a manga ID by the sync route (MAL 5114 is an anime). Fixed: `mal_id=NULL`, `anime_mal_id=5114`, `total_episodes=64`, synopsis and cover updated from Jikan `/anime/5114`. Both FMA entries already share `series_id='6f8e0820-4fa8-4d5c-b552-23b367725ffe'` — the detail panel flowchart correctly shows them as "Alternative Version" via AniList relations.
+
+**iOS WebKit crash fix — `components/Modal.tsx`, commit `ba57724`**
+- Removed `backdrop-blur-sm` from the backdrop `<div>` in the shared Modal component (line 84). `backdrop-blur-sm` on a full-viewport fixed element causes iOS WebKit to composite the entire viewport through the GPU, exhausting memory and killing the tab with "This page couldn't load". Fix: `bg-black/60 backdrop-blur-sm` → `bg-black/60`. All 12 modals that use `<Modal>` are now safe on iOS.
+
+**Stats row fix — `app/page.tsx`, commit `9087fd5`**
+- Stats row previously counted only `anime_list` (extension-tracked) entries, causing Movies to show 6 (should be 20) and Anime series to be undercounted. Fixed by building `mlAnimeExtra` (manga_list entries with `content_type='anime'/'movie'` not already in anime_list by normalised title) and merging into `totalHours`, `totalSeries`, `totalMovies`, `activeCount`.
+
+---
+
+#### Session 55 — Stats row Movies/Anime counts now include manga_list entries — 2026-06-11, commit `9087fd5`
+
+- `app/page.tsx` stats IIFE (~line 1319) — Stats row previously counted only `anime_list` entries (extension-tracked). `manga_list` entries with `content_type='anime'` or `content_type='movie'` were excluded, causing Movies to show 6 (should be 20) and Anime series to be undercounted. Fix: builds `mlAnimeExtra` (manga_list anime/movie entries not already in anime_list by normalised title), then merges into `totalHours`, `totalSeries`, `totalMovies`, `activeCount`. Hours: real session data when available, else `episodes_watched × 22 min / 60`.
+
+---
+
 #### Session 54 — Netflix extension MutationObserver, multi-add queue, stats watch time fix, Avatar DB fix — 2026-06-11
 
 **Netflix extension: MutationObserver overlay cache (`extension/content.js`)**
@@ -510,6 +548,18 @@ No information is now hover-only. Hover effects remain as enhancements only.
 
 ## Known Issues & Regressions
 
+### QuickPeekSheet infinite re-render → React error #185 → page crash on card click — 2026-06-12
+- **Symptom:** Clicking any library card showed "This page couldn't load". DevTools showed React minified error #185 ("Maximum update depth exceeded"). Crash was consistent on every card click.
+- **Root cause:** `QuickPeekSheet` called `useLibraryStore(s => entry?.series_id ? s.mangaList.filter(...) : [])` where `entry` came from an outer closure. `.filter()` always returns a new array reference; Zustand's `Object.is` equality saw "changed" on every store event → forced re-render → infinite loop.
+- **Fix:** `components/QuickPeekSheet.tsx` — second selector now derives `series_id` from the store directly (no stale closure), plus custom equality `(a, b) => a.length === b.length && a.every((m, i) => m.id === b[i].id)`. Commit `400992a`.
+- **Prevention rule:** Any Zustand selector that returns a new array/object via `.filter()`, `.map()`, `.slice()`, or an object literal MUST include a custom equality function as the second argument to `useLibraryStore`. Without it, every store update triggers a re-render regardless of whether the data actually changed.
+
+### iOS WebKit page crash on modal open (backdrop-blur-sm) — 2026-06-12
+- **Symptom:** Opening any library card or modal on iOS caused the tab to crash with "This page couldn't load". Desktop was unaffected.
+- **Root cause:** `backdrop-blur-sm` on the full-viewport `fixed` backdrop `<div>` in `components/Modal.tsx` forces iOS WebKit to composite the entire viewport through the GPU. On pages with many library cards (high DOM complexity), this exhausts GPU memory and kills the tab.
+- **Fix:** `components/Modal.tsx` line 84 — removed `backdrop-blur-sm`. Class changed from `bg-black/60 backdrop-blur-sm` → `bg-black/60`.
+- **Prevention rule:** Never apply `backdrop-blur-*` to a full-viewport fixed/absolute overlay (modal backdrop, drawer overlay, etc.). It is safe on small contained elements (e.g. a 48px pill) but catastrophic on full-screen compositing layers on iOS. If blur is desired, apply it to the panel interior only (e.g. `backdrop-blur-sm` on the card itself, not the backdrop).
+
 ### Auth middleware never running (proxy.ts not loaded by Next.js) — 2026-06-11
 - **Symptom:** Auth was enforced client-side only. Unauthenticated direct URL access to protected pages was not redirected server-side.
 - **Root cause:** The middleware file was named `proxy.ts` and exported a function named `proxy`. Next.js only loads a file named `middleware.ts` (or `.js`/`.mjs`) with a `middleware` named export (or default export) as its edge middleware. The file was never invoked.
@@ -720,6 +770,21 @@ No information is now hover-only. Hover effects remain as enhancements only.
 ---
 
 ## Session Log
+
+### Session — 2026-06-12 (session 57)
+- Card-click crash diagnosed: used Chrome MCP JS injection to click a card and capture console errors. Got React Error #185 immediately — not a GPU/memory crash as previously assumed (backdrop-blur fixes from earlier sessions were targeting the wrong platform).
+- Root cause: `QuickPeekSheet`'s `seriesMembers` selector used `.filter()` (new array each call) with no equality function → Zustand re-rendered on every store change → React hit 50-update depth limit → crash.
+- One-line fix to `useLibraryStore` call + ID-based equality function. Committed `400992a`, deployed to Vercel.
+- Extension aniwaves.ru Brotherhood tracking: `scanForVideos()` permanently skipped zero-dimension videos. Fixed with `loadedmetadata` listener + `_yomuWaiting` guard (commit `05b6d3c`). Extension reload required.
+- All backdrop-blur removals from prior session remain valid (iOS WebKit crash prevention) even though they weren't the macOS Chrome crash cause.
+
+### Session — 2026-06-12 (session 56)
+- Scanned 32MB Google Takeout ZIP (Chrome history, bookmarks, Google Search, YouTube) using 3 parallel agents; produced 47-title review list. User marked 24 YES.
+- Batch-inserted 24 new entries into `manga_list`. First attempt failed — `current_chapter NOT NULL` with no default; fixed by adding `current_chapter=0` to all insert values.
+- Pre-populated MAL IDs for all 24 via Jikan search (Python script, 0.5s delay). Toolbar ⟳ Sync can now enrich covers/genres/synopsis without manually opening each card.
+- FMA Brotherhood had wrong synopsis because `mal_id=5114` was being read as a manga ID by sync (MAL manga 5114 is unrelated). Fixed: `mal_id=NULL`, `anime_mal_id=5114`. Both FMA entries already share a `series_id` — detail panel flowchart correctly links them as "Alternative Version".
+- iOS crash on card open: root cause was `backdrop-blur-sm` on full-viewport Modal backdrop in `components/Modal.tsx`. Removed it. All 12 modals now safe on iOS.
+- `reading_log` rows from 2026-06-01 onwards deleted (chapters logged from historical data incorrectly — user confirmed).
 
 ### Session — 2026-06-11 (session 54)
 - Netflix not tracking because tab title is literally "Netflix" (no show info) and DOM overlay only appears on hover/pause — not at `onPlay()` time. Fixed with MutationObserver that caches title/season/episode the moment the overlay becomes visible; parser reads cache first.
