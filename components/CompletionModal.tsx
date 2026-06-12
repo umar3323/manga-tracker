@@ -154,7 +154,7 @@ export default function CompletionModal({ manga, onClose, onSaved }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
+      style={{ backgroundColor: 'rgba(0,0,0,0.80)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       {/* Particles */}

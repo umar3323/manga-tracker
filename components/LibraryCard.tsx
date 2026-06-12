@@ -223,6 +223,7 @@ export default function LibraryCard({
               width={80}
               height={112}
               className="w-full h-full object-cover"
+              loading="lazy"
               unoptimized
             />
           ) : (

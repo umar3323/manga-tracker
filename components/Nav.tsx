@@ -81,8 +81,6 @@ export default function Nav() {
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50" style={{ padding: '0 12px 12px' }}>
         <div style={{
           background: 'rgba(9,9,12,0.92)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
           border: '1px solid var(--ink-600)',
           borderRadius: 20,
           display: 'flex',

@@ -771,9 +771,12 @@ function scanForVideos() {
     if (!isNaN(dur) && dur > 0 && dur < 180) return  // skip < 3 min
     if (v.videoWidth === 0 && v.videoHeight === 0) {
       // Video not yet loaded — wait for dimensions then re-scan.
-      // This handles SPA navigation where the new video element is injected
-      // before the media source is loaded (e.g. aniwaves ep-to-ep navigation).
-      v.addEventListener('loadedmetadata', scheduleScan, { once: true })
+      // Guard with a flag to avoid accumulating multiple listeners when the
+      // MutationObserver fires scanForVideos several times before the event fires.
+      if (!v._yomuWaiting) {
+        v._yomuWaiting = true
+        v.addEventListener('loadedmetadata', () => { delete v._yomuWaiting; scheduleScan() }, { once: true })
+      }
       return
     }
     attachVideo(v)
