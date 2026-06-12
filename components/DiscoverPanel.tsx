@@ -163,7 +163,7 @@ function DiscoverCardModal({ manga, onClose }: { manga: JikanSearchResult; onClo
   }
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/60" />
       <div className="relative bg-zinc-900 border border-zinc-700 rounded-t-2xl md:rounded-2xl w-full md:max-w-sm max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex justify-center pt-3 pb-1 md:hidden"><div className="w-10 h-1 bg-zinc-700 rounded-full" /></div>
         <div className="p-5">

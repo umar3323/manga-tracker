@@ -114,7 +114,7 @@ export default function SeriesMapModal({ malId, title, coverUrl, onClose }: Prop
 
   return (
     <div
-      className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4"
+      className="fixed inset-0 bg-black/85 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4"
       onClick={onClose}
     >
       <div

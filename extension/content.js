@@ -769,7 +769,13 @@ function scanForVideos() {
     // Skip very short clips (ads, previews, avatars, etc.)
     const dur = v.duration
     if (!isNaN(dur) && dur > 0 && dur < 180) return  // skip < 3 min
-    if (v.videoWidth === 0 && v.videoHeight === 0) return // invisible
+    if (v.videoWidth === 0 && v.videoHeight === 0) {
+      // Video not yet loaded — wait for dimensions then re-scan.
+      // This handles SPA navigation where the new video element is injected
+      // before the media source is loaded (e.g. aniwaves ep-to-ep navigation).
+      v.addEventListener('loadedmetadata', scheduleScan, { once: true })
+      return
+    }
     attachVideo(v)
   })
 }
@@ -795,7 +801,7 @@ function handleNavigation() {
     session = null
     _netflixCache = null
     detachVideo()
-    setTimeout(scanForVideos, 500)
+    setTimeout(scanForVideos, 1000)
   }
 }
 if (typeof navigation !== 'undefined' && navigation.addEventListener) {

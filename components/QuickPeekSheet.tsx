@@ -75,7 +75,7 @@ export default function QuickPeekSheet({ id, onOpenDetail }: Props) {
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]"
+        className="fixed inset-0 z-40 bg-black/60"
         onClick={closePeek}
         aria-hidden
       />
